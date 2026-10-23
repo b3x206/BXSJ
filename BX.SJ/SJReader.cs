@@ -203,6 +203,15 @@ namespace BX.SJ
         /// </summary>
         public bool allowComments = false;
         /// <summary>
+        /// Allows primitive key types (<see cref="SJType.Number"/>, etc.)
+        /// <br>Recursive key types such as <see cref="SJType.Object"/> are not supported.</br>
+        /// </summary>
+        public bool allowOtherKeyTypes = false;
+        /// <summary>
+        /// Allow trailing comma on array or objects.
+        /// </summary>
+        public bool allowTrailingComma = false;
+        /// <summary>
         /// Captured JSON comments are skipped
         /// <br>(they are not pushed as JSON values from <see cref="Read"/> method)</br>
         /// <br><b>Caution:</b> If you set this <see langword="false"/>, the document must be 
@@ -278,7 +287,7 @@ namespace BX.SJ
         public bool ended;
 
         /// <summary>
-        /// Last key read on a object key/value pair. If an <see cref="EntryType.Value"/> 
+        /// Last key read on a object key/value pair. If a non <see cref="SJType.Key"/>
         /// <see cref="Value"/> is returned while this is set, this value is the key that is for it.
         /// </summary>
         public Value LastEntryKey { get; protected set; }
@@ -496,9 +505,9 @@ namespace BX.SJ
                 case SJType.Object:
                     if ((cs.expect & Expect.Key) == Expect.Key)
                     {
-                        if (v.type != SJType.String)
+                        if (v.type != SJType.String && (!allowOtherKeyTypes || v.type == SJType.Object || v.type == SJType.Array))
                         {
-                            Error = "Expected object key as Key type (String)";
+                            Error = "Expected object key as valid Key type";
                             return false;
                         }
                         v.type = SJType.Key;
@@ -681,7 +690,7 @@ namespace BX.SJ
                     Error = (ch == '}') ? "Stray '}'" : "Stray ']'";
                     goto _Top;
                 }
-                if (s.valueCount > 0 && (s.expect & Expect.Comma) != Expect.Comma)
+                if (s.valueCount > 0 && (!allowTrailingComma && (s.expect & Expect.Comma) != Expect.Comma))
                 {
                     Error = "Trailing comma character for the last value before end";
                     goto _Top;
@@ -838,7 +847,6 @@ namespace BX.SJ
             }
 
             current.valueCount++;
-            current.expect |= Expect.Comma;
             if (result.type != SJType.Error && result.type != SJType.End)
             {
                 return true;
@@ -946,6 +954,75 @@ namespace BX.SJ
             // did not find next Value, or IterateObject returned error.
             key = value = Value.Error(this);
             return false;
+        }
+        /// <summary>
+        /// Peeks entry count. You do not have to iterate this method, 
+        /// </summary>
+        /// <param name="expectCount">
+        /// Count of elements desired to be peeked.
+        /// If left 0 or lower, all elements will be peeked.
+        /// This does not include <paramref name="other"/> values.
+        /// </param>
+        /// <param name="v">Value to peek it's entry count.</param>
+        /// <param name="keys">Count of keys seen.</param>
+        /// <param name="values">Count of values seen.</param>
+        /// <param name="other">Count of other entries (comments) seen.</param>
+        /// <returns>
+        /// Whether if the peek was successful.
+        /// If this returns <see langword="false"/> then either the <paramref name="v"/>
+        /// is erroreneous or <paramref name="expectCount"/> is exceeded.
+        /// </returns>
+        public bool PeekEntryCount(Value v, out int keys, out int values, out int other, int expectCount = -1)
+        {
+            if (v.type != SJType.Array || v.type != SJType.Object)
+            {
+                keys = values = other = -1;
+                return false;
+            }
+
+            keys = values = other = 0;
+
+            // TODO : Save state, old SJ only had a "current" pointer, this one has stacks, so maybe copying the state stack is required?
+            //        For this instance, since we aren't going to traverse towards inside explicitly, it is safe to save state like this.
+            int prevCurrent = current;
+            int prevDepth = depth;
+            State prevState = PeekState();
+            // get a ref to the current state, before starting
+            ref State currentState = ref PeekState();
+
+            DiscardUntil(v.objectDepth);
+            Value innerValue = Read();
+            bool result = true;
+            for (; innerValue.type != SJType.End; DiscardUntil(v.objectDepth), innerValue = Read())
+            {
+                switch (innerValue.type)
+                {
+                    case SJType.Error:
+                        return false;
+
+                    case SJType.Comment:
+                        other++;
+                        break;
+
+                    case SJType.Key:
+                        keys++;
+                        break;
+                    default:
+                        values++;
+                        break;
+                }
+
+                if (keys > expectCount || values > expectCount)
+                {
+                    result = false;
+                    break;
+                }
+            }
+
+            current = prevCurrent;
+            depth = prevDepth;
+            currentState = prevState;
+            return result;
         }
 
         /// <summary>

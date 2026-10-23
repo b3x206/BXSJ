@@ -162,6 +162,10 @@ namespace BX.SJ
         /// </summary>
         public bool allowComments = false;
         /// <summary>
+        /// Whether to allow any <see cref="WriteCustomKey"/>.
+        /// </summary>
+        public bool allowOtherKeyTypes = false;
+        /// <summary>
         /// Prefer ascii only string output. This can be used as a compatibility measure 
         /// with older servers / systems not behaving well with non-ascii strings.
         /// </summary>
@@ -194,6 +198,7 @@ namespace BX.SJ
         public int count;
         public int depth;
         public bool WrittenComment { get; protected set; }
+        public bool WrittenCustomKey { get; protected set; }
         protected string _Error = string.Empty;
         /// <summary>
         /// The error string detailing why the writer failed.
@@ -547,6 +552,46 @@ namespace BX.SJ
 
             return true;
         }
+
+        /// <summary>
+        /// Write a key, while <see cref="expect"/> has <see cref="Expect.Key"/>.
+        /// <b>This method will output the <paramref name="value"/> literally so it's considered a custom key.</b>
+        /// </summary>
+        /// <remarks>
+        /// No duplicates are checked.
+        /// </remarks>
+        /// <param name="value">Name of the key entry.</param>
+        /// <returns>Whether if the write was successful.</returns>
+        public virtual bool WriteLiteralKey(ReadOnlySpan<char> value)
+        {
+            if (finish)
+            {
+                Error = "Attempt to write into a finished JSONWriter";
+                return false;
+            }
+            if ((expect & Expect.Key) != Expect.Key)
+            {
+                Error = "Did not expect an object key";
+                return false;
+            }
+
+            WrittenCustomKey = true;
+
+            PrepareValue();
+            Append(value);
+            Append(':'); count++;
+
+            if (indentSize > 0)
+            {
+                Append(' ');
+                count++;
+            }
+
+            expect = Expect.Value;
+            fmtExpect = FormatExpect.None;
+
+            return true;
+        }
         /// <summary>
         /// Write a key, while <see cref="expect"/> has <see cref="Expect.Key"/>.
         /// </summary>
@@ -587,59 +632,89 @@ namespace BX.SJ
 
             return true;
         }
-        /// <summary>
-        /// Writes a literal value with the rules for the top level object or array.
-        /// <br><b>Warning :</b> Using this, you can write invalid JSON
-        /// (because it writes the value as is, but with the value rules and indenting).
-        /// This method is not recommended for use, unless you know what you are doing.</br>
-        /// <br>If on a object or array, comma is appended before the <paramref name="data"/> 
-        /// (on <see cref="PrepareValue"/>). Use <see cref="WriteComment"/>- family of methods to write comment instead of this!.</br>
-        /// <br>This also can be used as a faster way to write numbers if you have data for that.</br>
-        /// </summary>
-        /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteLiteralValue(ReadOnlySpan<char> data)
+        public bool WriteKeyNumber(float number, string format = "R")
         {
-            if (finish)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((expect & Expect.Key) == Expect.Key)
-            {
-                Error = "Expected writing object key, got WriteLiteral";
-                return false;
-            }
+            // number.ToString("G999") is totally reasonable and possible. So for floats, this is done.
+            // Integers get a fixed size buffer.
+            int capacity = 32, written = 0;
+            Span<char> data = stackalloc char[capacity];
+            char[] rented = null;
 
-            PrepareValue();
-
-            Append(data);
-            count += data.Length;
-
-            if (depth <= 0)
+            try
             {
-                // Value is top level
-                finish = true;
-            }
-            else
-            {
-                var t = PeekState().type;
-                switch (t)
+                while (!number.TryFormat(data, out written, format, CultureInfo.InvariantCulture))
                 {
-                    case SJType.Object:
-                        expect = Expect.Key | Expect.Comma;
-                        break;
-                    case SJType.Array:
-                        expect = Expect.Value | Expect.Comma;
-                        break;
-                    default:
-                        Error = $"Invalid top level type {t}";
-                        return false;
+                    if (!(rented is null)) ArrayPool<char>.Shared.Return(rented);
+
+                    capacity *= 2;
+                    data = rented = ArrayPool<char>.Shared.Rent(capacity);
+                }
+
+                return WriteLiteralKey(data.Slice(0, written));
+            }
+            finally
+            {
+                if (!(rented is null))
+                {
+                    ArrayPool<char>.Shared.Return(rented);
                 }
             }
-            fmtExpect = FormatExpect.NewlineIndent;
-
-            return true;
         }
+        public bool WriteKeyNumber(double number, string format = "R")
+        {
+            // number.ToString("G999") is totally reasonable and possible. So for floats, this is done.
+            // Integers get a fixed size buffer.
+            int capacity = 32, written = 0;
+            Span<char> data = stackalloc char[capacity];
+            char[] rented = null;
+
+            try
+            {
+                while (!number.TryFormat(data, out written, format, CultureInfo.InvariantCulture))
+                {
+                    if (!(rented is null)) ArrayPool<char>.Shared.Return(rented);
+
+                    capacity *= 2;
+                    data = rented = ArrayPool<char>.Shared.Rent(capacity);
+                }
+
+                return WriteLiteralKey(data.Slice(0, written));
+            }
+            finally
+            {
+                if (!(rented is null))
+                {
+                    ArrayPool<char>.Shared.Return(rented);
+                }
+            }
+        }
+        public bool WriteKeyLong(long number, string format = "G")
+        {
+            Span<char> data = stackalloc char[20]; // long.MinValue.ToString().Length == 20
+
+            if (!number.TryFormat(data, out int written, format, CultureInfo.InvariantCulture))
+            {
+                Error = $"Failed to convert number to string {number} with format {format}";
+                return false;
+            }
+
+            return WriteLiteralKey(data.Slice(0, written));
+        }
+        public bool WriteKeyULong(ulong number, string format = "G")
+        {
+            Span<char> data = stackalloc char[20]; // long.MinValue.ToString().Length == 20
+
+            if (!number.TryFormat(data, out int written, format, CultureInfo.InvariantCulture))
+            {
+                Error = $"Failed to convert number to string {number} with format {format}";
+                return false;
+            }
+
+            return WriteLiteralKey(data.Slice(0, written));
+        }
+        public bool WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false");
+        public bool WriteKeyNull() => WriteLiteralKey("null");
+
         /// <summary>
         /// Write a comment for JSON, starting with /* and ending with */.
         /// </summary>
@@ -648,8 +723,8 @@ namespace BX.SJ
         /// <param name="hasNextValue">
         /// <br>To print "prettier", add a trailing comma or colon to the previous value. This will look nicer like</br>
         /// <c><br>"value": // ...\n</br></c>
-        /// <br>instead of the usual <c>"value" // ...\n:</c></br>
-        /// <br><b>Set this <see langword="true"/> with caution, as you can produce invalid JSC with it.</b></br>
+        /// <br>instead of the usual but always valid <c>"value" // ...\n:</c></br>
+        /// <br><b>Set this <see langword="true"/> with caution, as you can produce "invalid" JSC with it.</b></br>
         /// </param>
         /// <param name="newlineImmediately">Append a \n character after writing multiline comment. Only works with pretty printing.</param>
         /// <returns>Whether if the write was successful.</returns>
@@ -657,11 +732,10 @@ namespace BX.SJ
         {
             if (!allowComments)
             {
-                Error = "Cannot write comments on this writer, enable canWriteComments";
+                Error = "Cannot write comments on this writer, enable allowComments";
                 return false;
             }
 
-            // Even a mere attempt should be considered a comment write.
             WrittenComment = true;
             PrepareCommentValue(hasNextValue);
 
@@ -724,7 +798,7 @@ namespace BX.SJ
         {
             if (!allowComments)
             {
-                Error = "Cannot write comments on this writer, enable canWriteComments";
+                Error = "Cannot write comments on this writer, enable allowComments";
                 return false;
             }
             if (depth > 0 && indentSize <= 0)
@@ -761,6 +835,60 @@ namespace BX.SJ
                 Append('\n'); count++;
                 fmtExpect &= ~FormatExpect.Newline;
             }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Writes a literal value with the rules for the top level object or array.
+        /// <br><b>Warning :</b> Using this, you can write invalid JSON
+        /// (because it writes the value as is, but with the value rules and indenting).
+        /// This method is not recommended for use, unless you know what you are doing.</br>
+        /// <br>If on a object or array, comma is appended before the <paramref name="data"/> 
+        /// (on <see cref="PrepareValue"/>). Use <see cref="WriteComment"/>- family of methods to write comment instead of this!.</br>
+        /// <br>This also can be used as a faster way to write numbers if you have data for that.</br>
+        /// </summary>
+        /// <returns>Whether if the write was successful.</returns>
+        public virtual bool WriteLiteralValue(ReadOnlySpan<char> data)
+        {
+            if (finish)
+            {
+                Error = "Attempt to write into a finished JSONWriter";
+                return false;
+            }
+            if ((expect & Expect.Key) == Expect.Key)
+            {
+                Error = "Expected writing object key, got WriteLiteral";
+                return false;
+            }
+
+            PrepareValue();
+
+            Append(data);
+            count += data.Length;
+
+            if (depth <= 0)
+            {
+                // Value is top level
+                finish = true;
+            }
+            else
+            {
+                var t = PeekState().type;
+                switch (t)
+                {
+                    case SJType.Object:
+                        expect = Expect.Key | Expect.Comma;
+                        break;
+                    case SJType.Array:
+                        expect = Expect.Value | Expect.Comma;
+                        break;
+                    default:
+                        Error = $"Invalid top level type {t}";
+                        return false;
+                }
+            }
+            fmtExpect = FormatExpect.NewlineIndent;
 
             return true;
         }
@@ -868,7 +996,7 @@ namespace BX.SJ
         }
         public bool WriteLong(long number, string format = "G")
         {
-            Span<char> data = stackalloc char[32]; // long.MinValue.ToString().Length == 20
+            Span<char> data = stackalloc char[20]; // long.MinValue.ToString().Length == 20
 
             if (!number.TryFormat(data, out int written, format, CultureInfo.InvariantCulture))
             {
@@ -880,7 +1008,7 @@ namespace BX.SJ
         }
         public bool WriteULong(ulong number, string format = "G")
         {
-            Span<char> data = stackalloc char[32]; // ulong.MaxValue.ToString().Length == 20
+            Span<char> data = stackalloc char[20]; // ulong.MaxValue.ToString().Length == 20
 
             if (!number.TryFormat(data, out int written, format, CultureInfo.InvariantCulture))
             {
