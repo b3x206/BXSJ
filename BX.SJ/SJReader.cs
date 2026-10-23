@@ -198,17 +198,22 @@ namespace BX.SJ
         public int maxDepth = 128;
         /// <summary>
         /// <br>Allows comments on JSON file : </br><br/>
-        /// <br>// &lt;-- single line</br>
-        /// <br>/* &lt;-- until end token --&gt; */</br>
+        /// <br><c>// &lt;-- single line, until \n</c></br>
+        /// <br><c>/* &lt;-- until end token, not stacked --&gt; */</c></br>
         /// </summary>
         public bool allowComments = false;
         /// <summary>
         /// Allows primitive key types (<see cref="SJType.Number"/>, etc.)
         /// <br>Recursive key types such as <see cref="SJType.Object"/> are not supported.</br>
+        /// <br></br>
+        /// <br><c>{ 1234: "number", 0x1234: "hex number", null: "null", true: "true", false: "false" }</c> is considered valid</br>
+        /// <br><c>{ {"a": "b"}: "object", ["a"]: "array" }</c> is <b>not</b> considered valid</br>
         /// </summary>
         public bool allowOtherKeyTypes = false;
         /// <summary>
-        /// Allow trailing comma on array or objects.
+        /// Allow trailing comma on last elements of array or objects.
+        /// <br></br>
+        /// <br><c>{ "k": [1,2,4,], "v": { "a": true, }, }</c> is considered valid.</br>
         /// </summary>
         public bool allowTrailingComma = false;
         /// <summary>
@@ -690,10 +695,21 @@ namespace BX.SJ
                     Error = (ch == '}') ? "Stray '}'" : "Stray ']'";
                     goto _Top;
                 }
-                if (s.valueCount > 0 && (!allowTrailingComma && (s.expect & Expect.Comma) != Expect.Comma))
+                if (s.valueCount > 0)
                 {
-                    Error = "Trailing comma character for the last value before end";
-                    goto _Top;
+                    if ((s.expect & Expect.Comma) != Expect.Comma)
+                    {
+                        if (!allowTrailingComma)
+                        {
+                            Error = "Trailing comma character for the last value before end";
+                            goto _Top;
+                        }
+                        else
+                        {
+                            // Set state to what is normal
+                            s.expect |= Expect.Comma;
+                        }
+                    }
                 }
 
                 ch = At(++current);
@@ -729,7 +745,7 @@ namespace BX.SJ
                     goto _Top;
                 }
             }
-            // Parse : Number
+            // Parse : Number (technically, hex and binary is supported if prefixed with 0x)
             else if (char.IsDigit(ch) || ch == '-')
             {
                 result.type = SJType.Number;
@@ -1012,7 +1028,7 @@ namespace BX.SJ
                         break;
                 }
 
-                if (keys > expectCount || values > expectCount)
+                if (expectCount >= 0 && (keys > expectCount || values > expectCount))
                 {
                     result = false;
                     break;

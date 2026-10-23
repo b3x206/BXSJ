@@ -1,6 +1,6 @@
 ﻿namespace BX.SJ.Tests;
 
-public static class TestTimeout
+public static class TestTimeouts
 {
     public const int Short = 1000;
     public const int Mid = 5000;

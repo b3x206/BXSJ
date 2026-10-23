@@ -29,7 +29,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     /// </summary>
     public virtual Type[] ReadDataConsistencyExceptionTypes => _ReadDataConsistencyExceptionTypes;
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestReadDataConsistency()
     {
         var writer = CreateWriter();
@@ -100,7 +100,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public virtual void TestResetClearsState()
     {
         var writer = CreateWriter();
@@ -121,7 +121,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestDefaultNoComments()
     {
         var writer = CreateWriter();
@@ -142,7 +142,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestJSCPadCharacters()
     {
         var writer = CreateWriter();
@@ -189,7 +189,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     }
 
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
     public void TestRootWrite(int indent)
@@ -208,7 +208,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
     public void TestWrite(int indent)
@@ -254,7 +254,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     [TestMethod]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestRootJSCWrite(int indent)
     {
         var writer = CreateWriter();
@@ -272,7 +272,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
     public void TestJSCWrite(int indent)
@@ -315,7 +315,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
     public void TestJSCMatrix(int indent)
@@ -358,7 +358,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     }
 
     [TestMethod]
-    [Timeout(TestTimeout.Mid)]
+    [Timeout(TestTimeouts.Mid)]
     public void TestWriteEmojiSpam()
     {
         var writer = CreateWriter();
@@ -381,7 +381,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     }
 
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestDepth()
     {
         var writer = CreateWriter();
@@ -400,7 +400,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     }
     [TestMethod]
     [ExpectedException(typeof(SJWriter.WriteException))]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestMaxDepth()
     {
         var writer = CreateWriter();
@@ -418,7 +418,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestMaxDepthNoExcept()
     {
         var writer = CreateWriter();
@@ -450,7 +450,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     }
     [TestMethod]
     [ExpectedException(typeof(SJWriter.WriteException))]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestStack()
     {
         var writer = CreateWriter();
@@ -468,7 +468,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestStackNoExcept()
     {
         var writer = CreateWriter();
@@ -486,7 +486,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     }
 
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestNegativeWrite()
     {
         // The codepaths are generally the same so I will only test WriteLiteralValue and WriteKey instead

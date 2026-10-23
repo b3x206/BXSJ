@@ -9,7 +9,9 @@ This branch (`devel`) is where development is done, before getting packed into "
 ## Notes
 
 1. This will likely _never be_ a **"100% correct" parser**, also what it does with the data (outside of the JSON tokens) ultimately depends on what you read from the parsed chunks. <br>
-  It also _may fail_ on correct or _may not fail_ on wrong sequences. **Use at your own risk.**
+  It also _may fail_ on correct or _may not fail_ on wrong sequences. **Use at your own risk.** <br>
+  Known things:
+  * More loose with number formatting, anything starting with digit and having a valid character is considered ok.
 
 2. Because of
   * C#-ifying the code
@@ -63,8 +65,7 @@ for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
 }
 ```
 
-If processing comments are desired, you should read the document like this: <br>
-_In fact, you should read most documents like this._
+If processing comments are desired, enable `SJReader.captureComments` and read document as shown: <br>
 ```cs
 using BX.SJ;
 using System;
@@ -110,11 +111,11 @@ static void InspectConfigData(SJReader reader, SJReader.Value root)
 const string data = @"// The problem with comments is that they can appear anywhere.
 // Which makes some things that were implicit, explicit now.
 {
-    // Comments in JSON doesn't make much sense actually. Just use ini
+    // Comments in JSON doesn't make much sense actually now that I have realized. Just use ini
     /* @summary This field is 42, and actually you can put this within the JSON, but whatever.. */
     ""is42"": 42,
     /* @summary And this field is 67, you know why.. */
-    ""is67"": 67 // its the short form content number! 
+    ""is67"": 67
 }
 // And to validate EOF, do this (it was implicit with the last Read()) ↓
 ";

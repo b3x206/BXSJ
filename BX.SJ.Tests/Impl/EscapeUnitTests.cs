@@ -35,27 +35,27 @@ public sealed class EscapeUnitTests
     [TestMethod]
     [DataRow("")]
     [DataRow(EscapeContent)]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestBasic(string data) => TestEscapeUnescape(data);
 
     [TestMethod]
     [DynamicData(nameof(DataProcessors))]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestWith(string data) => TestEscapeUnescape(data);
 
     [TestMethod]
     [DynamicData(nameof(TruncatedDataProcessors))]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestTruncated(string data) => TestEscapeUnescape(data);
 
     [TestMethod]
     [DataRow(EscapeInvalidUnescape)]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     [ExpectedException(typeof(ArgumentException))]
     public void TestInvalidUnescape(string data) => SJEscape.Unescape(data, allowInvalidEscapes: false);
 
     [TestMethod]
-    [Timeout(TestTimeout.Short)]
+    [Timeout(TestTimeouts.Short)]
     public void TestInvalidUnescape()
     {
         Assert.IsTrue(!SJEscape.Unescape(EscapeInvalidUnescape).Contains('\\'), "Behaviour : Should not contain '\\' token from invalid escapes (as it's removed and the invalid escape is written as-is)");

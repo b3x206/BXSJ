@@ -199,6 +199,7 @@ namespace BX.SJ
         public int depth;
         public bool WrittenComment { get; protected set; }
         public bool WrittenCustomKey { get; protected set; }
+        public bool WrittenCustomNumber { get; protected set; }
         protected string _Error = string.Empty;
         /// <summary>
         /// The error string detailing why the writer failed.
@@ -283,7 +284,7 @@ namespace BX.SJ
         }
 
         // The base writers
-        private static readonly Action<SJWriter, char> selfAppend = (SJWriter writer, char c) => writer.Append(c);
+        private static readonly Action<SJWriter, char> selfAppend = (writer, c) => writer.Append(c);
         protected void WriteIndent(int depth)
         {
             if (depth <= 0 || indentSize <= 0)
@@ -635,9 +636,8 @@ namespace BX.SJ
         public bool WriteKeyNumber(float number, string format = "R")
         {
             // number.ToString("G999") is totally reasonable and possible. So for floats, this is done.
-            // Integers get a fixed size buffer.
-            int capacity = 32, written = 0;
-            Span<char> data = stackalloc char[capacity];
+            int written = 0;
+            Span<char> data = stackalloc char[32];
             char[] rented = null;
 
             try
@@ -646,8 +646,7 @@ namespace BX.SJ
                 {
                     if (!(rented is null)) ArrayPool<char>.Shared.Return(rented);
 
-                    capacity *= 2;
-                    data = rented = ArrayPool<char>.Shared.Rent(capacity);
+                    data = rented = ArrayPool<char>.Shared.Rent(data.Length * 2);
                 }
 
                 return WriteLiteralKey(data.Slice(0, written));
@@ -663,9 +662,8 @@ namespace BX.SJ
         public bool WriteKeyNumber(double number, string format = "R")
         {
             // number.ToString("G999") is totally reasonable and possible. So for floats, this is done.
-            // Integers get a fixed size buffer.
-            int capacity = 32, written = 0;
-            Span<char> data = stackalloc char[capacity];
+            int written = 0;
+            Span<char> data = stackalloc char[32];
             char[] rented = null;
 
             try
@@ -674,8 +672,7 @@ namespace BX.SJ
                 {
                     if (!(rented is null)) ArrayPool<char>.Shared.Return(rented);
 
-                    capacity *= 2;
-                    data = rented = ArrayPool<char>.Shared.Rent(capacity);
+                    data = rented = ArrayPool<char>.Shared.Rent(data.Length * 2);
                 }
 
                 return WriteLiteralKey(data.Slice(0, written));
@@ -688,17 +685,33 @@ namespace BX.SJ
                 }
             }
         }
-        public bool WriteKeyLong(long number, string format = "G")
+        public bool WriteKeyLong(long number, string format = "G", string prefix = null)
         {
-            Span<char> data = stackalloc char[20]; // long.MinValue.ToString().Length == 20
+            // long and others have binary formats and we should allow a prefix as an hint if hex is wanted.
+            int written = 0, offset = prefix?.Length ?? 0;
+            Span<char> data = stackalloc char[20 + offset], view = data.Slice(offset);
+            char[] rented = null;
 
-            if (!number.TryFormat(data, out int written, format, CultureInfo.InvariantCulture))
+            try
             {
-                Error = $"Failed to convert number to string {number} with format {format}";
-                return false;
-            }
+                while (!number.TryFormat(view, out written, format, CultureInfo.InvariantCulture))
+                {
+                    if (!(rented is null)) ArrayPool<char>.Shared.Return(rented);
 
-            return WriteLiteralKey(data.Slice(0, written));
+                    data = rented = ArrayPool<char>.Shared.Rent(data.Length);
+                    view = data.Slice(offset);
+                }
+
+                if (offset > 0) prefix.AsSpan().CopyTo(data);
+                return WriteLiteralKey(data.Slice(0, written + offset));
+            }
+            finally
+            {
+                if (!(rented is null))
+                {
+                    ArrayPool<char>.Shared.Return(rented);
+                }
+            }
         }
         public bool WriteKeyULong(ulong number, string format = "G")
         {
@@ -1167,7 +1180,7 @@ namespace BX.SJ
             expect = Expect.None;
             fmtExpect = FormatExpect.None;
             finish = false;
-            WrittenComment = false;
+            WrittenCustomKey = WrittenCustomNumber = WrittenComment = false;
             Error = null;
         }
 
