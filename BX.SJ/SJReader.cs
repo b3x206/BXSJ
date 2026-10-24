@@ -341,7 +341,9 @@ namespace BX.SJ
         /// does no parsing or unescaping, so number validation must be done by external code.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        protected static bool IsNumberContinuation(char c) => (c >= '0' && c <= '9') || c == 'e' || c == 'E' || c == '.' || c == '-' || c == '+';
+        protected static bool IsNumberContinuation(char c) =>
+            (c >= '0' && c <= '9') || c == 'e' || c == 'E' || c == '.' || 
+             c == '-' || c == '+' || c == 'x' || c == 'b' || c == 'o';
         /// <summary>
         /// String inspector for token.
         /// <br>Outputs <paramref name="c"/> as <c>{c}/{(int)c}</c></br>
@@ -712,8 +714,7 @@ namespace BX.SJ
                     }
                 }
 
-                ch = At(++current);
-                result.end = current;
+                result.end = ++current;
 
                 // UpdateState here is not needed because the upper state will be checked later
                 if (!UpdateEnding())
@@ -738,7 +739,7 @@ namespace BX.SJ
                 PushState(new State(result.type, ch == '{' ? Expect.Key : Expect.None));
 
                 result.objectDepth = depth;
-                ch = At(++current);
+                current++;
 
                 if (!UpdateState(ref prev, ref result))
                 {
@@ -751,7 +752,7 @@ namespace BX.SJ
                 result.type = SJType.Number;
                 while (current < Length && IsNumberContinuation(At(current)))
                 {
-                    ch = At(current++);
+                    current++;
                 }
                 result.end = current;
 
@@ -990,16 +991,21 @@ namespace BX.SJ
         /// </returns>
         public bool PeekEntryCount(Value v, out int keys, out int values, out int other, int expectCount = -1)
         {
-            if (v.type != SJType.Array || v.type != SJType.Object)
+            switch (v.type)
             {
-                keys = values = other = -1;
-                return false;
+                case SJType.Array:
+                case SJType.Object:
+                    break;
+                default:
+                    keys = values = other = -1;
+                    return false;
             }
 
             keys = values = other = 0;
 
             // TODO : Save state, old SJ only had a "current" pointer, this one has stacks, so maybe copying the state stack is required?
-            //        For this instance, since we aren't going to traverse towards inside explicitly, it is safe to save state like this.
+            //        For this instance, since we aren't going to traverse towards inside explicitly and only the change on the above depth,
+            //        is relevant, so it is safe to save state like this.
             int prevCurrent = current;
             int prevDepth = depth;
             State prevState = PeekState();

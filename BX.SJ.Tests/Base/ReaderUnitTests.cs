@@ -321,6 +321,8 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(@"[1, 2, 3]", null, 0, 3, 0)]
+    [DataRow(@"[1,{""v"":0,""o"":{}},3]", null, 0, 3, 0)]
+    [DataRow(@"[1,{""v"":0,""o"":/*c*/{""a"":24,""b"":[/* bla */],""c"":true/* blu */}},3]", "c", 3, 3, 1)]
     public void TestPeekCount(string data, string marker, int keys, int values, int others)
     {
         TReader? r = null;
@@ -367,7 +369,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
                 {
                     default:
                     case SJType.Error:
-                        Assert.Fail($"Error or invalid type for value {v.type}");
+                        Assert.Fail($"Error or invalid type = '{v.type}'");
                         break;
                     case SJType.End:
                         break;
@@ -375,6 +377,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
                     case SJType.String:
                     case SJType.Number:
                     case SJType.Key:
+                    case SJType.Bool:
                         if (!string.IsNullOrEmpty(m) && nextMarker && !validatedMarker)
                         {
                             Validate(v);
