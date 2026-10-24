@@ -329,6 +329,8 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
             r = CreateFromString(data);
             r.ThrowOnError = true;
             if (!string.IsNullOrEmpty(marker)) r.allowComments = true;
+
+            bool validatedMarker = false;
             void Validate(SJReader.Value v)
             {
                 switch (v.type)
@@ -339,59 +341,88 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
                     case SJType.Object:
                         {
                             Assert.IsTrue(r.PeekEntryCount(v, out int kc, out int vc, out int oc), "Peek must succeed on recursive root values.");
-                            Assert.AreEqual(keys, kc, "Key count mismatch");
-                            Assert.AreEqual(values, vc, "Value count mismatch");
-                            Assert.AreEqual(others, oc, "Others count mismatch");
+                            Assert.AreEqual(keys, kc, "Key count mismatch, check arguments or code");
+                            Assert.AreEqual(values, vc, "Value count mismatch, check arguments or code");
+                            Assert.AreEqual(others, oc, "Others count mismatch, check arguments or code");
+
+                            validatedMarker = true;
                             break;
                         }
                     default:
                         {
                             Assert.IsFalse(r.PeekEntryCount(v, out int kc, out int vc, out int oc), "Peek must fail on non recursive root values.");
+
+                            validatedMarker = true;
                             break;
                         }
                 }
             }
-            static void ReadUntilMarker(SJReader r, SJReader.Value v, string m)
+            // Should read the rest to ensure that the state was reset correctly after peek.
+            void ReadWithMarker(SJReader r, SJReader.Value v, string m)
             {
+                // Peek all elements if no marker.
+                bool nextMarker = string.IsNullOrEmpty(m);
+
                 switch (v.type)
                 {
                     default:
                     case SJType.Error:
                         Assert.Fail($"Error or invalid type for value {v.type}");
-                        return;
+                        break;
                     case SJType.End:
-                        return;
+                        break;
                     case SJType.Null:
                     case SJType.String:
                     case SJType.Number:
                     case SJType.Key:
-
+                        if (!string.IsNullOrEmpty(m) && nextMarker && !validatedMarker)
+                        {
+                            Validate(v);
+                            nextMarker = false;
+                        }
+                        break;
+                    case SJType.Object:
+                        if (nextMarker && !validatedMarker)
+                        {
+                            Validate(v);
+                            nextMarker = false;
+                        }
+                        while (r.IterateObjectEntries(v, out var oe))
+                        {
+                            ReadWithMarker(r, oe, m);
+                        }
+                        break;
+                    case SJType.Array:
+                        if (nextMarker && !validatedMarker)
+                        {
+                            Validate(v);
+                            nextMarker = false;
+                        }
+                        while (r.IterateArrayEntries(v, out var ae))
+                        {
+                            ReadWithMarker(r, ae, m);
+                        }
+                        break;
                     case SJType.Comment:
+                        if (nextMarker || validatedMarker)
+                        {
+                            break;
+                        }
+
+                        if (v.Slice().Trim().SequenceEqual(m))
+                        {
+                            // Next value will be the one to validate. It must be recursive.
+                            nextMarker = true;
+                        }
+                        break;
                 }
             }
 
             for (var v = r.Read(); !r.ended; v = r.Read())
             {
                 if (v.type == SJType.Comment) continue; // Comments outside of the root value is ignored
-                switch (v.type)
-                {
-                    case SJType.Comment:
-                        continue;
-                    case SJType.Array:
-                    case SJType.Object:
-                        {
-                            Assert.IsTrue(r.PeekEntryCount(v, out int kc, out int vc, out int oc), "Peek must succeed on recursive root values.");
-                            Assert.AreEqual(keys, kc, "Key count mismatch");
-                            Assert.AreEqual(values, vc, "Value count mismatch");
-                            Assert.AreEqual(others, oc, "Others count mismatch");
-                            continue;
-                        }
-                    default:
-                        {
-                            Assert.IsFalse(r.PeekEntryCount(v, out int kc, out int vc, out int oc), "Peek must fail on non recursive root values.");
-                            continue;
-                        }
-                }
+
+                ReadWithMarker(r, v, marker);
             }
         }
         finally
@@ -432,7 +463,26 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
         }
         finally
         {
-            if (r is not null) DisposeReader(r); // Very RAII
+            if (r is not null) DisposeReader(r);
+        }
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(@"{ ""a"": ""b"", 1235: [""d"", ""e"", true, false, 23, { null: false, true: true, },], 0x3589: true, }")]
+    public void TestAllTolerance(string d)
+    {
+        TReader? r = null;
+        try
+        {
+            r = CreateFromString(d);
+            r.allowOtherKeyTypes = true;
+            r.allowTrailingComma = true;
+            ReaderTester.Read(r);
+        }
+        finally
+        {
+            if (r is not null) DisposeReader(r);
         }
     }
 

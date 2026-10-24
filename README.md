@@ -10,8 +10,6 @@ This branch (`devel`) is where development is done, before getting packed into "
 
 1. This will likely _never be_ a **"100% correct" parser**, also what it does with the data (outside of the JSON tokens) ultimately depends on what you read from the parsed chunks. <br>
   It also _may fail_ on correct or _may not fail_ on wrong sequences. **Use at your own risk.** <br>
-  Known things:
-  * More loose with number formatting, anything starting with digit and having a valid character is considered ok.
 
 2. Because of
   * C#-ifying the code

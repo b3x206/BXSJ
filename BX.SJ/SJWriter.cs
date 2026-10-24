@@ -199,7 +199,6 @@ namespace BX.SJ
         public int depth;
         public bool WrittenComment { get; protected set; }
         public bool WrittenCustomKey { get; protected set; }
-        public bool WrittenCustomNumber { get; protected set; }
         protected string _Error = string.Empty;
         /// <summary>
         /// The error string detailing why the writer failed.
@@ -373,6 +372,44 @@ namespace BX.SJ
 
                 fmtExpect = FormatExpect.None;
             }
+        }
+        protected static string FormatToPrefix(string fmt)
+        {
+            if (string.IsNullOrEmpty(fmt)) return null;
+            return char.ToLower(fmt[0]) switch
+            {
+                'x' => "0x",
+                'b' => "0b",
+                // 'o' => "0o", Octal does not exist
+                _ => null,
+            };
+        }
+        protected static void CleanupCharacter(ref Span<char> s, ReadOnlySpan<char> cs)
+        {
+            // Currency format on invariant culture is like ¤1,234.00, so should remove commas
+            static bool Contains(ReadOnlySpan<char> c, char v)
+            {
+                for (int i = 0; i < c.Length; i++)
+                {
+                    if (c[i] == v)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            const char ReplaceMarker = '\0';
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (Contains(cs, s[i])) s[i] = ReplaceMarker;
+            }
+            int w = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (s[i] != ReplaceMarker) s[w++] = s[i];
+            }
+            s = s.Slice(0, w);
         }
 
         public bool BeginObject()
@@ -556,14 +593,14 @@ namespace BX.SJ
 
         /// <summary>
         /// Write a key, while <see cref="expect"/> has <see cref="Expect.Key"/>.
-        /// <b>This method will output the <paramref name="value"/> literally so it's considered a custom key.</b>
+        /// <b>This method will output the <paramref name="value"/> literally if <paramref name="asString"/> is false.</b>
         /// </summary>
         /// <remarks>
         /// No duplicates are checked.
         /// </remarks>
         /// <param name="value">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteLiteralKey(ReadOnlySpan<char> value)
+        public virtual bool WriteLiteralKey(ReadOnlySpan<char> value, bool asString = false)
         {
             if (finish)
             {
@@ -576,10 +613,13 @@ namespace BX.SJ
                 return false;
             }
 
-            WrittenCustomKey = true;
+            if (!asString) WrittenCustomKey = true;
 
             PrepareValue();
-            Append(value);
+            if (asString) { Append('"'); count++; }
+            if (asString) { WriteEscaped(value, asciiOnly); }
+            else { Append(value); count += value.Length; }
+            if (asString) { Append('"'); count++; }
             Append(':'); count++;
 
             if (indentSize > 0)
@@ -601,38 +641,7 @@ namespace BX.SJ
         /// </remarks>
         /// <param name="name">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteKey(ReadOnlySpan<char> name)
-        {
-            if (finish)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((expect & Expect.Key) != Expect.Key)
-            {
-                Error = "Did not expect an object key";
-                return false;
-            }
-
-            PrepareValue();
-
-            Append('"'); count++;
-            WriteEscaped(name, asciiOnly);
-            Append('"'); count++;
-
-            Append(':'); count++;
-
-            if (indentSize > 0)
-            {
-                Append(' ');
-                count++;
-            }
-
-            expect = Expect.Value;
-            fmtExpect = FormatExpect.None;
-
-            return true;
-        }
+        public bool WriteKey(ReadOnlySpan<char> name) => WriteLiteralKey(name, asString: true);
         public bool WriteKeyNumber(float number, string format = "R")
         {
             // number.ToString("G999") is totally reasonable and possible. So for floats, this is done.
@@ -687,7 +696,8 @@ namespace BX.SJ
         }
         public bool WriteKeyLong(long number, string format = "G", string prefix = null)
         {
-            // long and others have binary formats and we should allow a prefix as an hint if hex is wanted.
+            // long and others have binary formats and we should allow a prefix as an hint if hex or other formats of number literal is wanted.
+            // (this is becoming more json5 than json)
             int written = 0, offset = prefix?.Length ?? 0;
             Span<char> data = stackalloc char[20 + offset], view = data.Slice(offset);
             char[] rented = null;
@@ -703,7 +713,9 @@ namespace BX.SJ
                 }
 
                 if (offset > 0) prefix.AsSpan().CopyTo(data);
-                return WriteLiteralKey(data.Slice(0, written + offset));
+                data = data.Slice(0, written + offset);
+                CleanupCharacter(ref data, ", ");
+                return WriteLiteralKey(data);
             }
             finally
             {
@@ -713,17 +725,34 @@ namespace BX.SJ
                 }
             }
         }
-        public bool WriteKeyULong(ulong number, string format = "G")
+        public bool WriteKeyULong(ulong number, string format = "G", string prefix = null)
         {
-            Span<char> data = stackalloc char[20]; // long.MinValue.ToString().Length == 20
+            int written = 0, offset = prefix?.Length ?? 0;
+            Span<char> data = stackalloc char[20 + offset], view = data.Slice(offset);
+            char[] rented = null;
 
-            if (!number.TryFormat(data, out int written, format, CultureInfo.InvariantCulture))
+            try
             {
-                Error = $"Failed to convert number to string {number} with format {format}";
-                return false;
-            }
+                while (!number.TryFormat(view, out written, format, CultureInfo.InvariantCulture))
+                {
+                    if (!(rented is null)) ArrayPool<char>.Shared.Return(rented);
 
-            return WriteLiteralKey(data.Slice(0, written));
+                    data = rented = ArrayPool<char>.Shared.Rent(data.Length);
+                    view = data.Slice(offset);
+                }
+
+                if (offset > 0) prefix.AsSpan().CopyTo(data);
+                data = data.Slice(0, written + offset);
+                CleanupCharacter(ref data, ", ");
+                return WriteLiteralKey(data);
+            }
+            finally
+            {
+                if (!(rented is null))
+                {
+                    ArrayPool<char>.Shared.Return(rented);
+                }
+            }
         }
         public bool WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false");
         public bool WriteKeyNull() => WriteLiteralKey("null");
@@ -1007,29 +1036,63 @@ namespace BX.SJ
                 }
             }
         }
-        public bool WriteLong(long number, string format = "G")
+        public bool WriteLong(long number, string format = "G", string prefix = null)
         {
-            Span<char> data = stackalloc char[20]; // long.MinValue.ToString().Length == 20
+            int written = 0, offset = prefix?.Length ?? 0;
+            Span<char> data = stackalloc char[20 + offset], view = data.Slice(offset);
+            char[] rented = null;
 
-            if (!number.TryFormat(data, out int written, format, CultureInfo.InvariantCulture))
+            try
             {
-                Error = $"Failed to convert number to string {number} with format {format}";
-                return false;
-            }
+                while (!number.TryFormat(view, out written, format, CultureInfo.InvariantCulture))
+                {
+                    if (!(rented is null)) ArrayPool<char>.Shared.Return(rented);
 
-            return WriteLiteralValue(data.Slice(0, written));
+                    data = rented = ArrayPool<char>.Shared.Rent(data.Length);
+                    view = data.Slice(offset);
+                }
+
+                if (offset > 0) prefix.AsSpan().CopyTo(data);
+                data = data.Slice(0, written + offset);
+                CleanupCharacter(ref data, ", ");
+                return WriteLiteralValue(data);
+            }
+            finally
+            {
+                if (!(rented is null))
+                {
+                    ArrayPool<char>.Shared.Return(rented);
+                }
+            }
         }
-        public bool WriteULong(ulong number, string format = "G")
+        public bool WriteULong(ulong number, string format = "G", string prefix = null)
         {
-            Span<char> data = stackalloc char[20]; // ulong.MaxValue.ToString().Length == 20
+            int written = 0, offset = prefix?.Length ?? 0;
+            Span<char> data = stackalloc char[20 + offset], view = data.Slice(offset);
+            char[] rented = null;
 
-            if (!number.TryFormat(data, out int written, format, CultureInfo.InvariantCulture))
+            try
             {
-                Error = $"Failed to convert number to string {number} with format {format}";
-                return false;
-            }
+                while (!number.TryFormat(view, out written, format, CultureInfo.InvariantCulture))
+                {
+                    if (!(rented is null)) ArrayPool<char>.Shared.Return(rented);
 
-            return WriteLiteralValue(data.Slice(0, written));
+                    data = rented = ArrayPool<char>.Shared.Rent(data.Length);
+                    view = data.Slice(offset);
+                }
+
+                if (offset > 0) prefix.AsSpan().CopyTo(data);
+                data = data.Slice(0, written + offset);
+                CleanupCharacter(ref data, ", ");
+                return WriteLiteralValue(data);
+            }
+            finally
+            {
+                if (!(rented is null))
+                {
+                    ArrayPool<char>.Shared.Return(rented);
+                }
+            }
         }
         public bool WriteBool(bool value) => WriteLiteralValue(value ? "true" : "false");
         public bool WriteNull() => WriteLiteralValue("null");
@@ -1180,7 +1243,7 @@ namespace BX.SJ
             expect = Expect.None;
             fmtExpect = FormatExpect.None;
             finish = false;
-            WrittenCustomKey = WrittenCustomNumber = WrittenComment = false;
+            WrittenCustomKey = WrittenComment = false;
             Error = null;
         }
 
