@@ -380,13 +380,13 @@ namespace BX.SJ
             {
                 'x' => "0x",
                 'b' => "0b",
-                // 'o' => "0o", Octal does not exist
+                'o' => "0o", // Octal format does not exist yet, but it may in future.
                 _ => null,
             };
         }
-        protected static void CleanupCharacter(ref Span<char> s, ReadOnlySpan<char> cs)
+        protected static int CleanupCharacter(ref Span<char> s, ReadOnlySpan<char> cs)
         {
-            // Currency format on invariant culture is like ¤1,234.00, so should remove commas
+            // Currency format on invariant culture is like ¤1,234.00, so should remove commas, but "technically" support it.
             static bool Contains(ReadOnlySpan<char> c, char v)
             {
                 for (int i = 0; i < c.Length; i++)
@@ -399,17 +399,25 @@ namespace BX.SJ
                 return false;
             }
 
+            int marked = 0;
             const char ReplaceMarker = '\0';
             for (int i = 0; i < s.Length; i++)
             {
-                if (Contains(cs, s[i])) s[i] = ReplaceMarker;
+                if (Contains(cs, s[i]))
+                {
+                    s[i] = ReplaceMarker;
+                    marked++;
+                }
             }
+            if (marked <= 0) return 0;
             int w = 0;
             for (int i = 0; i < s.Length; i++)
             {
                 if (s[i] != ReplaceMarker) s[w++] = s[i];
             }
             s = s.Slice(0, w);
+
+            return marked;
         }
 
         public bool BeginObject()
@@ -714,6 +722,7 @@ namespace BX.SJ
 
                 if (offset > 0) prefix.AsSpan().CopyTo(data);
                 data = data.Slice(0, written + offset);
+                // Do this only
                 CleanupCharacter(ref data, ", ");
                 return WriteLiteralKey(data);
             }

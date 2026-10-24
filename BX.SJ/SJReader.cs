@@ -338,12 +338,13 @@ namespace BX.SJ
 
         /// <summary>
         /// <see cref="SJType.Number"/> continuation check, Note that this reader 
-        /// does no parsing or unescaping, so number validation must be done by external code.
+        /// does no validation of the number token so that should be done by external code if needed.
+        /// <br>Accepts base 16 (hex) numbers. To store larger bases of integers or data as format, prefer <see cref="SJType.String"/></br>
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected static bool IsNumberContinuation(char c) =>
-            (c >= '0' && c <= '9') || c == 'e' || c == 'E' || c == '.' || 
-             c == '-' || c == '+' || c == 'x' || c == 'b' || c == 'o';
+            (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+            || c == '.' ||  c == '-' || c == '+' || c == 'x' || c == 'o';
         /// <summary>
         /// String inspector for token.
         /// <br>Outputs <paramref name="c"/> as <c>{c}/{(int)c}</c></br>
@@ -973,7 +974,7 @@ namespace BX.SJ
             return false;
         }
         /// <summary>
-        /// Peeks entry count. You do not have to iterate this method, 
+        /// Peeks entry count. You do not have to iterate this method until it ends unlike the other ones.
         /// </summary>
         /// <param name="expectCount">
         /// Count of elements desired to be peeked.

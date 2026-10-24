@@ -320,9 +320,13 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     // Peek + Peek JSC
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
+    [DataRow(@"[]", null, 0, 0, 0)]
+    [DataRow(@"{}", null, 0, 0, 0)]
+    [DataRow(@"[1]", null, 0, 1, 0)]
+    [DataRow(@"{ ""1"":1 }", null, 1, 1, 0)]
     [DataRow(@"[1, 2, 3]", null, 0, 3, 0)]
     [DataRow(@"[1,{""v"":0,""o"":{}},3]", null, 0, 3, 0)]
-    [DataRow(@"[1,{""v"":0,""o"":/*c*/{""a"":24,""b"":[/* bla */],""c"":true/* blu */}},3]", "c", 3, 3, 1)]
+    [DataRow(@"[1,{""v"":0,""o"":/*c*/{""a"":24,""b"":[/* bla */],""c"":true/* blu */}},3, {}, {}, [[],[]]]", "c", 3, 3, 1)]
     public void TestPeekCount(string data, string marker, int keys, int values, int others)
     {
         TReader? r = null;
@@ -433,6 +437,20 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
             if (r is not null) DisposeReader(r);
         }
     }
+
+    // Invalid JSON that is supported
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(@"{ ""numbers"": {
+""normal"": 123124.214124,
+""nNormal"": -123124.214124,
+""hex"": 0xDEADBEEF,
+""sci"": 1e+17,
+""octal"": 0o22447,
+""binary"": 0b11010011101,
+""notVeryValidButAccepted"": 01oo3o5x070e0e00
+}}")]
+    public void TestInvalidNumbers(string s) => ReadAndDispose(CreateFromString(s));
 
     // Invalid JSON with settings
     [TestMethod]
