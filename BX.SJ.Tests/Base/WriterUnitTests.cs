@@ -103,17 +103,53 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     [Timeout(TestTimeouts.Short)]
     public virtual void TestResetClearsState()
     {
+        static void ValidateResetState(TWriter w)
+        {
+            Assert.That.IsNullOrEmpty(w.Error, "Error state must reset on Reset");
+            Assert.AreEqual(0, w.count, "Writer count must be zero after reset");
+            Assert.AreEqual(0, w.depth, "Writer depth must be zero after reset");
+            Assert.AreEqual(SJWriter.Expect.None, w.expect, "Writer expectation must be none for root");
+            Assert.AreEqual(SJWriter.FormatExpect.None, w.fmtExpect, "Writer format expectation must be none for root");
+            Assert.IsFalse(w.finish, "Writer finish state must be false");
+            Assert.IsFalse(w.WrittenComment, "Writer comment state must be false");
+            Assert.IsFalse(w.WrittenCustomKey, "Writer custom key state must be false");
+            Assert.IsFalse(w.WrittenCustomValue, "Writer custom value state must be false");
+        }
+
         var writer = CreateWriter();
         try
         {
             writer.ThrowOnError = false;
-            writer.WriteNumber(123);
+            writer.allowComments = true;
+            writer.allowOtherKeyTypes = true;
+            writer.indentSize = 4;
+
+            using (writer.Object())
+            {
+                using (writer.ArrayKV("What is the private key?"))
+                {
+                    writer.WriteLong(4, format: "x");
+                    // TODO : Add other keys
+                    Assert.IsTrue(writer.WrittenCustomValue, "Custom value was written, but the state hasn't changed.");
+                    writer.WriteString("Just pick your favourite numbers <= 256! byte.MaxValue is plenty safe.");
+                }
+
+                writer.WriteCommentLine("Is it true?", hasNextValue: true);
+                Assert.IsTrue(writer.WrittenComment, "Comment was written, but the state hasn't changed.");
+
+                writer.WriteKeyBool(true);
+                writer.WriteBool(true);
+                Assert.IsTrue(writer.WrittenCustomKey, "Custom key was written, but the state hasn't changed.");
+            }
+
+            // Cause error
             writer.WriteNumber(123);
             Assert.That.IsNotNullOrEmpty(writer.Error);
 
+            // Reset and validate anything that could have potentially changed
             writer.Reset();
-            Assert.That.IsNullOrEmpty(writer.Error, "Error state must reset on Reset");
-            Assert.AreEqual(0, writer.count, "Writer count must be zero after reset");
+            ValidateResetState(writer);
+
         }
         finally
         {
