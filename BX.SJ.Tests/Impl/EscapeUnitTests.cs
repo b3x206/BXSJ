@@ -1,7 +1,7 @@
 ﻿using System.Text;
 using static BX.SJ.Tests.TestData;
 
-namespace BX.SJ.Tests;
+namespace BX.SJ.Tests.Impl;
 
 [TestClass]
 public sealed class EscapeUnitTests

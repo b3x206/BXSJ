@@ -50,9 +50,6 @@ namespace BX.SJ
         // I could create a "SJSpanWriter" that does "the same behaviour",
         // but it's repeated code. So let's be "heap only" for the time being,
         // until the library becomes more stable. Or it's "BXSave" territory (leaning towards the latter)
-        // ---
-        // TODO:
-        // * [ ] Reduce copy paste (sole reason why is to reduce lambda allocations, some methods can be trivially reduced at the cost of that)
 
 #pragma warning disable IDE0057 // Unity does not support System.Range
 
@@ -154,11 +151,16 @@ namespace BX.SJ
         /// <summary>
         /// Whether if this writer has written a JSON document that is done.
         /// </summary>
-        public bool finish = false;
+        public bool ended = false;
         /// <summary>
         /// Maximum size for <see cref="writeStack"/>
         /// </summary>
         public int maxDepth = 128;
+        /// <summary>
+        /// Limit for the built in writing buffer's.
+        /// <br>Set to zero to always use <see cref="ArrayPool{T}"/>. Or less to disable limit for <see cref="_formatBuffer"/>.</br>
+        /// </summary>
+        public int maxFormatBufferSize = 1024;
         /// <summary>
         /// Whether to allow any <see cref="WriteComment"/>.
         /// </summary>
@@ -204,11 +206,6 @@ namespace BX.SJ
         public bool WrittenCustomValue { get; protected set; }
         // To avoid using ArrayPool, which is maybe slower in case of small heap buffers.
         // Though resizing will allocate garbage and I will add a fallback.
-        /// <summary>
-        /// Limit for the built in writing buffer's.
-        /// <br>Set to zero to always use <see cref="ArrayPool{T}"/>. Or less to disable limit for <see cref="_formatBuffer"/>.</br>
-        /// </summary>
-        public int maxFormatBufferSize = 1024;
         protected const int LikelyMaxIntFormatSize = 66; // prefix + binary
         protected char[] _formatBuffer = new char[LikelyMaxIntFormatSize];
         /// <summary>
@@ -263,7 +260,7 @@ namespace BX.SJ
         protected State[] _stateStack = new State[DefaultStackSize];
         private State _stubState = State.Invalid;
         public bool HasState => depth > 0;
-        public virtual int PushState(State s)
+        public int PushState(State s)
         {
             if ((_stateStack?.Length - 1) < depth)
             {
@@ -273,7 +270,7 @@ namespace BX.SJ
             _stateStack[pushIndex] = s;
             return pushIndex;
         }
-        public virtual ref State PeekState()
+        public ref State PeekState()
         {
             if (!HasState)
             {
@@ -282,7 +279,7 @@ namespace BX.SJ
             }
             return ref _stateStack[depth - 1];
         }
-        public virtual ref State PopState()
+        public ref State PopState()
         {
             // PopState should throw as it mutates..
             if (!HasState) throw new InvalidOperationException("Cannot peek state while there is no state.");
@@ -386,7 +383,7 @@ namespace BX.SJ
         }
         protected void PrepareValue()
         {
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return;
@@ -439,17 +436,23 @@ namespace BX.SJ
             }
         }
         public const int MaxNumberPrefixLength = 32;
-        protected static ReadOnlySpan<char> FormatToPrefix(ReadOnlySpan<char> format)
+        /// <summary>
+        /// Convert supported <paramref name="format"/> types to a prefix used 
+        /// to specify the <see cref="SJType.Number"/> values.
+        /// </summary>
+        /// <param name="format">Numeric format kind.</param>
+        /// <returns>A prefix or equalivent of <see cref="ReadOnlySpan{T}.Empty"/></returns>
+        public static ReadOnlySpan<char> FormatToPrefix(ReadOnlySpan<char> format)
         {
-            if (format == null || format.IsEmpty) return string.Empty;
+            if (format == null || format.IsEmpty) return ReadOnlySpan<char>.Empty;
             return char.ToLowerInvariant(format[0]) switch
             {
                 'x' => "0x",
                 'b' => "0b",
                 'o' => "0o", // Octal format for integers does not exist yet, but it may in future.
                 'c' => "0c", // To be able to parse currency with the current constraints of SJ, this is needed.
-                             // It is suggested to use string for this case instead, but it will be implicitly handled.
-                _ => string.Empty,
+                             // It is suggested to use string for this case instead, but this will be implicitly handled.
+                _ => ReadOnlySpan<char>.Empty,
             };
         }
         protected static bool IsUnsupportedIntegerFormat(ReadOnlySpan<char> format)
@@ -508,7 +511,7 @@ namespace BX.SJ
         )
         {
             if (!string.IsNullOrEmpty(Error)) return false;
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -560,7 +563,7 @@ namespace BX.SJ
 
         public bool BeginObject()
         {
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -589,7 +592,7 @@ namespace BX.SJ
         }
         public bool EndObject()
         {
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -620,7 +623,7 @@ namespace BX.SJ
 
             if (depth <= 0)
             {
-                finish = true;
+                ended = true;
             }
             else
             {
@@ -649,7 +652,7 @@ namespace BX.SJ
         }
         public bool BeginArray()
         {
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -677,7 +680,7 @@ namespace BX.SJ
         }
         public bool EndArray()
         {
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -709,7 +712,7 @@ namespace BX.SJ
 
             if (depth <= 0)
             {
-                finish = true;
+                ended = true;
             }
             else
             {
@@ -748,7 +751,7 @@ namespace BX.SJ
         /// <returns>Whether if the write was successful.</returns>
         public virtual bool WriteLiteralKey(ReadOnlySpan<char> value, bool asString = false)
         {
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -961,7 +964,7 @@ namespace BX.SJ
         /// <returns>Whether if the write was successful.</returns>
         public virtual bool WriteLiteralValue(ReadOnlySpan<char> data)
         {
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -980,7 +983,7 @@ namespace BX.SJ
             if (depth <= 0)
             {
                 // Value is top level
-                finish = true;
+                ended = true;
             }
             else
             {
@@ -1005,7 +1008,7 @@ namespace BX.SJ
         public virtual bool WriteString(ReadOnlySpan<char> value)
         {
             // This one does some things different enough that it can't be "WriteLiteral"
-            if (finish)
+            if (ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -1028,7 +1031,7 @@ namespace BX.SJ
 
             if (depth <= 0)
             {
-                finish = true;
+                ended = true;
             }
             else
             {
@@ -1224,7 +1227,7 @@ namespace BX.SJ
             count = depth = 0;
             expect = Expect.None;
             fmtExpect = FormatExpect.None;
-            finish = false;
+            ended = false;
             WrittenCustomValue = WrittenCustomKey = WrittenComment = false;
             Error = null;
         }

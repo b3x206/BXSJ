@@ -76,6 +76,8 @@ namespace BX.SJ
         // TODO:
         // * Generic class (with the character unit type), or to avoid boxing,
         //   byte version that does ASCII (ignores UTF-8, but should work as all JSON tokens are within ascii)
+        //   ↑ (this is overkill though for my usage with small sized json, my saving overhead won't be that +
+        //      i could do serialization in a seperate thread with atomicity anyways..)
 
         /// <summary>
         /// Exception thrown on an error case while reading JSON.
@@ -95,7 +97,7 @@ namespace BX.SJ
         public struct Value
         {
             public readonly SJReader reader;
-            public SJType type;
+            public SJType type, prevType;
             public int start, end;
             /// <summary>
             /// Object typed value depth of this value. This is used for <see cref="DiscardUntil(int)"/>.
@@ -111,25 +113,26 @@ namespace BX.SJ
             public Value(SJReader reader)
             {
                 this.reader = reader;
-                type = SJType.Error;
+                type = prevType = SJType.Error;
                 start = end = 0;
                 objectDepth = 0;
                 depth = reader?.depth ?? 0;
             }
-            public Value(SJReader reader, SJType type, int start, int end, int objectDepth, int depth)
+            public Value(SJReader reader, SJType type, SJType prevType, int start, int end, int objectDepth, int depth)
             {
                 this.reader = reader;
                 this.type = type;
+                this.prevType = prevType;
                 this.start = start;
                 this.end = end;
                 this.objectDepth = objectDepth;
                 this.depth = depth;
             }
 
-            public static Value Error() => new Value(null, SJType.Error, -1, -1, -1, -1);
-            public static Value Error(SJReader reader) => new Value(reader, SJType.Error, -1, -1, -1, reader?.depth ?? -1);
-            public static Value Null() => new Value(null, SJType.Null, -1, -1, -1, -1);
-            public static Value Null(SJReader reader) => new Value(reader, SJType.Null, -1, -1, -1, reader?.depth ?? -1);
+            public static Value Error() => new Value(null, SJType.Error, SJType.Error, -1, -1, -1, -1);
+            public static Value Error(SJReader reader) => new Value(reader, SJType.Error, SJType.Error, -1, -1, -1, reader?.depth ?? -1);
+            public static Value Null() => new Value(null, SJType.Null, SJType.Error, -1, -1, -1, -1);
+            public static Value Null(SJReader reader) => new Value(reader, SJType.Null, SJType.Error, -1, -1, -1, reader?.depth ?? -1);
 
             public readonly int Length
             {
@@ -207,7 +210,7 @@ namespace BX.SJ
         /// <br>Recursive key types such as <see cref="SJType.Object"/> are not supported.</br>
         /// <br></br>
         /// <br><c>{ 1234: "number", 0x1234: "hex number", null: "null", true: "true", false: "false" }</c> is considered valid</br>
-        /// <br><c>{ {"a": "b"}: "object", ["a"]: "array" }</c> is <b>not</b> considered valid</br>
+        /// <br><c>{ {"a": "b"}: "object", ["a"]: "array" }</c> is <b>not <sup>yet</sup></b> considered valid.</br>
         /// </summary>
         public bool allowOtherKeyTypes = false;
         /// <summary>
@@ -249,11 +252,16 @@ namespace BX.SJ
         // state
         public int depth = 0;   // "Current depth" tracker. Used with the so called "stack"
         public int current = 0; // "Current index" tracker
+        /// <summary>
+        /// Last key read on a object key/value pair. If a non <see cref="SJType.Key"/>
+        /// <see cref="Value"/> is returned while this is set, this value is the key that is for it.
+        /// </summary>
+        public Value LastEntryKey { get; protected set; }
         protected const int DefaultStackSize = 8;
         protected State[] _stateStack = new State[DefaultStackSize];
         private State _stubState = State.Invalid;
         public bool HasState => depth > 0;
-        public virtual int PushState(State s)
+        public int PushState(State s)
         {
             if ((_stateStack?.Length - 1) < depth)
             {
@@ -263,7 +271,7 @@ namespace BX.SJ
             _stateStack[pushIndex] = s;
             return pushIndex;
         }
-        public virtual ref State PeekState()
+        public ref State PeekState()
         {
             if (!HasState)
             {
@@ -272,7 +280,7 @@ namespace BX.SJ
             }
             return ref _stateStack[depth - 1];
         }
-        public virtual ref State PopState()
+        public ref State PopState()
         {
             // PopState should throw as it mutates..
             if (!HasState) throw new InvalidOperationException("Cannot peek state while there is no state.");
@@ -290,12 +298,6 @@ namespace BX.SJ
         /// </c>
         /// </summary>
         public bool ended;
-
-        /// <summary>
-        /// Last key read on a object key/value pair. If a non <see cref="SJType.Key"/>
-        /// <see cref="Value"/> is returned while this is set, this value is the key that is for it.
-        /// </summary>
-        public Value LastEntryKey { get; protected set; }
         protected string _Error = string.Empty;
         /// <summary>
         /// The error string detailing why the reader failed.
@@ -344,7 +346,7 @@ namespace BX.SJ
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected static bool IsNumberContinuation(char c) =>
             (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-            || c == '.' ||  c == '-' || c == '+' || c == 'x' || c == 'o';
+            || c == '.' || c == '-' || c == '+' || c == 'x' || c == 'o';
         /// <summary>
         /// String inspector for token.
         /// <br>Outputs <paramref name="c"/> as <c>{c}/{(int)c}</c></br>
@@ -518,6 +520,7 @@ namespace BX.SJ
                             Error = "Expected object key as valid Key type";
                             return false;
                         }
+                        v.prevType = v.type;
                         v.type = SJType.Key;
 
                         cs.expect &= ~Expect.Key;
@@ -542,7 +545,8 @@ namespace BX.SJ
             return true;
         }
         /// <summary>
-        /// If <b>no new state is pushed</b> to the stack on <see cref="Read"/>, you don't need to track state and can use this method instead.
+        /// If <b>no new state is pushed</b> to the stack on <see cref="Read"/> after reading a value,
+        /// you don't need to track / mutate last state and can use this method instead.
         /// </summary>
         /// <remarks>
         /// Returns <see langword="true"/> if no state exists, meaning there isn't any state to check.
@@ -944,14 +948,13 @@ namespace BX.SJ
             bool gotKey = false; key = default;
             while (IterateObjectEntries(@object, out Value result))
             {
-                if (!string.IsNullOrEmpty(Error) || result.type == SJType.Error || result.type == SJType.End)
-                {
-                    key = value = Value.Error(this);
-                    return false;
-                }
+                if (!string.IsNullOrEmpty(Error)) goto _Fail;
 
                 switch (result.type)
                 {
+                    case SJType.Error:
+                    case SJType.End:
+                        goto _Fail;
                     case SJType.Comment:
                         continue;
 
@@ -969,6 +972,8 @@ namespace BX.SJ
                         return true;
                 }
             }
+
+        _Fail:
             // did not find next Value, or IterateObject returned error.
             key = value = Value.Error(this);
             return false;
@@ -1004,12 +1009,12 @@ namespace BX.SJ
 
             keys = values = other = 0;
 
-            // TODO : Save state, old SJ only had a "current" pointer, this one has stacks, so maybe copying the state stack is required?
-            //        For this instance, since we aren't going to traverse towards inside explicitly and only the change on the above depth,
-            //        is relevant, so it is safe to save state like this.
+            // For this instance since we aren't going to traverse towards inside explicitly and
+            // only change the current depth's state object, it should be safe to save / load state like this..
             int prevCurrent = current;
             int prevDepth = depth;
             State prevState = PeekState();
+
             // get a ref to the current state, before starting
             ref State currentState = ref PeekState();
 

@@ -1,5 +1,9 @@
 ﻿namespace BX.SJ.Tests.Examples
 {
+    /// <summary>
+    /// Example for reading JsonC documents with comment capturing.
+    /// <br>This enables the opt-in (since 2.x) feature of using </br>
+    /// </summary>
     sealed class BasicJSC
     {
         static void InspectConfigData(SJReader reader, SJReader.Value root)
@@ -51,7 +55,7 @@
     /* @summary And this field is 67, you know why.. */
     ""is67"": 67 // its the short form content number! 
 }
-// And to validate EOF, do this (it was implicit with the last Read()) ↓
+// And to validate EOF, do this (it was implicit with the last Read() on the old behaviour) ↓
 ";
             var reader = new SJStringReader(data)
             {

@@ -1,7 +1,7 @@
 ﻿using System.Globalization;
 using System.Numerics;
 
-namespace BX.SJ.Tests;
+namespace BX.SJ.Tests.Impl;
 
 [TestClass]
 public sealed class ReadmeUnitTests
@@ -296,8 +296,13 @@ public sealed class ReadmeUnitTests
             Process(reader, root);
         }
     }
-    // 4: Change that the compiler will error out for anyways
+    // 4: Change that the compiler will error out for
     // 5: New feature that is tested elsewhere
     // 6: New feature that is tested elsewhere
+
+    // - Migration 2.x -> 3.x
+    // 1. Change that the compiler will error out for
+    // 2. Change that the compiler will error out for
+    // 3. Change that the compiler will error out for
 #pragma warning restore IDE0059 // Unnecessary assignment of a value
 }

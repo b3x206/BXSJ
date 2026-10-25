@@ -62,77 +62,6 @@ for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
     Console.WriteLine($"Saved Position : {ReadVector3(reader, root)}");
 }
 ```
-
-If processing comments are desired, enable `SJReader.captureComments` and read document as shown: <br>
-```cs
-using BX.SJ;
-using System;
-
-static void InspectConfigData(SJReader reader, SJReader.Value root)
-{
-    if (root.type != SJType.Object) throw new ArgumentException("Config node type must be object", nameof(root));
-
-    string entrySum = "";
-    SJReader.Value key = SJReader.Value.Error();
-    while (reader.IterateObjectEntries(root, out var value))
-    {
-        switch (value.type)
-        {
-            case SJType.Error:
-                return;
-
-            case SJType.Comment:
-                const string SummaryTk = "@summary";
-                var comment = value.Slice(2, value.Length - 2).Trim(); // Skip // or /*
-                if (comment.StartsWith(SummaryTk))
-                {
-                    // Skip */
-                    if (comment.EndsWith("*/"))
-                    {
-                        comment = comment.Slice(0, comment.Length - 2).Trim();
-                    }
-
-                    entrySum = new string(comment.Slice(SummaryTk.Length).Trim());
-                }
-                continue;
-            case SJType.Key:
-                key = value;
-                continue;
-
-            default:
-                Console.WriteLine($"Summary: {entrySum}\n  {new string(key.Slice())} = {new string(value.Slice())}");
-                continue;
-        }
-    }
-}
-
-const string data = @"// The problem with comments is that they can appear anywhere.
-// Which makes some things that were implicit, explicit now.
-{
-    // Comments in JSON doesn't make much sense actually now that I have realized. Just use ini
-    /* @summary This field is 42, and actually you can put this within the JSON, but whatever.. */
-    ""is42"": 42,
-    /* @summary And this field is 67, you know why.. */
-    ""is67"": 67
-}
-// And to validate EOF, do this (it was implicit with the last Read()) ↓
-";
-var reader = new SJStringReader(data)
-{
-    allowComments = true,
-    captureComments = true // Opt-in to the new behaviour.
-};
-
-for (var root = reader.Read(); !reader.ended; root = reader.Read())
-{
-    // Skip root level comments if they are irrelevant
-    if (root.type == SJType.Comment)
-        continue;
-
-    InspectConfigData(reader, root);
-}
-```
-
 ---
 
 Unlike the original SJ, there is also a string escaping implementation if desired:
@@ -258,8 +187,8 @@ You can also use the [unit tests](./SJ.Tests) as examples too.
 ### - 1.0.0
 * Initial release as "SJ".
 * Somewhat janky unit tests, implicit/automated validation of files that could be partially broken (is too permissive).
-* But still functional and can technically parse large valid JSON documents and JSC (Comments not captured).
-* Released with the same Reader and Writer.
+* But still functional and can technically parse large valid JSON documents and JSC (Comments were not captured).
+* Released with the `SJStringReader` and `SJStringWriter`.
 
 ### - 2.0.0
 * Rename to "BXSJ"
@@ -464,7 +393,75 @@ From 1.x, everything else is more or less the same, except the inner workings of
 
 </details>
 
-## TODO
-* [ ] Port tests to xunit as mstest seems somewhat specific to visual studio and can't be ran headless trivially (2.1.x) <br>
+### - 3.0.0
+**▶ SJReader**
+* Allow `SJType.Key` values outside of `SJType.String`, that aren't recursive. The slices are provided as is, but requires some minor code changes. <br>
+  (can use `SJReader.Value.prevType` to check whether if the type was formerly bare [not `String`])
+* Allow trailing commas (`{ "a": b, }`)
+* More tolerant with tokens of type `SJType.Number`. <br>
+  (octal [`0o`], hexadecimal [`0x`] and binary [`0b`] is now allowed, if prefixed with their respective sequence)
+* `PeekEntryCount` to peek the entries within any `SJType.Object` or `SJType.Array`.
+* `SaveState`/`LoadState` to save / load `SJReader` state.
+
+**▶ SJWriter**
+* Rename `finish` to `ended` for consistency with `SJReader`.
+* Better checks for non-standard JSON outputs (`WrittenCustomKey`, `WrittenCustomValue`, etc.)
+* More checks to avoid accidental "unparseable by `SJReader`" output (specifically for number literals).
+* Allow prefixes + automatic prefixing in formatted number writing.
+* Reduce formatted number writing boilerplate (by resorting to `static` local lambdas).
+* Built-in format buffer that moves from `stackalloc -> char[] -> ArrayPool<char>.Shared` (reuse of writer is better)
+
+**▶ New**
+* `SJStreamReader` to read from a `System.IO.Stream` with encoding.
+* `SJStreamWriter` to write into a `System.IO.Stream` with encoding.
+* `SJLinearWriter` to write into a contiguous region of `char[]` <br>
+  (`StringBuilder` uses chunks, `SJStringReader` is almost matching to this although it does not use a typed `System.Array`).
+> (These are backports from my other project `BXSave`, due to the unnecessary testing complexity it brings to that)
+
+<details>
+
+<summary>• Migration from 2.x -> 3.x </summary>
+
+1. Rename all instances of `SJWriter.finish` to `SJWriter.ended`
+```cs
+var writer = new SJStringWriter();
+writer.WriteNumber(1234);
+
+Console.WriteLine(writer.finish); // ❌
+Console.WriteLine(writer.ended);  // ✅
+```
+
+2. `SJWriter.WriteKey(ReadOnlySpan<char>)` is no longer `virtual`, use `WriteLiteralKey(ReadOnlySpan<char>, bool)`
+
+3. `State` stack methods for respective Reader/Writer is no longer `virtual`. This is because 4.x could bring a state / data source related rework. If previous behaviour is desired, revert this change.
+  (I personally do not use it, so it isn't necessary)
+```cs
+public class MyCustomReader : SJReader
+{
+    public override int PushState(State s) {} // ❌, must be removed
+    public override ref State PeekState() {}  // ❌, must be removed
+    public override ref State PopState() {}   // ❌, must be removed
+}
+public class MyCustomWriter : SJWriter
+{
+    public override int PushState(State s) {} // ❌, must be removed
+    public override ref State PeekState() {}  // ❌, must be removed
+    public override ref State PopState() {}   // ❌, must be removed
+}
+```
+
+</details>
+
+<details>
+
+<summary>• Plans for 4.x / TODO </summary>
+
+1. Port tests to xunit as mstest seems somewhat specific to visual studio and can't be ran headless trivially (3.1.x) <br>
   This should also improve the tests and place most logic into one manageable place, instead of repeating redundant logic..
-* [ ] Improve performance by reducing redundant branching/bounds checking and manage state slightly better.
+2. Rework `State` and other related things to allow saving / loading state.
+   Use `ISJDataReader`/`ISJDataWriter` to write data instead of using inheritance.
+   (This is already possible with the current setup as nothing is truly `private` within BXSJ,
+   but it should be the main design instead. For the time being though, I do not need such a feature so I will delay it until there..)
+3. Improve performance by reducing redundant branching/bounds checking and manage state slightly better.
+
+</details>
