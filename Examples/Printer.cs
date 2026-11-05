@@ -1,7 +1,6 @@
-﻿using System;
 using System.Text;
 
-namespace BX.SJ.Tests.Examples
+namespace BX.SJ.Examples
 {
     internal sealed class Printer
     {
@@ -83,7 +82,7 @@ namespace BX.SJ.Tests.Examples
             }
         }
 
-        public static void TMain(string[] args)
+        static void Main(string[] args)
         {
             string data = args.Length > 1 ? args[1] : 
                 "{ \"foo\": [\"bar\", \"baz\"], \"idk\": 42, \"mango\": { \"6\": 7 } }";

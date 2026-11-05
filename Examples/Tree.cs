@@ -1,13 +1,12 @@
-﻿#pragma warning disable CA1510 // Use ArgumentNullException throw helper
+#pragma warning disable CA1510 // Use ArgumentNullException throw helper
 #nullable disable
-using System;
+
 using System.Globalization;
-using System.Collections.Generic;
 
 namespace BX.SJ.Examples
 {
     // A basic tree structure. Used for testing, but also available in the Examples
-    internal sealed class SJTree
+    sealed class SJTree
     {
         // Since the SJ value is lazily evaluated, we should copy the data here too.
         public SJType type;

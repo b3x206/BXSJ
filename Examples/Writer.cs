@@ -1,10 +1,8 @@
-﻿using System;
-
 namespace BX.SJ.Examples
 {
-    internal sealed class Writer
+    sealed class Writer
     {
-        public static void TMain(string[] args)
+        static void Main(string[] args)
         {
             var writer = new SJStringWriter()
             {

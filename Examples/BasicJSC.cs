@@ -1,8 +1,10 @@
-﻿using System;
-
 namespace BX.SJ.Examples
 {
-    internal sealed class BasicJSC
+    /// <summary>
+    /// Example for reading JsonC documents with comment capturing.
+    /// <br>This enables the opt-in (since 2.x) feature of using </br>
+    /// </summary>
+    sealed class BasicJSC
     {
         static void InspectConfigData(SJReader reader, SJReader.Value root)
         {
@@ -42,7 +44,7 @@ namespace BX.SJ.Examples
             }
         }
 
-        public static void TMain(string[] args)
+        static void Main(string[] args)
         {
             const string data = @"// The problem with comments is that they can appear anywhere.
 // Which makes some things that were implicit, explicit now.
@@ -53,7 +55,7 @@ namespace BX.SJ.Examples
     /* @summary And this field is 67, you know why.. */
     ""is67"": 67 // its the short form content number! 
 }
-// And to validate EOF, do this (it was implicit with the last Read()) ↓
+// And to validate EOF, do this (it was implicit with the last Read() on the old behaviour) ↓
 ";
             var reader = new SJStringReader(data)
             {

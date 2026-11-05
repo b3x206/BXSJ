@@ -76,6 +76,8 @@ namespace BX.SJ
         // TODO:
         // * Generic class (with the character unit type), or to avoid boxing,
         //   byte version that does ASCII (ignores UTF-8, but should work as all JSON tokens are within ascii)
+        //   ↑ (this is overkill though for my usage with small sized json, my saving overhead won't be that +
+        //      i could do serialization in a seperate thread with atomicity anyways..)
 
         /// <summary>
         /// Exception thrown on an error case while reading JSON.
@@ -95,7 +97,7 @@ namespace BX.SJ
         public struct Value
         {
             public readonly SJReader reader;
-            public SJType type;
+            public SJType type, prevType;
             public int start, end;
             /// <summary>
             /// Object typed value depth of this value. This is used for <see cref="DiscardUntil(int)"/>.
@@ -111,25 +113,26 @@ namespace BX.SJ
             public Value(SJReader reader)
             {
                 this.reader = reader;
-                type = SJType.Error;
+                type = prevType = SJType.Error;
                 start = end = 0;
                 objectDepth = 0;
                 depth = reader?.depth ?? 0;
             }
-            public Value(SJReader reader, SJType type, int start, int end, int objectDepth, int depth)
+            public Value(SJReader reader, SJType type, SJType prevType, int start, int end, int objectDepth, int depth)
             {
                 this.reader = reader;
                 this.type = type;
+                this.prevType = prevType;
                 this.start = start;
                 this.end = end;
                 this.objectDepth = objectDepth;
                 this.depth = depth;
             }
 
-            public static Value Error() => new Value(null, SJType.Error, -1, -1, -1, -1);
-            public static Value Error(SJReader reader) => new Value(reader, SJType.Error, -1, -1, -1, reader?.depth ?? -1);
-            public static Value Null() => new Value(null, SJType.Null, -1, -1, -1, -1);
-            public static Value Null(SJReader reader) => new Value(reader, SJType.Null, -1, -1, -1, reader?.depth ?? -1);
+            public static Value Error() => new Value(null, SJType.Error, SJType.Error, -1, -1, -1, -1);
+            public static Value Error(SJReader reader) => new Value(reader, SJType.Error, SJType.Error, -1, -1, -1, reader?.depth ?? -1);
+            public static Value Null() => new Value(null, SJType.Null, SJType.Error, -1, -1, -1, -1);
+            public static Value Null(SJReader reader) => new Value(reader, SJType.Null, SJType.Error, -1, -1, -1, reader?.depth ?? -1);
 
             public readonly int Length
             {
@@ -198,10 +201,24 @@ namespace BX.SJ
         public int maxDepth = 128;
         /// <summary>
         /// <br>Allows comments on JSON file : </br><br/>
-        /// <br>// &lt;-- single line</br>
-        /// <br>/* &lt;-- until end token --&gt; */</br>
+        /// <br><c>// &lt;-- single line, until \n</c></br>
+        /// <br><c>/* &lt;-- until end token, not stacked --&gt; */</c></br>
         /// </summary>
         public bool allowComments = false;
+        /// <summary>
+        /// Allows primitive key types (<see cref="SJType.Number"/>, etc.)
+        /// <br>Recursive key types such as <see cref="SJType.Object"/> are not supported.</br>
+        /// <br></br>
+        /// <br><c>{ 1234: "number", 0x1234: "hex number", null: "null", true: "true", false: "false" }</c> is considered valid</br>
+        /// <br><c>{ {"a": "b"}: "object", ["a"]: "array" }</c> is <b>not <sup>yet</sup></b> considered valid.</br>
+        /// </summary>
+        public bool allowOtherKeyTypes = false;
+        /// <summary>
+        /// Allow trailing comma on last elements of array or objects.
+        /// <br></br>
+        /// <br><c>{ "k": [1,2,4,], "v": { "a": true, }, }</c> is considered valid.</br>
+        /// </summary>
+        public bool allowTrailingComma = false;
         /// <summary>
         /// Captured JSON comments are skipped
         /// <br>(they are not pushed as JSON values from <see cref="Read"/> method)</br>
@@ -235,11 +252,19 @@ namespace BX.SJ
         // state
         public int depth = 0;   // "Current depth" tracker. Used with the so called "stack"
         public int current = 0; // "Current index" tracker
+        /// <summary>
+        /// Last key read on a object key/value pair. If a non <see cref="SJType.Key"/>
+        /// <see cref="Value"/> is returned while this is set, this value is the key that is for it.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="IterateObject(Value, out Value, out Value)"/> uses this value to keep it's key variable, it is also used as a failsafe value.
+        /// </remarks>
+        public Value LastEntryKey { get; protected set; }
         protected const int DefaultStackSize = 8;
         protected State[] _stateStack = new State[DefaultStackSize];
         private State _stubState = State.Invalid;
         public bool HasState => depth > 0;
-        public virtual int PushState(State s)
+        public int PushState(State s)
         {
             if ((_stateStack?.Length - 1) < depth)
             {
@@ -249,7 +274,7 @@ namespace BX.SJ
             _stateStack[pushIndex] = s;
             return pushIndex;
         }
-        public virtual ref State PeekState()
+        public ref State PeekState()
         {
             if (!HasState)
             {
@@ -258,7 +283,7 @@ namespace BX.SJ
             }
             return ref _stateStack[depth - 1];
         }
-        public virtual ref State PopState()
+        public ref State PopState()
         {
             // PopState should throw as it mutates..
             if (!HasState) throw new InvalidOperationException("Cannot peek state while there is no state.");
@@ -276,12 +301,6 @@ namespace BX.SJ
         /// </c>
         /// </summary>
         public bool ended;
-
-        /// <summary>
-        /// Last key read on a object key/value pair. If an <see cref="EntryType.Value"/> 
-        /// <see cref="Value"/> is returned while this is set, this value is the key that is for it.
-        /// </summary>
-        public Value LastEntryKey { get; protected set; }
         protected string _Error = string.Empty;
         /// <summary>
         /// The error string detailing why the reader failed.
@@ -324,10 +343,13 @@ namespace BX.SJ
 
         /// <summary>
         /// <see cref="SJType.Number"/> continuation check, Note that this reader 
-        /// does no parsing or unescaping, so number validation must be done by external code.
+        /// does no validation of the number token so that should be done by external code if needed.
+        /// <br>Accepts base 16 (hex) numbers. To store larger bases of integers or data as format, prefer <see cref="SJType.String"/></br>
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        protected static bool IsNumberContinuation(char c) => (c >= '0' && c <= '9') || c == 'e' || c == 'E' || c == '.' || c == '-' || c == '+';
+        protected static bool IsNumberContinuation(char c) =>
+            (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+            || c == '.' || c == '-' || c == '+' || c == 'x' || c == 'o';
         /// <summary>
         /// String inspector for token.
         /// <br>Outputs <paramref name="c"/> as <c>{c}/{(int)c}</c></br>
@@ -496,11 +518,12 @@ namespace BX.SJ
                 case SJType.Object:
                     if ((cs.expect & Expect.Key) == Expect.Key)
                     {
-                        if (v.type != SJType.String)
+                        if (v.type != SJType.String && (!allowOtherKeyTypes || v.type == SJType.Object || v.type == SJType.Array))
                         {
-                            Error = "Expected object key as Key type (String)";
+                            Error = "Expected object key as valid Key type";
                             return false;
                         }
+                        v.prevType = v.type;
                         v.type = SJType.Key;
 
                         cs.expect &= ~Expect.Key;
@@ -525,7 +548,8 @@ namespace BX.SJ
             return true;
         }
         /// <summary>
-        /// If <b>no new state is pushed</b> to the stack on <see cref="Read"/>, you don't need to track state and can use this method instead.
+        /// If <b>no new state is pushed</b> to the stack on <see cref="Read"/> after reading a value,
+        /// you don't need to track / mutate last state and can use this method instead.
         /// </summary>
         /// <remarks>
         /// Returns <see langword="true"/> if no state exists, meaning there isn't any state to check.
@@ -652,7 +676,7 @@ namespace BX.SJ
                     else
                     {
                         // Unreachable
-                        Error = $"ch '{Tk(ch)}' was somehow mutated on comma/colon check and no longer pleases any condition";
+                        Error = $"ch '{Tk(ch)}' was somehow mutated on comma/colon check and no longer fulfills any condition";
                         goto _Top;
                     }
                 }
@@ -681,14 +705,24 @@ namespace BX.SJ
                     Error = (ch == '}') ? "Stray '}'" : "Stray ']'";
                     goto _Top;
                 }
-                if (s.valueCount > 0 && (s.expect & Expect.Comma) != Expect.Comma)
+                if (s.valueCount > 0)
                 {
-                    Error = "Trailing comma character for the last value before end";
-                    goto _Top;
+                    if ((s.expect & Expect.Comma) != Expect.Comma)
+                    {
+                        if (!allowTrailingComma)
+                        {
+                            Error = "Trailing comma character for the last value before end";
+                            goto _Top;
+                        }
+                        else
+                        {
+                            // Set state to what is normal
+                            s.expect |= Expect.Comma;
+                        }
+                    }
                 }
 
-                ch = At(++current);
-                result.end = current;
+                result.end = ++current;
 
                 // UpdateState here is not needed because the upper state will be checked later
                 if (!UpdateEnding())
@@ -713,20 +747,20 @@ namespace BX.SJ
                 PushState(new State(result.type, ch == '{' ? Expect.Key : Expect.None));
 
                 result.objectDepth = depth;
-                ch = At(++current);
+                current++;
 
                 if (!UpdateState(ref prev, ref result))
                 {
                     goto _Top;
                 }
             }
-            // Parse : Number
+            // Parse : Number (technically, hex and binary is supported if prefixed with 0x)
             else if (char.IsDigit(ch) || ch == '-')
             {
                 result.type = SJType.Number;
                 while (current < Length && IsNumberContinuation(At(current)))
                 {
-                    ch = At(current++);
+                    current++;
                 }
                 result.end = current;
 
@@ -838,7 +872,6 @@ namespace BX.SJ
             }
 
             current.valueCount++;
-            current.expect |= Expect.Comma;
             if (result.type != SJType.Error && result.type != SJType.End)
             {
                 return true;
@@ -918,14 +951,13 @@ namespace BX.SJ
             bool gotKey = false; key = default;
             while (IterateObjectEntries(@object, out Value result))
             {
-                if (!string.IsNullOrEmpty(Error) || result.type == SJType.Error || result.type == SJType.End)
-                {
-                    key = value = Value.Error(this);
-                    return false;
-                }
+                if (!string.IsNullOrEmpty(Error)) goto _Fail;
 
                 switch (result.type)
                 {
+                    case SJType.Error:
+                    case SJType.End:
+                        goto _Fail;
                     case SJType.Comment:
                         continue;
 
@@ -943,9 +975,85 @@ namespace BX.SJ
                         return true;
                 }
             }
+
+        _Fail:
             // did not find next Value, or IterateObject returned error.
             key = value = Value.Error(this);
             return false;
+        }
+        /// <summary>
+        /// Peeks entry count. You do not have to iterate this method until it ends unlike the other ones.
+        /// </summary>
+        /// <param name="expectCount">
+        /// Count of elements desired to be peeked.
+        /// If left 0 or lower, all elements will be peeked.
+        /// This does not include <paramref name="other"/> values.
+        /// </param>
+        /// <param name="v">Value to peek it's entry count.</param>
+        /// <param name="keys">Count of keys seen.</param>
+        /// <param name="values">Count of values seen.</param>
+        /// <param name="other">Count of other entries (comments) seen.</param>
+        /// <returns>
+        /// Whether if the peek was successful.
+        /// If this returns <see langword="false"/> then either the <paramref name="v"/>
+        /// is erroreneous or <paramref name="expectCount"/> is exceeded.
+        /// </returns>
+        public bool PeekEntryCount(Value v, out int keys, out int values, out int other, int expectCount = -1)
+        {
+            switch (v.type)
+            {
+                case SJType.Array:
+                case SJType.Object:
+                    break;
+                default:
+                    keys = values = other = -1;
+                    return false;
+            }
+
+            keys = values = other = 0;
+
+            // For this instance since we aren't going to traverse towards inside explicitly and
+            // only change the current depth's state object, it should be safe to save / load state like this..
+            int prevCurrent = current;
+            int prevDepth = depth;
+            State prevState = PeekState();
+
+            // get a ref to the current state, before starting
+            ref State currentState = ref PeekState();
+
+            DiscardUntil(v.objectDepth);
+            Value innerValue = Read();
+            bool result = true;
+            for (; innerValue.type != SJType.End; DiscardUntil(v.objectDepth), innerValue = Read())
+            {
+                switch (innerValue.type)
+                {
+                    case SJType.Error:
+                        return false;
+
+                    case SJType.Comment:
+                        other++;
+                        break;
+
+                    case SJType.Key:
+                        keys++;
+                        break;
+                    default:
+                        values++;
+                        break;
+                }
+
+                if (expectCount >= 0 && (keys > expectCount || values > expectCount))
+                {
+                    result = false;
+                    break;
+                }
+            }
+
+            current = prevCurrent;
+            depth = prevDepth;
+            currentState = prevState;
+            return result;
         }
 
         /// <summary>

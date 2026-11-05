@@ -1,10 +1,8 @@
-﻿using System;
-
 namespace BX.SJ.Examples
 {
-    internal sealed class Basic
+    sealed class Basic
     {
-        public static void TMain(string[] args)
+        static void Main(string[] args)
         {
             // You can read "root level" values. That is : bool, null, string and number.
             // Numbers are always seperated with '.'

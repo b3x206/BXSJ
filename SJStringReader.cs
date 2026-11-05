@@ -15,10 +15,12 @@ namespace BX.SJ
     /// var data = "{ \"foo\": [\"bar\", \"baz\"], \"idk\": 42, \"mango\": { \"6\": 7 } }";
     /// var reader = new SJStringReader(data);
     /// 
-    /// SJReader.Value root = reader.Read();
     /// var sb = new StringBuilder(512);
+    /// for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
+    /// {
+    ///     ReadInner(sb, reader, root);
+    /// }
     /// 
-    /// ReadInner(sb, reader, root);
     /// static void ReadInner(StringBuilder sb, SJReader reader, SJReader.Value root)
     /// {
     ///     switch (root.type)
@@ -31,7 +33,9 @@ namespace BX.SJ
     ///                 // ^ This will output multiple times, you can add a global flag if that is undesired.
     ///                 break;
     ///             }
-    /// 
+    ///         case SJType.End:
+    ///         case SJType.Comment:
+    ///             break;
     ///         case SJType.Array:
     ///             {
     ///                 bool first = true;
@@ -80,6 +84,7 @@ namespace BX.SJ
     ///                 sb.Append('"').Append(root.Slice()).Append('"');
     ///                 break;
     ///             }
+    ///         case SJType.Key:
     ///         case SJType.Number:
     ///         case SJType.Null:
     ///         case SJType.Bool:
