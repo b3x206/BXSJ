@@ -76,12 +76,12 @@ namespace BX.SJ
             }
         }
 
-        public override void Append(char c)
+        protected override void DoAppend(char c)
         {
             EnsureRemainingFor(1);
             data[current++] = c;
         }
-        public override void Append(ReadOnlySpan<char> s)
+        protected override void DoAppend(ReadOnlySpan<char> s)
         {
             EnsureRemainingFor(s.Length);
 

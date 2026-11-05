@@ -56,18 +56,18 @@ public abstract class WriterBenchmark<TWriter> where TWriter : SJWriter
             // Generally, these values are copied char by char to escape them.
             // This is more of a test for SJEscape's speed.. Meh, let the larp predictor do it's work.
             writer.Append(k);
-            writer.count += k.Length;
+            writer.S.count += k.Length;
             writer.Append(v);
-            writer.count += v.Length;
+            writer.S.count += v.Length;
         }
         for (int i = 0; i < iters / 2; i++)
         {
             ReadOnlySpan<char> v = GetRandomValue(i);
             writer.Append(v);
-            writer.count += v.Length;
+            writer.S.count += v.Length;
         }
 
-        return writer.count;
+        return writer.S.count;
     }
 
     public int BenchWrite(SJWriter writer, int iters, int elemCount)
@@ -93,7 +93,7 @@ public abstract class WriterBenchmark<TWriter> where TWriter : SJWriter
             }
         }
 
-        return writer.count;
+        return writer.S.count;
     }
 
     // Length (generated with default settings) = 15857 for normal, 507559 for large

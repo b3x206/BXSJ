@@ -5,7 +5,8 @@ using System.Runtime.CompilerServices;
 namespace BX.SJ
 {
     /// <summary>
-    /// Inferred type of the read JSON.
+    /// Inferred type of the read data.
+    /// <br>Custom types (if a declaration exists) are just given as a slice within <see cref="SJReader.Value"/>.</br>
     /// </summary>
     public enum SJType
     {
@@ -98,41 +99,56 @@ namespace BX.SJ
         {
             public readonly SJReader reader;
             public SJType type, prevType;
+            public int typeStart, typeEnd;
             public int start, end;
             /// <summary>
             /// Object typed value depth of this value. This is used for <see cref="DiscardUntil(int)"/>.
             /// <br><b>Only applicable when type is <see cref="SJType.Object"/>, 
-            /// <see cref="SJType.Array"/> or <see cref="SJType.End"/>!</b></br>
+            /// <see cref="SJType.Array"/> or <see cref="SJType.End"/>, otherwise it's 0.</b></br>
             /// </summary>
-            public int objectDepth;
+            public ushort objectDepth;
             /// <summary>
             /// <see cref="SJReader.depth"/> of the <see cref="reader"/> while this Value was being created.
             /// </summary>
-            public readonly int depth;
+            public readonly ushort depth;
 
             public Value(SJReader reader)
             {
                 this.reader = reader;
                 type = prevType = SJType.Error;
                 start = end = 0;
+                typeStart = typeEnd = 0;
                 objectDepth = 0;
-                depth = reader?.depth ?? 0;
+                depth = (ushort)(reader?.depth ?? 0);
             }
-            public Value(SJReader reader, SJType type, SJType prevType, int start, int end, int objectDepth, int depth)
+            public Value(
+                SJReader reader, SJType type, SJType prevType, int start, int end,
+                int typeStart, int typeEnd, ushort objectDepth, ushort depth
+            )
             {
                 this.reader = reader;
                 this.type = type;
                 this.prevType = prevType;
                 this.start = start;
                 this.end = end;
+                this.typeStart = typeStart;
+                this.typeEnd = typeEnd;
                 this.objectDepth = objectDepth;
                 this.depth = depth;
             }
 
-            public static Value Error() => new Value(null, SJType.Error, SJType.Error, -1, -1, -1, -1);
-            public static Value Error(SJReader reader) => new Value(reader, SJType.Error, SJType.Error, -1, -1, -1, reader?.depth ?? -1);
-            public static Value Null() => new Value(null, SJType.Null, SJType.Error, -1, -1, -1, -1);
-            public static Value Null(SJReader reader) => new Value(reader, SJType.Null, SJType.Error, -1, -1, -1, reader?.depth ?? -1);
+            public static Value Error() => new Value(
+                null, SJType.Error, SJType.Error, -1, -1, -1, -1, 0, 0
+            );
+            public static Value Error(SJReader reader) => new Value(
+                reader, SJType.Error, SJType.Error, -1, -1, -1, -1, 0, (ushort)(reader?.depth ?? 0)
+            );
+            public static Value Null() => new Value(
+                null, SJType.Null, SJType.Null, -1, -1, -1, -1, 0, 0
+            );
+            public static Value Null(SJReader reader) => new Value(
+                reader, SJType.Null, SJType.Null, -1, -1, -1, -1, 0, (ushort)(reader?.depth ?? 0)
+            );
 
             public readonly int Length
             {
@@ -198,7 +214,7 @@ namespace BX.SJ
         /// <summary>
         /// Maximum read depth as generally recursion is used to read.
         /// </summary>
-        public int maxDepth = 128;
+        public ushort maxDepth = 128;
         /// <summary>
         /// <br>Allows comments on JSON file : </br><br/>
         /// <br><c>// &lt;-- single line, until \n</c></br>
@@ -219,6 +235,12 @@ namespace BX.SJ
         /// <br><c>{ "k": [1,2,4,], "v": { "a": true, }, }</c> is considered valid.</br>
         /// </summary>
         public bool allowTrailingComma = false;
+        /// <summary>
+        /// Allow type declarations before a value. The type declarations do nothing, they are extra metadata.
+        /// <br></br>
+        /// <br><c>{}</c></br>
+        /// </summary>
+        public bool allowTypeDeclarations = false;
         /// <summary>
         /// Captured JSON comments are skipped
         /// <br>(they are not pushed as JSON values from <see cref="Read"/> method)</br>
@@ -587,7 +609,7 @@ namespace BX.SJ
             {
                 result.type = SJType.Error;
                 result.start = result.end = 0;
-                result.objectDepth = -1;
+                result.objectDepth = 0;
                 return result;
             }
             if (Length <= 0)
@@ -600,11 +622,16 @@ namespace BX.SJ
                 // Reaching end of document is no longer an error, but it should return an empty "error" value.
                 result.type = SJType.Error;
                 result.start = result.end = current;
-                result.objectDepth = -1;
+                result.objectDepth = 0;
                 ended = true;
                 if (depth > 0)
                 {
-                    Error = PeekState().type switch { SJType.Object => "Unclosed object", SJType.Array => "Unclosed array", _ => "Unclosed with invalid stack type" };
+                    Error = PeekState().type switch
+                    {
+                        SJType.Object => "Unclosed object",
+                        SJType.Array => "Unclosed array",
+                        _ => "Unclosed value with invalid stack type"
+                    };
                 }
                 return result;
             }
@@ -746,7 +773,7 @@ namespace BX.SJ
                 ref State prev = ref PeekState();
                 PushState(new State(result.type, ch == '{' ? Expect.Key : Expect.None));
 
-                result.objectDepth = depth;
+                result.objectDepth = (ushort)depth;
                 current++;
 
                 if (!UpdateState(ref prev, ref result))

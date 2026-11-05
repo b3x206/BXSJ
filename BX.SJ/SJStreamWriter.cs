@@ -145,7 +145,7 @@ namespace BX.SJ
                 stream.Flush();
             }
         }
-        public override void Append(char c)
+        protected override void DoAppend(char c)
         {
             if (disposed || stream == null)
             {
@@ -161,7 +161,7 @@ namespace BX.SJ
 
             buffer[streamCurrent++] = c;
         }
-        public override void Append(ReadOnlySpan<char> s)
+        protected override void DoAppend(ReadOnlySpan<char> s)
         {
             if (disposed || stream == null)
             {
@@ -202,7 +202,6 @@ namespace BX.SJ
             encoder.Reset();
             streamCurrent = 0;
         }
-        public override string ToString() => $"[SJStreamWriter] count={count}, error={Error}";
 
         public override bool CanReadData => stream.CanSeek;
         /// <summary>

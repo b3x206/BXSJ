@@ -6,101 +6,167 @@ using System.Buffers;
 namespace BX.SJ
 {
     /// <summary>
-    /// Base class for <i>most</i> JSON writers.
+    /// Base class for <i>most</i> JSON-compatible writers.
     /// </summary>
-    /// <example>
-    /// <![CDATA[
-    /// using BX.SJ;
-    /// using System;
-    /// 
-    /// // An example class would look like this:
-    /// public sealed class SJExampleWriter : SJWriter
-    /// {
-    ///     private readonly WriteSource data;
-    /// 
-    ///     public SJExampleWriter(WriteSource data)
-    ///     {
-    ///         this.data = data ?? throw new ArgumentNullException(nameof(data));
-    ///     }
-    /// 
-    ///     public override void Append(char c) => data.Write(c);
-    ///     public override void Append(ReadOnlySpan<char> s) => data.Write(s);
-    /// 
-    ///     public override bool CanReadData => true;
-    ///     public override string ReadData()
-    ///     {
-    ///         // Convert the resulting data to string. Called if necessary
-    ///         // (generally with test code or with in-memory resources.)
-    ///         // Could be unnecessary on things like Stream- based writers. Default impl is not supported.
-    ///         return data.ToString();
-    ///     }
-    ///
-    ///     public override void Reset()
-    ///     {
-    ///         base.Reset();
-    ///         data.Clear(); // Or reset the position to start and truncate remaining data.
-    ///     }
-    /// }
-    /// ]]>
-    /// </example>
+    /// <remarks>
+    /// * Can write incompatible JSON if not careful. This can be checked through <see cref="S"/> 
+    /// or by validating against a strict <see cref="SJReader"/>.
+    /// </remarks>
     public abstract class SJWriter
     {
-        // A span based writer would be nice, but then I have to pass it
-        // into the method always instead of having the span stored inside the writer.
-        // I could create a "SJSpanWriter" that does "the same behaviour",
-        // but it's repeated code. So let's be "heap only" for the time being,
-        // until the library becomes more stable. Or it's "BXSave" territory (leaning towards the latter)
-
-#pragma warning disable IDE0057 // Unity does not support System.Range
+#pragma warning disable IDE0057 // ***** does not support System.Range
 
         /// <summary>
         /// Exception thrown on an error case while reading JSON.
         /// </summary>
         public class WriteException : Exception
         {
-            public WriteException(SJWriter writer) : base($"{writer.Error} | at char={writer.count}")
+            public WriteException(SJWriter writer) : base($"{writer.Error} | at char={writer.S.count}")
             { }
             public WriteException(string message, int count) : base($"{message} | at char={count}")
             { }
             public WriteException(string message) : base(message)
             { }
         }
+
+        [Flags]
+        public enum Expect { None, Key = 1 << 0, Value = 1 << 1, Comma = 1 << 2 }
+        [Flags]
+        public enum FormatExpect { None, Newline = 1 << 0, Indent = 1 << 1, NewlineIndent = Newline | Indent }
         /// <summary>
-        /// A tracker for type information that can be stacked and indexed (i.e. recursive data)
+        /// Copyable state contained
+        /// <br>Does not contain <see cref="Error"/>, this is because error should be acknowledged instead of being copied.</br>
         /// </summary>
         public struct State
         {
             /// <summary>
-            /// Write type, this is generally either 
-            /// <see cref="SJType.Array"/> or <see cref="SJType.Object"/>
+            /// A tracker for type information that can be stacked and indexed (i.e. recursive data)
             /// </summary>
-            public SJType type;
-            /// <summary>
-            /// Currently stored write index (used more like a "count").
-            /// </summary>
-            public int index;
-
-            /// <summary>
-            /// Whether if this entry is valid or not.
-            /// </summary>
-            public readonly bool Valid => type != SJType.Error && type != SJType.End && index >= 0;
-
-            public static readonly State Invalid = new State(SJType.Error) { index = -1 };
-            public State(SJType type)
+            public struct Stacked
             {
-                this.type = type;
-                index = 0;
+                /// <summary>
+                /// Write type, this is generally either 
+                /// <see cref="SJType.Array"/> or <see cref="SJType.Object"/>
+                /// </summary>
+                public SJType type;
+                /// <summary>
+                /// Currently stored write index (used more like a "count").
+                /// </summary>
+                public int index;
+
+                /// <summary>
+                /// Whether if this entry is valid or not.
+                /// </summary>
+                public readonly bool Valid => type != SJType.Error && type != SJType.End && index >= 0;
+
+                public static readonly Stacked Invalid = new Stacked(SJType.Error) { index = -1 };
+                public Stacked(SJType type)
+                {
+                    this.type = type;
+                    index = 0;
+                }
+                public static implicit operator Stacked(SJType type) => new Stacked(type);
+
+                public override readonly string ToString()
+                {
+                    if (!Valid)
+                    {
+                        return $"[{base.ToString()}]";
+                    }
+
+                    return $"[{base.ToString()}] type={type}, index={index}";
+                }
             }
-            public static implicit operator State(SJType type) => new State(type);
+
+            public int count;
+            public int depth;
+            public Expect expect;
+            public FormatExpect fmtExpect; // Newline is done first, then indent. Is not needed to be stacked
+            /// <summary>
+            /// Whether if this writer has written a JSON document that is done.
+            /// <br>Comments can be written (if <see cref="allowComments"/>) while this 
+            /// is <see langword="true"/> as those can be placed anywhere.</br>
+            /// </summary>
+            public bool ended;
+            public bool WrittenComment { get; private set; }
+            public bool WrittenType { get; private set; }
+            public bool WrittenCustomKey { get; private set; }
+            public bool WrittenCustomValue { get; private set; }
+            public readonly bool Has => depth > 0;
+
+            public const int DefaultStackSize = 8;
+            private Stacked[] _stateStack;
+            // This can be shared among writers
+            private static Stacked _stubState = Stacked.Invalid;
+
+            public int Push(Stacked s)
+            {
+                if ((_stateStack?.Length - 1) < depth)
+                {
+                    System.Array.Resize(ref _stateStack, _stateStack.Length <= 0 ? DefaultStackSize : _stateStack.Length * 2);
+                }
+                int pushIndex = depth++;
+                _stateStack[pushIndex] = s;
+                return pushIndex;
+            }
+            public readonly ref Stacked Peek()
+            {
+                if (!Has)
+                {
+                    _stubState = Stacked.Invalid;
+                    return ref _stubState;
+                }
+                return ref _stateStack[depth - 1];
+            }
+            public ref Stacked Pop()
+            {
+                // Pop should throw as it mutates..
+                if (!Has) throw new InvalidOperationException("Cannot peek state while there is no state.");
+                return ref _stateStack[--depth];
+            }
+
+            public static State Create()
+            {
+                return new State()
+                {
+                    _stateStack = new Stacked[DefaultStackSize]
+                };
+            }
+            public readonly State Copy()
+            {
+                var s = new State();
+                s._stateStack = new Stacked[s._stateStack.Length];
+                CopyTo(s);
+                return s;
+            }
+            public readonly void CopyTo(State s)
+            {
+                s.count = count;
+                s.depth = depth;
+                s.ended = ended;
+                s.WrittenComment = WrittenComment;
+                s.WrittenType = WrittenType;
+                s.WrittenCustomKey = WrittenCustomKey;
+                s.WrittenCustomValue = WrittenCustomValue;
+                _stateStack.CopyTo((Span<Stacked>)s._stateStack);
+            }
+
+            public void MarkWrittenComment() => WrittenComment = true;
+            public void MarkWrittenCustomValue() => WrittenCustomValue = true;
+            public void MarkWrittenType() => WrittenType = true;
+            public void MarkWrittenCustomKey() => WrittenCustomKey = true;
+            public void Reset()
+            {
+                WrittenComment = WrittenCustomKey = WrittenCustomValue = WrittenType = false;
+                count = depth = 0;
+                expect = Expect.None;
+                fmtExpect = FormatExpect.None;
+                ended = false;
+            }
 
             public override readonly string ToString()
             {
-                if (!Valid)
-                {
-                    return $"[{base.ToString()}]";
-                }
-
-                return $"[{base.ToString()}] type={type}, index={index}";
+                return $"count={count}, depth={depth} top={{{Peek()}}}";
             }
         }
 
@@ -149,15 +215,9 @@ namespace BX.SJ
         /// </summary>
         public int indentSize = 0;
         /// <summary>
-        /// Whether if this writer has written a JSON document that is done.
-        /// <br>Comments can be written (if <see cref="allowComments"/>) while this 
-        /// is <see langword="true"/> as those can be placed anywhere.</br>
-        /// </summary>
-        public bool ended = false;
-        /// <summary>
         /// Maximum size for <see cref="writeStack"/>
         /// </summary>
-        public int maxDepth = 128;
+        public ushort maxDepth = 128;
         /// <summary>
         /// Limit for the built in writing buffer's.
         /// <br>Set to zero to always use <see cref="ArrayPool{T}"/>. Or less to disable limit for <see cref="_formatBuffer"/>.</br>
@@ -167,6 +227,7 @@ namespace BX.SJ
         /// Whether to allow any <see cref="WriteComment"/>.
         /// </summary>
         public bool allowComments = false;
+        public bool allowTrailingComma = false;
         /// <summary>
         /// Whether to allow any <see cref="WriteCustomKey"/>.
         /// </summary>
@@ -198,14 +259,32 @@ namespace BX.SJ
         }
 
         // state
+        private State _S = State.Create();
+        public ref State S => ref _S;
+        protected string _Error = string.Empty;
         /// <summary>
-        /// Amount written by this writer.
+        /// The error string detailing why the writer failed.
         /// </summary>
-        public int count;
-        public int depth;
-        public bool WrittenComment { get; protected set; }
-        public bool WrittenCustomKey { get; protected set; }
-        public bool WrittenCustomValue { get; protected set; }
+        public string Error
+        {
+            get => _Error;
+            set
+            {
+                if (string.IsNullOrEmpty(value))
+                {
+                    _Error = string.Empty;
+                    return;
+                }
+
+                _Error = value;
+                if (_ThrowOnError)
+                {
+                    ThrowError();
+                }
+            }
+        }
+
+        // helper
         // To avoid using ArrayPool, which is maybe slower in case of small heap buffers.
         // Though resizing will allocate garbage and I will add a fallback.
         protected const int LikelyMaxIntFormatSize = 66; // prefix + binary
@@ -236,64 +315,6 @@ namespace BX.SJ
             return true;
         }
 
-        protected string _Error = string.Empty;
-        /// <summary>
-        /// The error string detailing why the writer failed.
-        /// </summary>
-        public string Error
-        {
-            get => _Error;
-            set
-            {
-                if (string.IsNullOrEmpty(value))
-                {
-                    _Error = string.Empty;
-                    return;
-                }
-
-                _Error = value;
-                if (_ThrowOnError)
-                {
-                    ThrowError();
-                }
-            }
-        }
-        protected const int DefaultStackSize = 8;
-        protected State[] _stateStack = new State[DefaultStackSize];
-        private State _stubState = State.Invalid;
-        public bool HasState => depth > 0;
-        public int PushState(State s)
-        {
-            if ((_stateStack?.Length - 1) < depth)
-            {
-                System.Array.Resize(ref _stateStack, _stateStack.Length <= 0 ? DefaultStackSize : _stateStack.Length * 2);
-            }
-            int pushIndex = depth++;
-            _stateStack[pushIndex] = s;
-            return pushIndex;
-        }
-        public ref State PeekState()
-        {
-            if (!HasState)
-            {
-                _stubState = State.Invalid;
-                return ref _stubState;
-            }
-            return ref _stateStack[depth - 1];
-        }
-        public ref State PopState()
-        {
-            // PopState should throw as it mutates..
-            if (!HasState) throw new InvalidOperationException("Cannot peek state while there is no state.");
-            return ref _stateStack[--depth];
-        }
-
-        [Flags]
-        public enum Expect { None, Key = 1 << 0, Value = 1 << 1, Comma = 1 << 2 }
-        public Expect expect = Expect.None;
-        [Flags]
-        public enum FormatExpect { None, Newline = 1 << 0, Indent = 1 << 1, NewlineIndent = Newline | Indent }
-        public FormatExpect fmtExpect = FormatExpect.None; // Newline is done first, then indent. Is not needed to be stacked
         // TODO(?): Move other operations to target this enumeration instead.
         //          Though it is "slower" because branching, switch statements on release C# could be fast.
         /// <summary>
@@ -301,20 +322,28 @@ namespace BX.SJ
         /// </summary>
         public enum WriteTarget { Value, Key, Comment }
 
+        protected abstract void DoAppend(char c);
         /// <summary>
         /// Append to the underlying StringBuilder/Stream-like object.
         /// <br>You can use this to write anything in anywhere, but it isn't recommended.</br>
         /// </summary>
-        public abstract void Append(char c);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Append(char c)
+        {
+            S.count++;
+            DoAppend(c);
+        }
+        protected virtual void DoAppend(ReadOnlySpan<char> s)
+        {
+            for (int i = 0; i < s.Length; i++) DoAppend(s[i]);
+        }
         /// <summary>
         /// <inheritdoc cref="Append(char)"/>
         /// </summary>
-        public virtual void Append(ReadOnlySpan<char> s)
+        public void Append(ReadOnlySpan<char> s)
         {
-            for (int i = 0; i < s.Length; i++)
-            {
-                Append(s[i]);
-            }
+            S.count += s.Length;
+            DoAppend(s);
         }
 
         /// <summary>
@@ -362,49 +391,48 @@ namespace BX.SJ
                     Append(indent);
                 }
             }
-
-            count += indentSize * depth;
         }
         protected virtual void WriteEscaped(ReadOnlySpan<char> data, bool asciiOnly)
         {
-            count += SJEscape.Escape(this, selfAppend, data, asciiOnly);
+            SJEscape.Escape(this, selfAppend, data, asciiOnly);
         }
         protected void PrepareFormat()
         {
-            if (fmtExpect == FormatExpect.None) return;
+            ref var s = ref S;
+            if (s.fmtExpect == FormatExpect.None) return;
             if (indentSize <= 0)
             {
                 // On zero depth, newlines are allowed again for "single line comment" related reasons.
-                if (depth <= 0 && (fmtExpect & FormatExpect.Newline) == FormatExpect.Newline) { Append('\n'); count++; }
-                fmtExpect = FormatExpect.None;
+                if (S.depth <= 0 && (s.fmtExpect & FormatExpect.Newline) == FormatExpect.Newline) { Append('\n'); }
+                s.fmtExpect = FormatExpect.None;
                 return;
             }
 
-            if ((fmtExpect & FormatExpect.Newline) == FormatExpect.Newline) { Append('\n'); count++; }
-            if ((fmtExpect & FormatExpect.Indent) == FormatExpect.Indent) { WriteIndent(depth); }
+            if ((s.fmtExpect & FormatExpect.Newline) == FormatExpect.Newline) { Append('\n'); }
+            if ((s.fmtExpect & FormatExpect.Indent) == FormatExpect.Indent) { WriteIndent(S.depth); }
 
-            fmtExpect = FormatExpect.None;
+            s.fmtExpect = FormatExpect.None;
         }
         protected void PrepareValue()
         {
-            if (ended)
+            ref var s = ref S;
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return;
             }
 
-            ref State top = ref PeekState();
+            ref var top = ref s.Peek();
             if (top.Valid)
             {
-                if ((expect & Expect.Comma) == Expect.Comma && top.index > 0)
+                if ((s.expect & Expect.Comma) == Expect.Comma && top.index > 0)
                 {
                     Append(',');
-                    count++;
-                    expect &= ~Expect.Comma;
+                    s.expect &= ~Expect.Comma;
                 }
 
                 // keys shouldn't affect the write index as it's a pair
-                if ((expect & Expect.Key) != Expect.Key)
+                if ((s.expect & Expect.Key) != Expect.Key)
                 {
                     top.index++;
                 }
@@ -415,13 +443,14 @@ namespace BX.SJ
         }
         protected void PrepareCommentValue(bool expectValue)
         {
-            if (expectValue && depth > 0)
+            ref var s = ref S;
+            if (expectValue && s.depth > 0)
             {
-                if ((expect & Expect.Comma) == Expect.Comma)
+                if ((s.expect & Expect.Comma) == Expect.Comma)
                 {
                     Append(',');
-                    count++;
-                    expect &= ~Expect.Comma;
+
+                    s.expect &= ~Expect.Comma;
                 }
             }
 
@@ -429,14 +458,12 @@ namespace BX.SJ
         }
         protected void PrepareEndValue(int prevIndex)
         {
+            ref var s = ref S;
             if (indentSize > 0 && prevIndex > 0)
             {
                 Append('\n');
-                count++;
-
-                WriteIndent(depth);
-
-                fmtExpect = FormatExpect.None;
+                WriteIndent(s.depth);
+                s.fmtExpect = FormatExpect.None;
             }
         }
         public const int MaxNumberPrefixLength = 32;
@@ -514,8 +541,9 @@ namespace BX.SJ
             WriteTarget target, T number, ReadOnlySpan<char> format, ReadOnlySpan<char> prefix, TryFormatHandler<T> tryFormat
         )
         {
+            ref var s = ref S;
             if (!string.IsNullOrEmpty(Error)) return false;
-            if (ended)
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -524,10 +552,10 @@ namespace BX.SJ
             switch (target)
             {
                 case WriteTarget.Value:
-                    WrittenCustomValue = WrittenCustomValue || IsUnsupportedIntegerFormat(format);
+                    if (IsUnsupportedIntegerFormat(format)) s.MarkWrittenCustomValue();
                     break;
                 case WriteTarget.Key:
-                    WrittenCustomKey = true;
+                    s.MarkWrittenCustomKey();
                     break;
 
                 default:
@@ -568,17 +596,18 @@ namespace BX.SJ
 
         public bool BeginObject()
         {
-            if (ended)
+            ref var s = ref S;
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
             }
-            if ((expect & Expect.Key) == Expect.Key)
+            if ((s.expect & Expect.Key) == Expect.Key)
             {
                 Error = "Expected writing object key";
                 return false;
             }
-            if (maxDepth > 0 && depth >= maxDepth)
+            if (maxDepth > 0 && S.depth >= maxDepth)
             {
                 Error = $"Exceeded max write depth '{maxDepth}'";
                 return false;
@@ -586,49 +615,49 @@ namespace BX.SJ
 
             PrepareValue();
             Append('{');
-            count++;
 
-            PushState(SJType.Object);
+            S.Push(SJType.Object);
 
-            expect = Expect.Key;
-            fmtExpect = FormatExpect.NewlineIndent;
+            s.expect = Expect.Key;
+            s.fmtExpect = FormatExpect.NewlineIndent;
 
             return true;
         }
         public bool EndObject()
         {
-            if (ended)
+            ref var s = ref S;
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
             }
-            ref State top = ref PeekState();
+            ref var top = ref s.Peek();
             if (!top.Valid || top.type != SJType.Object)
             {
                 Error = $"Invalid EndObject for toplevel with type '{top.type}', expected Object";
                 return false;
             }
-            if ((expect & Expect.Value) == Expect.Value)
+            if ((s.expect & Expect.Value) == Expect.Value)
             {
                 Error = "Expected writing object value";
                 return false;
             }
-            if ((expect & Expect.Key) != Expect.Key && (expect & Expect.Comma) != Expect.Comma)
+            if ((s.expect & Expect.Key) != Expect.Key && (s.expect & Expect.Comma) != Expect.Comma)
             {
                 Error = "Trailing comma written - the comment functions may cause this, if no end of content is specified.";
                 return false;
             }
 
             // Can end object
-            expect = Expect.None;
+            s.expect = Expect.None;
 
             int prevIndex = top.index;
-            PopState();
-            top = ref PeekState();
+            s.Pop();
+            top = ref s.Peek();
 
-            if (depth <= 0)
+            if (s.depth <= 0)
             {
-                ended = true;
+                s.ended = true;
             }
             else
             {
@@ -637,37 +666,38 @@ namespace BX.SJ
                     case SJType.Array:
                         break;
                     case SJType.Object:
-                        expect = Expect.Key;
+                        s.expect = Expect.Key;
                         break;
 
                     default:
                         Error = $"Invalid top state type {top.type}";
                         return false;
                 }
-                if (top.index > 0) expect |= Expect.Comma;
+                if (top.index > 0) s.expect |= Expect.Comma;
             }
 
             PrepareEndValue(prevIndex);
-            fmtExpect = FormatExpect.NewlineIndent;
+            s.fmtExpect = FormatExpect.NewlineIndent;
 
             Append('}');
-            count++;
+
 
             return true;
         }
         public bool BeginArray()
         {
-            if (ended)
+            ref var s = ref S;
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
             }
-            if ((expect & Expect.Key) == Expect.Key)
+            if ((s.expect & Expect.Key) == Expect.Key)
             {
                 Error = "Expected writing object key";
                 return false;
             }
-            if (maxDepth > 0 && depth >= maxDepth)
+            if (maxDepth > 0 && s.depth >= maxDepth)
             {
                 Error = $"Exceeded max write depth '{maxDepth}'";
                 return false;
@@ -675,49 +705,47 @@ namespace BX.SJ
 
             PrepareValue();
             Append('[');
-            count++;
 
-            expect = Expect.None;
-            fmtExpect = FormatExpect.NewlineIndent;
+            s.expect = Expect.None;
+            s.fmtExpect = FormatExpect.NewlineIndent;
 
-            PushState(SJType.Array);
+            s.Push(SJType.Array);
             return true;
         }
         public bool EndArray()
         {
-            if (ended)
+            ref var s = ref S;
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
             }
-            if ((expect & Expect.Key) == Expect.Key)
+            if ((s.expect & Expect.Key) == Expect.Key)
             {
                 Error = "Expected writing object key";
                 return false;
             }
-            if ((expect & Expect.Comma) != Expect.Comma)
+            if ((s.expect & Expect.Comma) != Expect.Comma && !allowTrailingComma)
             {
-                // We are write only. In future I may add record the last comma,
-                // roll back until it, replace it with whitespace and then proceed.
                 Error = "Trailing comma written - the comment functions may cause this, if no end of content is specified.";
                 return false;
             }
-            ref State top = ref PeekState();
+            ref var top = ref S.Peek();
             if (!top.Valid || top.type != SJType.Array)
             {
                 Error = $"Invalid EndObject for toplevel with type '{top.type}', expected Array";
                 return false;
             }
 
-            expect = Expect.None;
+            s.expect = Expect.None;
 
             int prevIndex = top.index;
-            PopState();
-            top = ref PeekState();
+            s.Pop();
+            top = ref s.Peek();
 
-            if (depth <= 0)
+            if (s.depth <= 0)
             {
-                ended = true;
+                s.ended = true;
             }
             else
             {
@@ -726,27 +754,26 @@ namespace BX.SJ
                     case SJType.Array:
                         break;
                     case SJType.Object:
-                        expect = Expect.Key;
+                        s.expect = Expect.Key;
                         break;
 
                     default:
                         Error = $"Invalid top state type {top.type}";
                         return false;
                 }
-                if (top.index > 0) expect |= Expect.Comma;
+                if (top.index > 0) s.expect |= Expect.Comma;
             }
 
             PrepareEndValue(prevIndex);
-            fmtExpect = FormatExpect.NewlineIndent;
+            s.fmtExpect = FormatExpect.NewlineIndent;
 
             Append(']');
-            count++;
 
             return true;
         }
 
         /// <summary>
-        /// Write a key, while <see cref="expect"/> has <see cref="Expect.Key"/>.
+        /// Write a key, while <see cref="s.expect"/> has <see cref="Expect.Key"/>.
         /// <b>This method will output the <paramref name="value"/> literally if <paramref name="asString"/> is false.</b>
         /// </summary>
         /// <remarks>
@@ -756,14 +783,15 @@ namespace BX.SJ
         /// <returns>Whether if the write was successful.</returns>
         public virtual bool WriteLiteralKey(ReadOnlySpan<char> value, bool asString = false)
         {
-            if (ended)
+            ref var s = ref S;
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
             }
-            if ((expect & Expect.Key) != Expect.Key)
+            if ((s.expect & Expect.Key) != Expect.Key)
             {
-                Error = "Did not expect an object key";
+                Error = "Did not s.expect an object key";
                 return false;
             }
             if (!asString)
@@ -774,29 +802,29 @@ namespace BX.SJ
                     return false;
                 }
 
-                WrittenCustomKey = true;
+                s.MarkWrittenCustomKey();
             }
 
             PrepareValue();
-            if (asString) { Append('"'); count++; }
+            if (asString) { Append('"'); }
             if (asString) { WriteEscaped(value, asciiOnly); }
-            else { Append(value); count += value.Length; }
-            if (asString) { Append('"'); count++; }
-            Append(':'); count++;
+            else { Append(value);  }
+            if (asString) { Append('"'); }
+            Append(':');
 
             if (indentSize > 0)
             {
                 Append(' ');
-                count++;
+
             }
 
-            expect = Expect.Value;
-            fmtExpect = FormatExpect.None;
+            s.expect = Expect.Value;
+            s.fmtExpect = FormatExpect.None;
 
             return true;
         }
         /// <summary>
-        /// Write a key, while <see cref="expect"/> has <see cref="Expect.Key"/>.
+        /// Write a key, while <see cref="s.expect"/> has <see cref="Expect.Key"/>.
         /// </summary>
         /// <remarks>
         /// Base implementation <b>does not check duplicate keys for the time being within the depth..</b>
@@ -848,21 +876,22 @@ namespace BX.SJ
         /// <returns>Whether if the write was successful.</returns>
         public virtual bool WriteComment(ReadOnlySpan<char> data, char pad = ' ', bool hasNextValue = false, bool newlineImmediately = false)
         {
+            ref var s = ref S;
             if (!allowComments)
             {
                 Error = "Cannot write comments on this writer, enable 'allowComments'";
                 return false;
             }
 
-            WrittenComment = true;
+            s.MarkWrittenComment();
             PrepareCommentValue(hasNextValue);
 
-            Append("/*"); count += 2;
+            Append("/*"); 
             for (int i = -1; i <= data.Length; i++)
             {
                 if (i < 0 || i >= data.Length)
                 {
-                    if (pad != 0 && pad != '\r' && pad != '\n') { Append(pad); count++; }
+                    if (pad != 0 && pad != '\r' && pad != '\n') { Append(pad); }
                     continue;
                 }
 
@@ -870,27 +899,27 @@ namespace BX.SJ
                 if (c == '*' && (i < (data.Length - 1) ? data[i + 1] : '\0') == '/')
                 {
                     // Very fun escape action (Write as '*\/' instead of '*/' which ends comment)
-                    Append(c); count++;
-                    Append('\\'); count++;
+                    Append(c);
+                    Append('\\');
                     continue;
                 }
 
-                Append(c); count++;
+                Append(c);
                 if (c == '\n')
                 {
-                    WriteIndent(depth);
+                    WriteIndent(s.depth);
                 }
             }
-            Append("*/"); count += 2;
+            Append("*/"); 
 
-            fmtExpect = FormatExpect.None;
+            s.fmtExpect = FormatExpect.None;
             if (indentSize > 0)
             {
-                fmtExpect = FormatExpect.NewlineIndent;
+                s.fmtExpect = FormatExpect.NewlineIndent;
                 if (newlineImmediately)
                 {
-                    Append('\n'); count++;
-                    fmtExpect &= ~FormatExpect.Newline;
+                    Append('\n');
+                    s.fmtExpect &= ~FormatExpect.Newline;
                 }
             }
 
@@ -914,44 +943,45 @@ namespace BX.SJ
         /// <returns>Whether if the write was successful.</returns>
         public virtual bool WriteCommentLine(ReadOnlySpan<char> data, char prefixPad = ' ', bool hasNextValue = false)
         {
+            ref var s = ref S;
             if (!allowComments)
             {
                 Error = "Cannot write comments on this writer, enable 'allowComments'";
                 return false;
             }
-            if (depth > 0 && indentSize <= 0)
+            if (s.depth > 0 && indentSize <= 0)
             {
                 return WriteComment(data, prefixPad, hasNextValue);
             }
 
-            WrittenComment = true;
+            s.MarkWrittenComment();
             PrepareCommentValue(hasNextValue);
 
-            Append("//"); count += 2;
+            Append("//"); 
             for (int i = -1; i < data.Length; i++)
             {
                 if (i < 0)
                 {
-                    if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Append(prefixPad); count++; }
+                    if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Append(prefixPad); }
                     continue;
                 }
 
                 char c = data[i];
-                Append(c); count++;
+                Append(c);
                 if (c == '\n')
                 {
-                    WriteIndent(depth);
-                    Append("//"); count += 2;
-                    if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Append(prefixPad); count++; }
+                    WriteIndent(s.depth);
+                    Append("//"); 
+                    if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Append(prefixPad); }
                 }
             }
 
-            fmtExpect = FormatExpect.NewlineIndent;
+            s.fmtExpect = FormatExpect.NewlineIndent;
             // something something FormatExpect is done after Expect tokens and this is whitespace sensitive
-            if (depth > 0 && (expect & Expect.Comma) == Expect.Comma)
+            if (s.depth > 0 && (s.expect & Expect.Comma) == Expect.Comma)
             {
-                Append('\n'); count++;
-                fmtExpect &= ~FormatExpect.Newline;
+                Append('\n');
+                s.fmtExpect &= ~FormatExpect.Newline;
             }
 
             return true;
@@ -969,92 +999,88 @@ namespace BX.SJ
         /// <returns>Whether if the write was successful.</returns>
         public virtual bool WriteLiteralValue(ReadOnlySpan<char> data)
         {
-            if (ended)
+            ref var s = ref S;
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
             }
-            if ((expect & Expect.Key) == Expect.Key)
+            if ((s.expect & Expect.Key) == Expect.Key)
             {
                 Error = "Expected writing object key, got WriteLiteral";
                 return false;
             }
 
             PrepareValue();
-
             Append(data);
-            count += data.Length;
 
-            if (depth <= 0)
+            if (s.depth <= 0)
             {
                 // Value is top level
-                ended = true;
+                s.ended = true;
             }
             else
             {
-                var t = PeekState().type;
+                var t = s.Peek().type;
                 switch (t)
                 {
                     case SJType.Object:
-                        expect = Expect.Key | Expect.Comma;
+                        s.expect = Expect.Key | Expect.Comma;
                         break;
                     case SJType.Array:
-                        expect = Expect.Value | Expect.Comma;
-                        break;
+                        s.expect = Expect.Value | Expect.Comma;
+                        break; 
                     default:
                         Error = $"Invalid top level type {t}";
                         return false;
                 }
             }
-            fmtExpect = FormatExpect.NewlineIndent;
+            s.fmtExpect = FormatExpect.NewlineIndent;
 
             return true;
         }
         public virtual bool WriteString(ReadOnlySpan<char> value)
         {
+            ref var s = ref S;
             // This one does some things different enough that it can't be "WriteLiteral"
-            if (ended)
+            if (s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
             }
-            if ((expect & Expect.Key) == Expect.Key)
+            if ((s.expect & Expect.Key) == Expect.Key)
             {
                 // eh sure, works, similar intent
                 return WriteKey(value);
             }
 
             PrepareValue();
-
             Append('"');
-            count++;
 
             WriteEscaped(value, asciiOnly);
-
             Append('"');
-            count++;
 
-            if (depth <= 0)
+            if (s.depth <= 0)
             {
-                ended = true;
+                s.ended = true;
             }
             else
             {
-                var t = PeekState().type;
+                var t = s.Peek().type;
                 switch (t)
                 {
                     case SJType.Object:
-                        expect = Expect.Key | Expect.Comma;
+                        s.expect = Expect.Key | Expect.Comma;
                         break;
                     case SJType.Array:
-                        expect = Expect.Value | Expect.Comma;
+                        s.expect = Expect.Value | Expect.Comma;
                         break;
                     default:
                         Error = $"Invalid top level type {t}";
                         return false;
                 }
             }
-            fmtExpect = FormatExpect.NewlineIndent;
+            s.fmtExpect = FormatExpect.NewlineIndent;
 
             return true;
         }
@@ -1225,17 +1251,13 @@ namespace BX.SJ
         /// <summary>
         /// Shows a simple preview of the current state.
         /// </summary>
-        public override string ToString() => $"[{base.ToString()}] count={count}, error={Error}, top={{{PeekState()}}}";
+        public override string ToString() => $"[{base.ToString()}] state=({S}) error={Error}";
 
         public virtual void Reset()
         {
-            count = depth = 0;
-            expect = Expect.None;
-            fmtExpect = FormatExpect.None;
-            ended = false;
-            WrittenCustomValue = WrittenCustomKey = WrittenComment = false;
+            S.Reset();
             Error = null;
         }
-#pragma warning restore IDE0057 // Unity does not support System.Range
+#pragma warning restore IDE0057 // ***** does not support System.Range
     }
 }

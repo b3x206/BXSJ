@@ -81,21 +81,21 @@ public static class WriterTester
     public static bool WriteTest(SJWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        if (writer.depth <= 0)
+        if (writer.S.depth <= 0)
         {
             throw new ArgumentException("Can't write test values to top level object.", nameof(writer));
         }
 
-        int startingIndex = writer.PeekState().index;
-        void CheckWriterIndex() => Assert.AreEqual(++startingIndex, writer.PeekState().index, "Expected write to increase top level element counter index");
+        int startingIndex = writer.S.Peek().index;
+        void CheckWriterIndex() => Assert.AreEqual(++startingIndex, writer.S.Peek().index, "Expected write to increase top level element counter index");
 
         bool success = string.IsNullOrEmpty(writer.Error);
-        switch (writer.PeekState().type)
+        switch (writer.S.Peek().type)
         {
             case SJType.Object:
                 {
                     // There isn't any checks for duplicate keys.. Be careful!
-                    if ((writer.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
+                    if ((writer.S.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
                     {
                         Console.WriteLine($"The writer {writer} was expecting a value. Setting that key null.");
                         success = success && writer.WriteNull();
@@ -160,7 +160,7 @@ public static class WriterTester
                 }
             case SJType.Array:
                 {
-                    if ((writer.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
+                    if ((writer.S.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
                     {
                         Console.WriteLine(
                             $"The writer {writer} was expecting a value." +
@@ -200,7 +200,7 @@ public static class WriterTester
                     break;
                 }
             default:
-                throw new ArgumentException($"Unexpected top level type {writer.PeekState().type}", nameof(writer));
+                throw new ArgumentException($"Unexpected top level type {writer.S.Peek().type}", nameof(writer));
         }
 
         return success;
@@ -208,16 +208,16 @@ public static class WriterTester
     public static bool WriteTestJSC(SJWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        if (writer.depth <= 0)
+        if (writer.S.depth <= 0)
         {
             throw new ArgumentException("Can't write test values to top level object.", nameof(writer));
         }
         writer.allowComments = true;
         bool success = string.IsNullOrEmpty(writer.Error);
 
-        int startingIndex = writer.PeekState().index;
+        int startingIndex = writer.S.Peek().index;
         void CheckWriterIndex() => Assert.AreEqual(
-            ++startingIndex, writer.PeekState().index, "Expected write to increase top level element counter index"
+            ++startingIndex, writer.S.Peek().index, "Expected write to increase top level element counter index"
         );
         int commentCount = 0;
         void WriteCommentLine(bool expectValue = false) => success = success && writer.WriteCommentLine(
@@ -229,15 +229,15 @@ public static class WriterTester
 
         // My poor Writer.. My poor writer..
         WriteComment();
-        switch (writer.PeekState().type)
+        switch (writer.S.Peek().type)
         {
             default:
-                throw new ArgumentException($"Unexpected top level type {writer.PeekState().type}", nameof(writer));
+                throw new ArgumentException($"Unexpected top level type {writer.S.Peek().type}", nameof(writer));
 
             case SJType.Object:
                 {
                     // There isn't any checks for duplicate keys.. Be careful!
-                    if ((writer.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
+                    if ((writer.S.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
                     {
                         Console.WriteLine($"The writer {writer} was expecting a value. Setting that key null.");
                         success = success && writer.WriteNull();
@@ -331,7 +331,7 @@ public static class WriterTester
                 }
             case SJType.Array:
                 {
-                    if ((writer.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
+                    if ((writer.S.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
                     {
                         Console.WriteLine(
                             $"The writer {writer} was expecting a value." +
@@ -398,14 +398,14 @@ public static class WriterTester
         void WriteComment(bool expectValue = false) => writer.WriteComment($"Comment {++commentCount} */ :)", hasNextValue: expectValue);
         void WriteCommentLine(bool expectValue = false) => writer.WriteCommentLine($"Comment {++commentCount} :) //", hasNextValue: expectValue);
 
-        switch (writer.PeekState().type)
+        switch (writer.S.Peek().type)
         {
             default:
-                throw new ArgumentException($"Unexpected top level type {writer.PeekState().type}", nameof(writer));
+                throw new ArgumentException($"Unexpected top level type {writer.S.Peek().type}", nameof(writer));
 
             case SJType.Object:
                 {
-                    if (!writer.expect.HasFlag(SJWriter.Expect.Key)) writer.WriteNull();
+                    if (!writer.S.expect.HasFlag(SJWriter.Expect.Key)) writer.WriteNull();
 
                     // Test the following pattern for Object:
                     // [comment] [line] "key": "value"
@@ -462,7 +462,7 @@ public static class WriterTester
 
     public static bool WriteMaxTestDepth(SJWriter writer)
     {
-        writer.maxDepth = Math.Max(writer.maxDepth, 128);
+        writer.maxDepth = (ushort)(writer.maxDepth > 128 ? writer.maxDepth : 128);
         return WriteTestDepth(writer, writer.maxDepth + 1);
     }
     public static bool WriteTestDepth(SJWriter writer, int depth)

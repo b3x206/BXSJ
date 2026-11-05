@@ -28,8 +28,8 @@ namespace BX.SJ
             sb = new StringBuilder(capacity, maxCapacity);
         }
 
-        public override void Append(char c) => sb.Append(c);
-        public override void Append(ReadOnlySpan<char> s) => sb.Append(s);
+        protected override void DoAppend(char c) => sb.Append(c);
+        protected override void DoAppend(ReadOnlySpan<char> s) => sb.Append(s);
 
         public override bool CanReadData => true;
         public override string ReadData() => sb.ToString();

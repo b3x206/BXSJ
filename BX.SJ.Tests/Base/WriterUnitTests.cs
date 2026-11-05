@@ -64,7 +64,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             else
             {
                 // Reading written data must equal written count
-                Assert.AreEqual(writer.count, writer.ReadData().Length);
+                Assert.AreEqual(writer.S.count, writer.ReadData().Length);
             }
         }
         finally
@@ -109,14 +109,15 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         static void ValidateResetState(TWriter w)
         {
             Assert.That.IsNullOrEmpty(w.Error, "Error state must reset on Reset");
-            Assert.AreEqual(0, w.count, "Writer count must be zero after reset");
-            Assert.AreEqual(0, w.depth, "Writer depth must be zero after reset");
-            Assert.AreEqual(SJWriter.Expect.None, w.expect, "Writer expectation must be none for root");
-            Assert.AreEqual(SJWriter.FormatExpect.None, w.fmtExpect, "Writer format expectation must be none for root");
-            Assert.IsFalse(w.ended, "Writer finish state must be false");
-            Assert.IsFalse(w.WrittenComment, "Writer comment state must be false");
-            Assert.IsFalse(w.WrittenCustomKey, "Writer custom key state must be false");
-            Assert.IsFalse(w.WrittenCustomValue, "Writer custom value state must be false");
+            Assert.AreEqual(0, w.S.count, "Writer count must be zero after reset");
+            Assert.AreEqual(0, w.S.depth, "Writer depth must be zero after reset");
+            Assert.AreEqual(SJWriter.Expect.None, w.S.expect, "Writer expectation must be none for root");
+            Assert.AreEqual(SJWriter.FormatExpect.None, w.S.fmtExpect, "Writer format expectation must be none for root");
+            Assert.IsFalse(w.S.ended, "Writer finish state must be false");
+            Assert.IsFalse(w.S.WrittenComment, "Writer comment state must be false");
+            Assert.IsFalse(w.S.WrittenCustomKey, "Writer custom key state must be false");
+            Assert.IsFalse(w.S.WrittenCustomValue, "Writer custom value state must be false");
+            Assert.IsFalse(w.S.WrittenType, "Writer custom value state must be false");
         }
 
         var writer = CreateWriter();
@@ -133,16 +134,16 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
                 {
                     // TODO : Add other keys and write in 384 bit format :)
                     writer.WriteLong(4, format: "x");
-                    Assert.IsTrue(writer.WrittenCustomValue, "Custom value was written, but the state hasn't changed.");
+                    Assert.IsTrue(writer.S.WrittenCustomValue, "Custom value was written, but the state hasn't changed.");
                     writer.WriteString("Just pick your favourite numbers <= 256! byte.MaxValue is plenty safe.");
                 }
 
                 writer.WriteCommentLine("Is it true?", hasNextValue: true);
-                Assert.IsTrue(writer.WrittenComment, "Comment was written, but the state hasn't changed.");
+                Assert.IsTrue(writer.S.WrittenComment, "Comment was written, but the state hasn't changed.");
 
                 writer.WriteKeyBool(true);
                 writer.WriteBool(true);
-                Assert.IsTrue(writer.WrittenCustomKey, "Custom key was written, but the state hasn't changed.");
+                Assert.IsTrue(writer.S.WrittenCustomKey, "Custom key was written, but the state hasn't changed.");
             }
 
             // Cause error
@@ -209,7 +210,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             {
                 string? data = writer.ReadData();
                 // Validate
-                Assert.AreEqual(writer.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
+                Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
                 ReaderTester.Read(new SJStringReader(data));
                 // And show
                 Console.WriteLine(data);
@@ -422,7 +423,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             {
                 string? data = writer.ReadData();
                 // Validate
-                Assert.AreEqual(writer.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
+                Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
                 ReaderTester.ReadJSC(new SJStringReader(data));
                 // And show
                 Console.WriteLine(data);
@@ -464,7 +465,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             if (writer.CanReadData)
             {
                 string? data = writer.ReadData();
-                Assert.AreEqual(writer.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
+                Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
                 var r = new SJStringReader(data) { ThrowOnError = true };
                 ReaderTester.ReadJSC(r);
                 Console.WriteLine(data);
