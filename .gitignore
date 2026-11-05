@@ -63,6 +63,9 @@ nunit-*.xml
 .vs/
 
 # Exclude explicitly
-SJ/DocTesting.cs
-SJ.Tests/DocTesting.cs
-SJ.Sandbox/*
+BX.SJ/DocTesting.cs
+BX.SJ.Tests/DocTesting.cs
+BX.SJ.Benchmark/DocTesting.cs
+BX.SJ.Benchmark/BenchmarkDotNet.Artifacts/*
+BX.SJ.Sandbox/*
+

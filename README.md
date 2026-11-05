@@ -4,27 +4,23 @@ JSON compatible parser + writer for C#.
 
 Loosely based on [sj.h](https://github.com/rxi/sj.h).
 
+This branch (`devel`) is where development is done, before getting packed into "two files". Development of the repository is done by using `git worktree` on seperate directories. This branch can have incomplete code pushed into it, so use with caution! Only the `devel` commits that I tag are "complete"<sup>[Notes##3](#notes)</sup>.
+
 ## Notes
 
 1. This will likely _never be_ a **"100% correct" parser**, also what it does with the data (outside of the JSON tokens) ultimately depends on what you read from the parsed chunks. <br>
-  It also _may fail_ on correct or _may not fail_ on wrong sequences. **Use at your own risk.**
+  It also _may fail_ on correct or _may not fail_ on wrong sequences. **Use at your own risk.** <br>
 
-2. Because of
-  * C#-ifying the code
-  * Improving "correctness"
-  * And adding comment support.
-  * With more tests, as it will be (one of) the backbone(s) for my save system. <br>
-  The code is **more complicated and less concise.**
-
-3.  "Stable" SJ releases are the ones that are tagged with semver. <br>
+2.  "Stable" SJ releases are the ones that are tagged with semver. <br>
 _(all tests pass, benchmarks are consistent, slightly worse or slightly improved and it doesn't regress too much)_ <br>
 
-4. Development is mainly done in the `devel` branch.
+3. Contrary to it's base or name, it is _not simple_ and oop..
 
 ## Examples
 
 ### Reader
-Use the [`SJStringReader`](SJStringReader.cs) class to get started.
+
+Use the [`SJStringReader`](./SJ/SJStringReader.cs) class to get started.
 
 ```cs
 // A basic object deserialization example. Non-recursive.
@@ -61,85 +57,6 @@ for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
     Console.WriteLine($"Saved Position : {ReadVector3(reader, root)}");
 }
 ```
-
-<details>
-
-<summary>
-If processing comments are desired, you should read the document like this:<br>
-<strong>In fact, you should read most documents like this.</strong>
-</summary>
-
-```cs
-using BX.SJ;
-using System;
-
-static void InspectConfigData(SJReader reader, SJReader.Value root)
-{
-    if (root.type != SJType.Object) throw new ArgumentException("Config node type must be object", nameof(root));
-
-    string entrySum = "";
-    SJReader.Value key = SJReader.Value.Error();
-    while (reader.IterateObjectEntries(root, out var value))
-    {
-        switch (value.type)
-        {
-            case SJType.Error:
-                return;
-
-            case SJType.Comment:
-                const string SummaryTk = "@summary";
-                var comment = value.Slice(2, value.Length - 2).Trim(); // Skip // or /*
-                if (comment.StartsWith(SummaryTk))
-                {
-                    // Skip */
-                    if (comment.EndsWith("*/"))
-                    {
-                        comment = comment.Slice(0, comment.Length - 2).Trim();
-                    }
-
-                    entrySum = new string(comment.Slice(SummaryTk.Length).Trim());
-                }
-                continue;
-            case SJType.Key:
-                key = value;
-                continue;
-
-            default:
-                Console.WriteLine($"Summary: {entrySum}\n  {new string(key.Slice())} = {new string(value.Slice())}");
-                continue;
-        }
-    }
-}
-
-const string data = @"// The problem with comments is that they can appear anywhere.
-// Which makes some things that were implicit, explicit now.
-{
-    // Comments in JSON doesn't make much sense actually. Just use ini
-    /* @summary This field is 42, and actually you can put this within the JSON, but whatever.. */
-    ""is42"": 42,
-    /* @summary And this field is 67, you know why.. */
-    ""is67"": 67 // its the short form content number! 
-}
-// And to validate EOF, do this (it was implicit with the last Read()) ↓
-";
-var reader = new SJStringReader(data)
-{
-    allowComments = true,
-    captureComments = true // Opt-in to the new behaviour.
-};
-
-for (var root = reader.Read(); !reader.ended; root = reader.Read())
-{
-    // Skip root level comments if they are irrelevant
-    if (root.type == SJType.Comment)
-        continue;
-
-    InspectConfigData(reader, root);
-}
-```
-
-</details>
-
 ---
 
 Unlike the original SJ, there is also a string escaping implementation if desired:
@@ -154,6 +71,8 @@ switch (SJReader.Value.type)
     {
         string result = SJEscape.Unescape(SJReader.Value.Slice());
         // `SJEscape.Escape(string | ReadOnlySpan<char>)` is for the other way around...
+        // If you want to allocate less, use SJEscape.Unescape with the append delegate.
+        // In future I may add something like "Escaper" with it's state like "Encoder"
         break;
     }
 }
@@ -162,7 +81,8 @@ switch (SJReader.Value.type)
 This is used as the default string escape for the Writer.
 
 ### Writer
-Use the [`SJStringWriter`](SJStringWriter.cs) class to get started.
+
+Use the [`SJStringWriter`](SJ/SJStringWriter.cs) class to get started. This allows structured writing with validations.
 
 ```cs
 using BX.SJ;
@@ -196,7 +116,12 @@ position = ReadVector3(reader, reader.Read());
 Console.WriteLine($"Saved Position : {data}, Read Position : {position}");
 ```
 
+<!--
 ### Benchmarks
+
+(This is outdated, it should be done again in a later time with fixes. Or I will remove it)
+(It works, thus it is a good code. BXSJ is _very_ singlethreaded and does not read into a temporary buffer / batch process with a defined word size to maybe speed up things. It reads whatever is in memory)
+
 * Read = Read a [small file (valid.json)](TestFiles/valid.json) 256 times
 * ReadLarge = Read a [large file (5mb.json)](TestFiles/5mb.json) 32 times
 * Write = Write few kb of JSON (`{ "random_key": "random_value", ... 512 entries }`) 256 times
@@ -240,19 +165,30 @@ BenchmarkDotNet v0.15.8, Linux Debian GNU/Linux 13 (trixie)
 Also, the speed could be worse than this as other code will run alongside it.
 
 _I speculate that_ the lack of performance could be caused by excessive bound checking + redundant state for the Reader, the Escape that Writer does and other many factors (using netstandard2 build could also contribute too, maybe.)..
+-->
 
 ---
 
-More examples are in the [`./Examples`](./Examples) directory. <br>
-These files are not included for compiling in the .csproj, you can copy and paste it normally.
+More examples are in the [`./BX.SJ/Examples`](./BX.SJ/Examples) directory. <br>
+These files are not included for compiling, you can copy and paste it normally.
 
-However, if these are not suitable for your usage, you can simply delete the files.
+You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of the tests are "convoluted", so it's better to use the examples.
+
+---
+
+## But why?
+* Because it's for older versions of Unity, Godot and other C# runtimes without good access to System.Text.Json or other JSON libraries.
+* Newtonsoft and other behemoth JSON libraries (incl. the System.Text.Json) are not really friendly to game engine runtimes (eg. AOT, Assembly load/unload friendliness, etc.). Source generators solve this but it's generally not a simple "plug and play" solution (meaning I don't need it or it's out of scope for this repository).
+* It's meant to be simple and stable but low level meaning it can be a pinned dependency. (Large updates will always increment versions and I will try my best to make first releases not need minor updates)
+* And why is all of the state public? <br>
+  \> I like not using reflection to access object's properties. Of course, it is "more dangerous" and prone to misuse, but it allows for better extensions and analysis (especially if you distribute it in a way hard to change the library like "dll" or "upm package").
 
 ## Changelog
 ### - 1.0.0
 * Initial release as "SJ".
-* Can parse large valid JSON documents and "jsonc" (Comments not captured).
-* Released with the same Reader and Writer.
+* Somewhat janky unit tests, implicit/automated validation of files that could be partially broken (is too permissive).
+* But still functional and can technically parse large valid JSON documents and JSC (Comments were not captured).
+* Released with the `SJStringReader` and `SJStringWriter`.
 
 ### - 2.0.0
 * Rename to "BXSJ"
@@ -270,6 +206,17 @@ However, if these are not suitable for your usage, you can simply delete the fil
 **▶ SJEscape**
 * String escaping is now faster
 * Removed UCS-2 style escaping surrogate pairs (for speed reasons)
+
+**▶ Tests**
+* Allow supplying of a custom class inheriting SJ classes
+* Add more coverage
+* Ensure the logic matches the usage and changes, doing logic now requires 
+
+**▶ Benchmarks**
+* Allow supplying of a custom class inheriting SJ classes
+* Improve writer benchmark
+
+The inner workings have been reworked partially..
 
 <details>
 
@@ -410,7 +357,117 @@ writer.WriteCommentLine("This is a comment that starts with //!");
 // can "false assert" that. **However it won't capture any indirect way of writing comments, so be careful!**
 ```
 
+6. Unit tests have been changed to support custom `SJReader` and `SJWriter` classes (for extensions in future), with more coverage and cases to test.
+```cs
+namespace MySJEx.Tests;
+
+// Reader
+[TestClass]
+public sealed class CustomReaderTests : ReaderUnitTests<SJCustomReader>
+{
+    public override SJCustomReader CreateFromString(string data) => new(new MemoryStream(Encoding.UTF8.GetBytes(data)), Encoding.UTF8);
+    public override SJCustomReader CreateFromStream(Stream data, Encoding? enc) => new(data, enc);
+    // Some other bootstrap functions can be changed via overriding
+
+    // Some optional tests are declared "virtual" so that you can apply [TestMethod]
+    [TestMethod]
+    public override void TestDisposeTwice()
+    {
+        base.TestDisposeTwice();
+    }
+}
+
+// Writer
+[TestClass]
+public sealed class CustomWriterTests : WriterUnitTests<SJCustomWriter>
+{
+    public override SJCustomWriter CreateWriter() => new();
+    // Some other bootstrap functions can be changed via overriding
+
+    // (similar optional tests exist on Writer)
+}
+```
+
 From 1.x, everything else is more or less the same, except the inner workings of the reader and writer. <br>
 **Note:** However in the future releases, implicit behaviour _could be_ removed. It is recommended to use the new way (with `for`) of iterating objects and arrays.
+
+</details>
+
+### - 3.0.0
+**▶ SJReader**
+* Allow `SJType.Key` values outside of `SJType.String`, that aren't recursive. The slices are provided as is, but requires some minor code changes. <br>
+  (can use `SJReader.Value.prevType` to check whether if the type was formerly bare [not `String`])
+* Allow trailing commas (`{ "a": b, }`)
+* More tolerant with tokens of type `SJType.Number`. <br>
+  (octal [`0o`], hexadecimal [`0x`] and binary [`0b`] is now allowed, if prefixed with their respective sequence)
+* `PeekEntryCount` to peek the entries within any `SJType.Object` or `SJType.Array`.
+* ~~`SaveState`/`LoadState` to save / load `SJReader` state.~~ Planned for 3.1 or 4.x
+
+**▶ SJWriter**
+* Rename `finish` to `ended` for consistency with `SJReader`.
+* Better checks for non-standard JSON outputs (`WrittenCustomKey`, `WrittenCustomValue`, etc.)
+* More checks to avoid accidental "unparseable by `SJReader`" output (specifically for number literals).
+* Allow prefixes + automatic prefixing in formatted number writing.
+* Reduce formatted number writing boilerplate (by resorting to `static` local lambdas).
+* Built-in format buffer that moves from `stackalloc -> char[] -> ArrayPool<char>.Shared` (reuse of writer is better)
+
+**▶ New**
+* `SJStreamReader` to read from a `System.IO.Stream` with encoding.
+* `SJStreamWriter` to write into a `System.IO.Stream` with encoding.
+* `SJLinearWriter` to write into a contiguous region of `char[]` <br>
+  (`StringBuilder` uses chunks, `SJStringReader` is almost matching to this although it does not use a typed `System.Array`).
+> (These are backports from my other project `BXSave`, due to the unnecessary testing complexity it brings to that)
+
+<details>
+
+<summary>• Migration from 2.x -> 3.x </summary>
+
+1. Rename all instances of `SJWriter.finish` to `SJWriter.ended`
+```cs
+var writer = new SJStringWriter();
+writer.WriteNumber(1234);
+
+Console.WriteLine(writer.finish); // ❌
+Console.WriteLine(writer.ended);  // ✅
+```
+
+2. `SJWriter.WriteKey(ReadOnlySpan<char>)` is no longer `virtual`, override `WriteLiteralKey(ReadOnlySpan<char>, bool)`
+```cs
+public class MyCustomWriter : SJWriter
+{
+    public override bool WriteKey(ReadOnlySpan<char> name) { ... }                                // ❌
+    public override bool WriteLiteralKey(ReadOnlySpan<char> value, bool asString = false) { ... } // ✅ 
+}
+```
+
+3. `State` stack methods for respective Reader/Writer is no longer `virtual`. This is because 4.x could bring a state / data source related rework. If previous behaviour is desired, revert this change.
+  (I personally do not use it and I'm not really extending SJ fully for BXSave, so it isn't necessary)
+```cs
+public union AffectedTypes(SJReader, SJWriter); // Demo purposes, to specify types
+
+public class MyCustomReader : AffectedTypes
+{
+    public override int PushState(State s) {} // ❌, must be removed
+    public override ref State PeekState() {}  // ❌, must be removed
+    public override ref State PopState() {}   // ❌, must be removed
+}
+```
+
+4. BXSJ will no longer contain files generated by a _certain game engine_, this includes the removal of `package.json`, `SJ.asmdef` and the incompatible `.meta` files that it generates. This is to _✨ streamline ✨_ the development of BXSJ. If you would like to use it there, prefer directly incorporating within the working directory or as a submodule with custom commits.
+
+</details>
+
+<details>
+
+<summary>• Plans for 4.x / TODO </summary>
+
+1. [ ] Port tests to xunit as mstest seems somewhat specific to visual studio and can't be ran headless trivially <br>
+  This should also improve the tests and place most logic into one manageable place, instead of repeating redundant logic..
+2. [ ] Rework `State` and other related things to allow saving / loading state.
+   Use `ISJDataReader`/`ISJDataWriter` to write data (composition) instead of using inheritance.
+   (This is already possible with the current setup as nothing is truly `private` within BXSJ,
+   but it should be the main design instead. For the time being though, I do not need such a feature so I will delay it until there..)
+3. [ ] Improve performance by reducing redundant branching/bounds checking and manage state slightly better.
+4. [ ] UTF-8 (byte) reading/writing (Perhaps I could use the 'char' version as a basic UTF-8 version as that only converts the relevant tokens. Though the problem here becomes the slice spans + the endianness of the UTF-16 if I make the internals of BXSJ byte based..)
 
 </details>

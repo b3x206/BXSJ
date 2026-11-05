@@ -1,9 +1,28 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.7.11903.348 stable
+VisualStudioVersion = 18.7.11903.348
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BX.SJ", "BX.SJ.csproj", "{2E4E56C5-1F93-4CA1-B461-8C747E0EE8FA}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BX.SJ", "BX.SJ\BX.SJ.csproj", "{2E4E56C5-1F93-4CA1-B461-8C747E0EE8FA}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BX.SJ.Tests", "BX.SJ.Tests\BX.SJ.Tests.csproj", "{F778193B-A617-4A1F-9F4A-366867CAEB79}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BX.SJ.Benchmark", "BX.SJ.Benchmark\BX.SJ.Benchmark.csproj", "{B9AE6F0C-8AAE-45A7-BE81-CF0DD9D9F3FE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "TestFiles", "TestFiles", "{4ED46B2C-E3F0-4F7F-BA9E-1793AB1E37AB}"
+	ProjectSection(SolutionItems) = preProject
+		TestFiles\5mb.json = TestFiles\5mb.json
+		TestFiles\5mb.min.json = TestFiles\5mb.min.json
+		TestFiles\binary.json = TestFiles\binary.json
+		TestFiles\missing_colon.json = TestFiles\missing_colon.json
+		TestFiles\unterminated.json = TestFiles\unterminated.json
+		TestFiles\valid.json = TestFiles\valid.json
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tools", "Tools", "{C75F2726-B417-4490-95DF-B5ADA85B4894}"
+	ProjectSection(SolutionItems) = preProject
+		Tools\BuildPrimaryBranch.ps1 = Tools\BuildPrimaryBranch.ps1
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +34,14 @@ Global
 		{2E4E56C5-1F93-4CA1-B461-8C747E0EE8FA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2E4E56C5-1F93-4CA1-B461-8C747E0EE8FA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2E4E56C5-1F93-4CA1-B461-8C747E0EE8FA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F778193B-A617-4A1F-9F4A-366867CAEB79}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F778193B-A617-4A1F-9F4A-366867CAEB79}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F778193B-A617-4A1F-9F4A-366867CAEB79}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F778193B-A617-4A1F-9F4A-366867CAEB79}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B9AE6F0C-8AAE-45A7-BE81-CF0DD9D9F3FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B9AE6F0C-8AAE-45A7-BE81-CF0DD9D9F3FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B9AE6F0C-8AAE-45A7-BE81-CF0DD9D9F3FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B9AE6F0C-8AAE-45A7-BE81-CF0DD9D9F3FE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
