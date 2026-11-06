@@ -133,10 +133,7 @@ namespace BX.SJ
                     }
                     finally
                     {
-                        if (rentedTempBuffer != null)
-                        {
-                            ArrayPool<byte>.Shared.Return(rentedTempBuffer, true);
-                        }
+                        if (rentedTempBuffer != null) ArrayPool<byte>.Shared.Return(rentedTempBuffer, true);
                     }
                 }
             }
@@ -170,6 +167,8 @@ namespace BX.SJ
                 return;
             }
 
+            // Writes that are written to the base stream (which has it's own buffer)
+            // It's a buffer matroshka
             ReadOnlySpan<char> remaining = s;
             while ((streamCurrent + remaining.Length) > buffer.Length)
             {
@@ -180,7 +179,7 @@ namespace BX.SJ
                 Flush(false, true, false);
             }
 
-            // Unflushed write
+            // Last write that is buffered in this writer (and is not flushed).
             if (remaining.Length > 0)
             {
                 remaining.CopyTo(buffer.AsSpan(streamCurrent));
@@ -231,6 +230,44 @@ namespace BX.SJ
             {
                 stream.Position = sp;
             }
+        }
+        private long[] _streamPositions = new long[DefaultStackSize];
+        protected override void ResizeStateStack(int size)
+        {
+            base.ResizeStateStack(size);
+            System.Array.Resize(ref _streamPositions, size);
+        }
+        public override int PushState()
+        {
+            int baseResult = base.PushState();
+            if (baseResult >= 0) _streamPositions[baseResult] = stream.Position;
+            return baseResult;
+        }
+        public override int PopState()
+        {
+            int baseResult = base.PopState();
+            if (baseResult >= 0)
+            {
+                // If the encoder is expecting data, we should flush that as well before rolling back.
+                // Does the saved last rollback point in the stream expect a continuation of UTF-16 sequence?
+                // If that is the case, we must also reset the encoder to that point.
+                // Generally, this shouldn't be the case as non-erroreneous sequences always write ASCII tokens,
+                // so erroreneously encoded string cases should just print unicode replacement character,
+                // which will be deleted by the result of this.
+                // Any bug caused by using "WriteLiteral" that isn't caught by the tests are the user's (my) problem.
+                // ------
+                // TODO : To make this faster, We should flush the existing buffer if
+                //        where the rollback position and (the absolute position of) streamCurrent are near
+                //        instead of flushing everything then deleting it.
+                //        Although that has finicky logic so I won't do it as this is simpler.
+                // ------
+                // Because this is an erroreneous case where the position changes I should also flush the encoder.
+                Flush(true, true, true);
+                long pos = _streamPositions[baseResult];
+                stream.Position = pos;
+                stream.SetLength(pos);
+            }
+            return baseResult;
         }
 
         private void Dispose(bool disposing = true)

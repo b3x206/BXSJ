@@ -1,20 +1,21 @@
 ﻿# BX.SJ
 
-JSON compatible parser + writer for C#.
+JSON **compatible** parser + writer for C#.
 
 Loosely based on [sj.h](https://github.com/rxi/sj.h).
 
-This branch (`devel`) is where development is done, before getting packed into "two files". Development of the repository is done by using `git worktree` on seperate directories. This branch can have incomplete code pushed into it, so use with caution! Only the `devel` commits that I tag are "complete"<sup>[Notes##3](#notes)</sup>.
+This branch (`devel`) is where development is done, before getting packed into "two files". Development of the repository is done by using `git worktree` on seperate directories. This branch can have incomplete code pushed into it, so use with caution! Only the `devel` commits that I tag are considered "completed".
 
 ## Notes
 
 1. This will likely _never be_ a **"100% correct" parser**, also what it does with the data (outside of the JSON tokens) ultimately depends on what you read from the parsed chunks. <br>
   It also _may fail_ on correct or _may not fail_ on wrong sequences. **Use at your own risk.** <br>
+  It has **non standard** extensions to the JSON, so it is happy with reading or writing non-standard data.
 
-2.  "Stable" SJ releases are the ones that are tagged with semver. <br>
+2.  "Stable" SJ releases are the ones that are tagged with semver. You will generally see major releases as I generally refactor things and don't backport bugfixes (if there are bugfixes). <br>
 _(all tests pass, benchmarks are consistent, slightly worse or slightly improved and it doesn't regress too much)_ <br>
 
-3. Contrary to it's base or name, it is _not simple_ and oop..
+3. Contrary to it's base or name, it is _not simple_ and is OOP, but whatever, it got like this because of my arbitrary requirements.
 
 ## Examples
 
@@ -120,7 +121,7 @@ Console.WriteLine($"Saved Position : {data}, Read Position : {position}");
 ### Benchmarks
 
 (This is outdated, it should be done again in a later time with fixes. Or I will remove it)
-(It works, thus it is a good code. BXSJ is _very_ singlethreaded and does not read into a temporary buffer / batch process with a defined word size to maybe speed up things. It reads whatever is in memory)
+(It works, thus it is a good code. BXSJ is _very_ singlethreaded and does not read into a temporary buffer / batch process with a defined word size to maybe speed up things. It reads whatever is in memory sequentially. Writer is _faster_ as it's rules are more basic)
 
 * Read = Read a [small file (valid.json)](TestFiles/valid.json) 256 times
 * ReadLarge = Read a [large file (5mb.json)](TestFiles/5mb.json) 32 times
@@ -177,8 +178,8 @@ You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of th
 ---
 
 ## But why?
-* Because it's for older versions of Unity, Godot and other C# runtimes without good access to System.Text.Json or other JSON libraries.
-* Newtonsoft and other behemoth JSON libraries (incl. the System.Text.Json) are not really friendly to game engine runtimes (eg. AOT, Assembly load/unload friendliness, etc.). Source generators solve this but it's generally not a simple "plug and play" solution (meaning I don't need it or it's out of scope for this repository).
+* Because it's for older versions of Godot and other C# runtimes without good access to System.Text.Json or other JSON libraries.
+* Newtonsoft and other larger JSON libraries (incl. the System.Text.Json) are not really friendly to game engine runtimes (eg. AOT, Assembly load/unload friendliness, etc.). Source generators solve this but it's generally not a simple "plug and play" solution (meaning I don't need it or it's out of scope for this repository).
 * It's meant to be simple and stable but low level meaning it can be a pinned dependency. (Large updates will always increment versions and I will try my best to make first releases not need minor updates)
 * And why is all of the state public? <br>
   \> I like not using reflection to access object's properties. Of course, it is "more dangerous" and prone to misuse, but it allows for better extensions and analysis (especially if you distribute it in a way hard to change the library like "dll" or "upm package").
@@ -393,67 +394,122 @@ From 1.x, everything else is more or less the same, except the inner workings of
 
 </details>
 
+**Note** : There has been a supposed "3.x" release with, however it should be treated more as "2.x bugfix with breaking changes". You can use that if you would like to rollback to a version that is simpler with some of these changes.
+
 ### - 3.0.0
 **▶ SJReader**
-* Allow `SJType.Key` values outside of `SJType.String`, that aren't recursive. The slices are provided as is, but requires some minor code changes. <br>
+* [ ] Move all state to `ref State S`.
+  * [ ] Stacked state is moved to `BX.SJ.SJReader+State+Stacked`.
+  * [ ] `PushState`/`PopState` to save / load opaque `SJWriter` state.
+  * [ ] Tests
+* [X] Allow `SJType.Key` values outside of `SJType.String`, that aren't recursive. The slices are provided as is, but requires some minor code changes. <br>
   (can use `SJReader.Value.prevType` to check whether if the type was formerly bare [not `String`])
-* Allow trailing commas (`{ "a": b, }`)
-* More tolerant with tokens of type `SJType.Number`. <br>
+* [X] Allow trailing commas (`{ "a": "b", }`)
+* [X] Allow custom key types (non recursive data for now, `{ 0x21498124: "b", }`)
+* [ ] Allow types on keys or values (`{ (CustomType)0x21498124: (0x1234)"b", }`)
+  (Numbers or type names are allowed, type must pass regex similar to `\([A-Za-z0-9\-_]\)`..)
+* [X] More tolerant with tokens of type `SJType.Number`. <br>
   (octal [`0o`], hexadecimal [`0x`] and binary [`0b`] is now allowed, if prefixed with their respective sequence)
-* `PeekEntryCount` to peek the entries within any `SJType.Object` or `SJType.Array`.
-* ~~`SaveState`/`LoadState` to save / load `SJReader` state.~~ Planned for 3.1 or 4.x
+* [X] `PeekEntryCount` to peek the entries within any `SJType.Object` or `SJType.Array`.
 
 **▶ SJWriter**
-* Rename `finish` to `ended` for consistency with `SJReader`.
-* Better checks for non-standard JSON outputs (`WrittenCustomKey`, `WrittenCustomValue`, etc.)
-* More checks to avoid accidental "unparseable by `SJReader`" output (specifically for number literals).
-* Allow prefixes + automatic prefixing in formatted number writing.
-* Reduce formatted number writing boilerplate (by resorting to `static` local lambdas).
-* Built-in format buffer that moves from `stackalloc -> char[] -> ArrayPool<char>.Shared` (reuse of writer is better)
+* [X] Move all state to `ref State S`.
+  * [X] Rename `finish` to `ended` for consistency with `SJReader`.
+  * [X] Stacked state is moved to `BX.SJ.SJWriter+State+Stacked`.
+  * [X] `PushState`/`PopState` to save / load opaque `SJWriter` state.
+  * [ ] Tests
+* [X] Better checks for non-standard JSON outputs (`WrittenCustomKey`, `WrittenCustomValue`, etc.)
+* [X] More checks to avoid accidental "unparseable by `SJReader`" output (specifically for number literals).
+* [ ] Allow prefixes + automatic prefixing in formatted number writing.
+* Allow _custom key types_, _type writing_ and _trailing commas_ (only happens if `WriteComment()'s hasNextValue` is wrongfully set `true`) <br>
+  (↑ See `SJReader` changes)
+  * [X] Custom key types
+  * [X] Trailing commas
+  * [ ] Custom types
+  * [ ] Tests
+* [X] Reduce formatted number writing boilerplate (by resorting to `static` local lambdas).
+* [X] Built-in format buffer that moves from `stackalloc -> char[] -> ArrayPool<char>.Shared` (reuse of writer is better)
 
 **▶ New**
 * `SJStreamReader` to read from a `System.IO.Stream` with encoding.
 * `SJStreamWriter` to write into a `System.IO.Stream` with encoding.
 * `SJLinearWriter` to write into a contiguous region of `char[]` <br>
   (`StringBuilder` uses chunks, `SJStringReader` is almost matching to this although it does not use a typed `System.Array`).
-> (These are backports from my other project `BXSave`, due to the unnecessary testing complexity it brings to that)
+> (These are backports from my other project named `BXSave`, due to the unnecessary testing complexity it brings to that)
 
 <details>
 
 <summary>• Migration from 2.x -> 3.x </summary>
 
-1. Rename all instances of `SJWriter.finish` to `SJWriter.ended`
+1. All state has been reworked and moved into `S` on both `SJReader` and `SJWriter`.
 ```cs
+var reader = new SJStringReader("67");
+reader.Read();
+
+Console.WriteLine(reader.ended);   // ❌
+Console.WriteLine(reader.S.ended); // ✅
+
 var writer = new SJStringWriter();
 writer.WriteNumber(1234);
 
-Console.WriteLine(writer.finish); // ❌
-Console.WriteLine(writer.ended);  // ✅
+Console.WriteLine(writer.finish);  // ❌
+Console.WriteLine(writer.S.ended); // ✅
+```
+
+State management has been changed, transactional / stacked states are now allowed. You must change your code accordingly if there are any custom `SJReader`/`SJWriter` classes. For example:
+
+```cs
+using BX.SJ;
+
+public sealed class MyCustomWriterOrReader : SJReader | SJWriter
+{
+    // ...
+
+    // For SJReader:
+    // If your source uses seeking + slices that are immediately 
+    // evaluated and are never stored (with address translation),
+    // you must revert it's pointer.
+    // This is the only case that I can think of for SJReader where such an override is needed.
+    // ---
+    // For SJWriter:
+    // Writer generally has a current pointer, which can be seeked if needed for reset.
+    // If seeking is unsupported, you can throw NotSupportedException.
+    private int[] _currentStates = new int[DefaultStackSize];
+    protected override void ResizeStateStack(int size)
+    {
+        base.ResizeStateStack(size);
+        System.Array.Resize(ref _currentStates, size);
+    }
+    public override int PushState()
+    {
+        int baseResult = base.PushState();
+        if (baseResult >= 0) _currentStates[baseResult] = current;
+        return baseResult;
+    }
+    public override int PopState()
+    {
+        int baseResult = base.PopState();
+        if (baseResult >= 0) current = _currentStates[baseResult];
+        return baseResult;
+    }
+    public override void Reset()
+    {
+        base.Reset();
+        current = startPosition;
+    }
+}
 ```
 
 2. `SJWriter.WriteKey(ReadOnlySpan<char>)` is no longer `virtual`, override `WriteLiteralKey(ReadOnlySpan<char>, bool)`
 ```cs
-public class MyCustomWriter : SJWriter
+public sealed class MyCustomWriter : SJWriter
 {
     public override bool WriteKey(ReadOnlySpan<char> name) { ... }                                // ❌
     public override bool WriteLiteralKey(ReadOnlySpan<char> value, bool asString = false) { ... } // ✅ 
 }
 ```
 
-3. `State` stack methods for respective Reader/Writer is no longer `virtual`. This is because 4.x could bring a state / data source related rework. If previous behaviour is desired, revert this change.
-  (I personally do not use it and I'm not really extending SJ fully for BXSave, so it isn't necessary)
-```cs
-public union AffectedTypes(SJReader, SJWriter); // Demo purposes, to specify types
-
-public class MyCustomReader : AffectedTypes
-{
-    public override int PushState(State s) {} // ❌, must be removed
-    public override ref State PeekState() {}  // ❌, must be removed
-    public override ref State PopState() {}   // ❌, must be removed
-}
-```
-
-4. BXSJ will no longer contain files generated by a _certain game engine_, this includes the removal of `package.json`, `SJ.asmdef` and the incompatible `.meta` files that it generates. This is to _✨ streamline ✨_ the development of BXSJ. If you would like to use it there, prefer directly incorporating within the working directory or as a submodule with custom commits.
+3. BXSJ will no longer contain files generated by a _certain game engine_, this includes the removal of `package.json`, `SJ.asmdef` and the incompatible `.meta` files that it generates. This is to _✨ streamline ✨_ the development of BXSJ. If you would like to use it there, prefer directly incorporating within the working directory or as a submodule with custom commits.
 
 </details>
 
@@ -463,11 +519,15 @@ public class MyCustomReader : AffectedTypes
 
 1. [ ] Port tests to xunit as mstest seems somewhat specific to visual studio and can't be ran headless trivially <br>
   This should also improve the tests and place most logic into one manageable place, instead of repeating redundant logic..
-2. [ ] Rework `State` and other related things to allow saving / loading state.
-   Use `ISJDataReader`/`ISJDataWriter` to write data (composition) instead of using inheritance.
+2. [X] Rework `State` and other related things to allow saving / loading state.
+  * [ ] SJReader
+  * [X] SJWriter (idk why i did this one first)
+3. [ ] Use `ISJDataReader`/`ISJDataWriter` to write data (composition) instead of using inheritance.
    (This is already possible with the current setup as nothing is truly `private` within BXSJ,
    but it should be the main design instead. For the time being though, I do not need such a feature so I will delay it until there..)
-3. [ ] Improve performance by reducing redundant branching/bounds checking and manage state slightly better.
-4. [ ] UTF-8 (byte) reading/writing (Perhaps I could use the 'char' version as a basic UTF-8 version as that only converts the relevant tokens. Though the problem here becomes the slice spans + the endianness of the UTF-16 if I make the internals of BXSJ byte based..)
+4. [ ] Improve performance by reducing redundant branching/bounds checking and manage state slightly better.
+5. [ ] UTF-8 (byte) reading/writing (Perhaps I could use the 'char' version as a basic UTF-8 version as that only converts the relevant tokens. Though the problem here becomes the slice spans + the endianness of the UTF-16 if I make the internals of BXSJ byte based..)
+
+<sup>Should have used the `BinaryWriter` instead...</sup>
 
 </details>

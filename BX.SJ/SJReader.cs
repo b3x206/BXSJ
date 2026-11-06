@@ -29,57 +29,10 @@ namespace BX.SJ
     /// Base class for <i>most</i> JSON readers.
     /// </summary>
     /// <example>
-    /// <![CDATA[
-    /// using BX.SJ;
-    /// using System;
-    /// 
-    /// // An example class would look like this:
-    /// // (In fact, this is just SJStringReader)
-    /// public sealed class SJExampleReader : SJReader
-    /// {
-    ///     private string _Data;
-    ///     public string Data
-    ///     {
-    ///         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    ///         get => _Data;
-    ///         set
-    ///         {
-    ///             if (string.Equals(value, _Data, StringComparison.Ordinal))
-    ///             {
-    ///                 return;
-    ///             }
-    /// 
-    ///             _Data = value;
-    ///             Reset();
-    ///         }
-    ///     }
-    ///
-    ///     public SJExampleReader()
-    ///     { }
-    ///     public SJExampleReader(string data)
-    ///     {
-    ///         _Data = data;
-    ///     }
-    /// 
-    ///     // This is used as a limiter.
-    ///     public override int Length => _Data?.Length ?? 0;
-    ///     // Because I ported the pointer stuff as-is, some parts of the parser may read off by one.
-    ///     // It is recommended to do a bound check and return EOF of your choice
-    ///     public override char At(int i) => i >= 0 && i < Length ? _Data[i] : '\0';
-    ///     // Because each value slice is evaluated lazily, the data ranges must persist and should be representable easily as a range (making arbitrary Streams much harder)
-    ///     // Note that there isn't much of a reason to do this, if you read the data as soon as it's received from the SJReader.
-    ///     public override ReadOnlySpan<char> Slice(int start, int length) => string.IsNullOrEmpty(_Data) ? ReadOnlySpan<char>.Empty : _Data.AsSpan(start, length);
-    /// }
-    /// ]]>
+    /// // Refer to file:///./SJStringReader.cs
     /// </example>
     public abstract class SJReader
     {
-        // TODO:
-        // * Generic class (with the character unit type), or to avoid boxing,
-        //   byte version that does ASCII (ignores UTF-8, but should work as all JSON tokens are within ascii)
-        //   ↑ (this is overkill though for my usage with small sized json, my saving overhead won't be that +
-        //      i could do serialization in a seperate thread with atomicity anyways..)
-
         /// <summary>
         /// Exception thrown on an error case while reading JSON.
         /// </summary>
@@ -121,34 +74,20 @@ namespace BX.SJ
                 objectDepth = 0;
                 depth = (ushort)(reader?.depth ?? 0);
             }
-            public Value(
-                SJReader reader, SJType type, SJType prevType, int start, int end,
-                int typeStart, int typeEnd, ushort objectDepth, ushort depth
-            )
+            private Value(SJType stubType, SJReader reader = null)
             {
                 this.reader = reader;
-                this.type = type;
-                this.prevType = prevType;
-                this.start = start;
-                this.end = end;
-                this.typeStart = typeStart;
-                this.typeEnd = typeEnd;
-                this.objectDepth = objectDepth;
-                this.depth = depth;
+                type = prevType = stubType;
+                start = end = 0;
+                typeStart = typeEnd = 0;
+                objectDepth = 0;
+                depth = (ushort)(reader?.depth ?? 0);
             }
 
-            public static Value Error() => new Value(
-                null, SJType.Error, SJType.Error, -1, -1, -1, -1, 0, 0
-            );
-            public static Value Error(SJReader reader) => new Value(
-                reader, SJType.Error, SJType.Error, -1, -1, -1, -1, 0, (ushort)(reader?.depth ?? 0)
-            );
-            public static Value Null() => new Value(
-                null, SJType.Null, SJType.Null, -1, -1, -1, -1, 0, 0
-            );
-            public static Value Null(SJReader reader) => new Value(
-                reader, SJType.Null, SJType.Null, -1, -1, -1, -1, 0, (ushort)(reader?.depth ?? 0)
-            );
+            public static Value Error() => new Value(SJType.Error);
+            public static Value Error(SJReader reader) => new Value(SJType.Error, reader);
+            public static Value Null() => new Value(SJType.Null);
+            public static Value Null(SJReader reader) => new Value(SJType.Null, reader);
 
             public readonly int Length
             {
@@ -171,6 +110,26 @@ namespace BX.SJ
             {
                 Debug.Assert((start + length) <= Length);
                 return reader.Slice(this.start + start, length);
+            }
+
+            public readonly int TypeLength
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => typeEnd - typeStart;
+            }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<char> Type() => reader.Slice(typeStart, typeEnd - typeStart);
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<char> Type(int start)
+            {
+                Debug.Assert(start <= TypeLength);
+                return reader.Slice(typeStart + start, TypeLength - start);
+            }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<char> Type(int start, int length)
+            {
+                Debug.Assert((start + length) <= TypeLength);
+                return reader.Slice(typeStart + start, length);
             }
 
             public override readonly string ToString()
@@ -236,9 +195,13 @@ namespace BX.SJ
         /// </summary>
         public bool allowTrailingComma = false;
         /// <summary>
-        /// Allow type declarations before a value. The type declarations do nothing, they are extra metadata.
+        /// Allow type declarations before a value.
+        /// The type declarations do nothing, they are extra metadata to be not confused with other values.
+        /// <br>(The alternative would have been to embed these into a <see cref="SJType.String"/>, 
+        /// but that can be "confused". Writer will also have tooling for this. This is useful to retain extra information.)</br>
+        /// <br>A schema could have been used, but this will do for now.</br>
         /// <br></br>
-        /// <br><c>{}</c></br>
+        /// <br><c>{ "k": (TypeName)[1, 2, 3], "k2": (0x7463)"TypeCode.Int32" }</c></br>
         /// </summary>
         public bool allowTypeDeclarations = false;
         /// <summary>

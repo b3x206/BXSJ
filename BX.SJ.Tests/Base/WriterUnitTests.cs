@@ -634,6 +634,73 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
 
+    // State
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(
+        nameof(TestData.StringDataProvider), typeof(TestData), DynamicDataSourceType.Property,
+        DynamicDataDisplayName = nameof(TestData.StringDataProviderName),
+        DynamicDataDisplayNameDeclaringType = typeof(TestData)
+    )]
+    public void TestState(string write)
+    {
+        // Test this with many strings (including emoji spam,
+        // to check for stuff like whether if the StreamWriter has
+        // resetted it's state correctly, well as correct as it can be.)
+        var writer = CreateWriter();
+        try
+        {
+            writer.ThrowOnError = false;
+            const string Key1 = "Hello", Key2 = "this should be all";
+            const string Val2Fmt = "X";
+            var Val2Prefix = SJWriter.FormatToPrefix(Val2Fmt);
+            const long Val2 = 0x616C7269676874;
+
+            // Start writing
+            using (writer.Object())
+            {
+                writer.WriteKV("Hello", write);
+
+                // Me thinks this next code can do a mistake
+                Assert.AreEqual(0, writer.PushState(), "Must push state at index 0");
+                {
+                    writer.WriteKey(write); // Do this for lulz
+                    writer.WriteKey("");    // This may help flush it, so write empty
+                }
+                Assert.AreEqual(0, writer.PopState(), "Must pop state at index 0");
+                Assert.That.IsNullOrEmpty(writer.Error, "Error must be null");
+
+                Assert.IsTrue(writer.WriteKV(Key2, Val2, Val2Fmt), "Write must be successful.");
+            }
+            Assert.That.IsNullOrEmpty(writer.Error, "Error must be null");
+
+            if (writer.CanReadData)
+            {
+                // Ensure rollback of data works properly for the writer and that it correctly truncates.
+                string data = writer.ReadData();
+                Assert.AreEqual(
+                    $@"{{""{Key1}"":""{SJEscape.Escape(write, writer.asciiOnly)}"",""{Key2}"":{Val2Prefix}{Val2.ToString(Val2Fmt)}}}", data
+                );
+                Console.WriteLine(data);
+            }
+            else
+            {
+                Console.WriteLine($"[!] Did not validate the data, cannot read data from {writer}.");
+            }
+        }
+        finally
+        {
+            DisposeWriter(writer);
+        }
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestLargeState()
+    {
+        
+    }
+
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestNegativeWrite()

@@ -121,6 +121,25 @@ namespace BX.SJ
             });
         }
 
+        private int[] _currentStates = new int[DefaultStackSize];
+        protected override void ResizeStateStack(int size)
+        {
+            base.ResizeStateStack(size);
+            System.Array.Resize(ref _currentStates, size);
+        }
+        public override int PushState()
+        {
+            int baseResult = base.PushState();
+            if (baseResult >= 0) _currentStates[baseResult] = current;
+            return baseResult;
+        }
+        public override int PopState()
+        {
+            int baseResult = base.PopState();
+            if (baseResult >= 0) current = _currentStates[baseResult];
+            return baseResult;
+        }
+
         public override void Reset()
         {
             base.Reset();

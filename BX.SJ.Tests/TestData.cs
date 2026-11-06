@@ -1,4 +1,6 @@
-﻿namespace BX.SJ.Tests;
+﻿using System.Reflection;
+
+namespace BX.SJ.Tests;
 
 /// <summary>
 /// Contains JSON data to test against.
@@ -112,6 +114,25 @@ public static class TestData
         // I like annotating my JSON, but it gets deleted when it's serialized :(
         /* wen eta fix this?
 } // Our line ends with */";
+    /// <summary>
+    /// Provides basic strings to use with <see cref="DynamicDataAttribute"/>.
+    /// <br>Contains <see cref="string.Empty"/>.</br>
+    /// </summary>
+    public static IEnumerable<object[]> StringDataProvider => [
+        [DataEmojiSpam], [JsonDataSpamKey], [JsonData1], [DepthMaxxKey],
+        [ObjectTwisterKey], [SciNumsKey], [JsonDataEmptyArray], [JsonDataRootBoolFalse],
+        [JsonDataRootBoolTrue], [JsonDataRootNumber], [JsonDataRootNull], [DataEmpty]
+    ];
+    public static string? StringDataProviderName(MethodInfo _, object[] arg)
+    {
+        // Emoji spam crashes visual studio
+        if (arg.Length <= 0) return "";
+        if (arg[0] is string s)
+        {
+            return s.Length > 256 ? $"{s[..255]}…" : s;
+        }
+        return string.Join(", ", arg);
+    }
 
     // - File Data
     // * "valid.json" is from some random website.

@@ -34,6 +34,25 @@ namespace BX.SJ
         public override bool CanReadData => true;
         public override string ReadData() => sb.ToString();
 
+        private int[] _sbStates = new int[DefaultStackSize];
+        protected override void ResizeStateStack(int size)
+        {
+            base.ResizeStateStack(size);
+            System.Array.Resize(ref _sbStates, size);
+        }
+        public override int PushState()
+        {
+            int baseResult = base.PushState();
+            if (baseResult >= 0) _sbStates[baseResult] = sb.Length;
+            return baseResult;
+        }
+        public override int PopState()
+        {
+            int baseResult = base.PopState();
+            if (baseResult >= 0) sb.Length = _sbStates[baseResult];
+            return baseResult;
+        }
+
         public override void Reset()
         {
             base.Reset();

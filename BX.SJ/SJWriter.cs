@@ -1,7 +1,8 @@
 ﻿using System;
+using System.Buffers;
+using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
-using System.Buffers;
 
 namespace BX.SJ
 {
@@ -12,6 +13,9 @@ namespace BX.SJ
     /// * Can write incompatible JSON if not careful. This can be checked through <see cref="S"/> 
     /// or by validating against a strict <see cref="SJReader"/>.
     /// </remarks>
+    /// <example>
+    /// // Refer to file:///./SJStringWriter.cs
+    /// </example>
     public abstract class SJWriter
     {
 #pragma warning disable IDE0057 // ***** does not support System.Range
@@ -28,19 +32,47 @@ namespace BX.SJ
             public WriteException(string message) : base(message)
             { }
         }
+        public struct StateScope : IDisposable
+        {
+            private bool disposed;
+            private readonly bool popIfError;
+            private readonly SJWriter writer;
 
+            public StateScope(SJWriter writer, bool popIfError)
+            {
+                this.writer = writer ?? throw new ArgumentNullException(nameof(writer));
+
+                disposed = false;
+                this.popIfError = popIfError;
+                writer.PushState();
+            }
+
+            public void Dispose()
+            {
+                if (disposed || writer == null) return;
+
+                if (!popIfError || !string.IsNullOrEmpty(writer.Error))
+                {
+                    writer.PopState();
+                }
+                disposed = true;
+            }
+        }
+        public const int DefaultStackSize = 8;
         [Flags]
         public enum Expect { None, Key = 1 << 0, Value = 1 << 1, Comma = 1 << 2 }
         [Flags]
         public enum FormatExpect { None, Newline = 1 << 0, Indent = 1 << 1, NewlineIndent = Newline | Indent }
         /// <summary>
-        /// Copyable state contained
-        /// <br>Does not contain <see cref="Error"/>, this is because error should be acknowledged instead of being copied.</br>
+        /// Copyable state contained on a struct.
+        /// This is not extensible as it should be opaque to the using code (`object` vs `SJWriter&lt;T&gt;` vs this).
+        /// <br>Instead manage your own state structures or values / positions 
+        /// using the methods provided within <see cref="SJWriter"/>.</br>
         /// </summary>
         public struct State
         {
             /// <summary>
-            /// A tracker for type information that can be stacked and indexed (i.e. recursive data)
+            /// A tracker for type information that can be stacked and indexed (recursive data)
             /// </summary>
             public struct Stacked
             {
@@ -78,6 +110,12 @@ namespace BX.SJ
                 }
             }
 
+            /// <summary>
+            /// Error should be managed through <see cref="SJWriter"/>.
+            /// <br>It can be used to clear state, if needed..</br>
+            /// </summary>
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            public string _error;
             public int count;
             public int depth;
             public Expect expect;
@@ -94,19 +132,18 @@ namespace BX.SJ
             public bool WrittenCustomValue { get; private set; }
             public readonly bool Has => depth > 0;
 
-            public const int DefaultStackSize = 8;
-            private Stacked[] _stateStack;
+            internal Stacked[] _stacked;
             // This can be shared among writers
             private static Stacked _stubState = Stacked.Invalid;
 
             public int Push(Stacked s)
             {
-                if ((_stateStack?.Length - 1) < depth)
+                if ((_stacked?.Length - 1) < depth)
                 {
-                    System.Array.Resize(ref _stateStack, _stateStack.Length <= 0 ? DefaultStackSize : _stateStack.Length * 2);
+                    System.Array.Resize(ref _stacked, _stacked.Length <= 0 ? DefaultStackSize : _stacked.Length * 2);
                 }
                 int pushIndex = depth++;
-                _stateStack[pushIndex] = s;
+                _stacked[pushIndex] = s;
                 return pushIndex;
             }
             public readonly ref Stacked Peek()
@@ -116,45 +153,45 @@ namespace BX.SJ
                     _stubState = Stacked.Invalid;
                     return ref _stubState;
                 }
-                return ref _stateStack[depth - 1];
+                return ref _stacked[depth - 1];
             }
             public ref Stacked Pop()
             {
                 // Pop should throw as it mutates..
                 if (!Has) throw new InvalidOperationException("Cannot peek state while there is no state.");
-                return ref _stateStack[--depth];
+                return ref _stacked[--depth];
             }
 
             public static State Create()
             {
                 return new State()
                 {
-                    _stateStack = new Stacked[DefaultStackSize]
+                    _stacked = new Stacked[DefaultStackSize]
                 };
             }
             public readonly State Copy()
             {
-                var s = new State();
-                s._stateStack = new Stacked[s._stateStack.Length];
-                CopyTo(s);
+                var s = new State
+                {
+                    _stacked = new Stacked[_stacked.Length]
+                };
+                CopyTo(ref s);
                 return s;
             }
-            public readonly void CopyTo(State s)
+            public readonly void CopyTo(ref State s)
             {
-                s.count = count;
-                s.depth = depth;
-                s.ended = ended;
-                s.WrittenComment = WrittenComment;
-                s.WrittenType = WrittenType;
-                s.WrittenCustomKey = WrittenCustomKey;
-                s.WrittenCustomValue = WrittenCustomValue;
-                _stateStack.CopyTo((Span<Stacked>)s._stateStack);
+                // Mutable references that are re  used should be preserved
+                // (_error is not mutable)
+                Stacked[] stacked = s._stacked;
+                s = this;
+                s._stacked = stacked;
+                _stacked.CopyTo((Span<Stacked>)s._stacked);
             }
 
             public void MarkWrittenComment() => WrittenComment = true;
+            public void MarkWrittenCustomKey() => WrittenCustomKey = true;
             public void MarkWrittenCustomValue() => WrittenCustomValue = true;
             public void MarkWrittenType() => WrittenType = true;
-            public void MarkWrittenCustomKey() => WrittenCustomKey = true;
             public void Reset()
             {
                 WrittenComment = WrittenCustomKey = WrittenCustomValue = WrittenType = false;
@@ -219,6 +256,10 @@ namespace BX.SJ
         /// </summary>
         public ushort maxDepth = 128;
         /// <summary>
+        /// Maximum state stacking.
+        /// </summary>
+        public ushort maxStateStack = 128;
+        /// <summary>
         /// Limit for the built in writing buffer's.
         /// <br>Set to zero to always use <see cref="ArrayPool{T}"/>. Or less to disable limit for <see cref="_formatBuffer"/>.</br>
         /// </summary>
@@ -261,22 +302,21 @@ namespace BX.SJ
         // state
         private State _S = State.Create();
         public ref State S => ref _S;
-        protected string _Error = string.Empty;
         /// <summary>
         /// The error string detailing why the writer failed.
         /// </summary>
         public string Error
         {
-            get => _Error;
+            get => S._error;
             set
             {
                 if (string.IsNullOrEmpty(value))
                 {
-                    _Error = string.Empty;
+                    S._error = string.Empty;
                     return;
                 }
 
-                _Error = value;
+                S._error = value;
                 if (_ThrowOnError)
                 {
                     ThrowError();
@@ -808,7 +848,7 @@ namespace BX.SJ
             PrepareValue();
             if (asString) { Append('"'); }
             if (asString) { WriteEscaped(value, asciiOnly); }
-            else { Append(value);  }
+            else { Append(value); }
             if (asString) { Append('"'); }
             Append(':');
 
@@ -886,7 +926,7 @@ namespace BX.SJ
             s.MarkWrittenComment();
             PrepareCommentValue(hasNextValue);
 
-            Append("/*"); 
+            Append("/*");
             for (int i = -1; i <= data.Length; i++)
             {
                 if (i < 0 || i >= data.Length)
@@ -910,7 +950,7 @@ namespace BX.SJ
                     WriteIndent(s.depth);
                 }
             }
-            Append("*/"); 
+            Append("*/");
 
             s.fmtExpect = FormatExpect.None;
             if (indentSize > 0)
@@ -957,7 +997,7 @@ namespace BX.SJ
             s.MarkWrittenComment();
             PrepareCommentValue(hasNextValue);
 
-            Append("//"); 
+            Append("//");
             for (int i = -1; i < data.Length; i++)
             {
                 if (i < 0)
@@ -971,7 +1011,7 @@ namespace BX.SJ
                 if (c == '\n')
                 {
                     WriteIndent(s.depth);
-                    Append("//"); 
+                    Append("//");
                     if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Append(prefixPad); }
                 }
             }
@@ -1029,7 +1069,7 @@ namespace BX.SJ
                         break;
                     case SJType.Array:
                         s.expect = Expect.Value | Expect.Comma;
-                        break; 
+                        break;
                     default:
                         Error = $"Invalid top level type {t}";
                         return false;
@@ -1253,9 +1293,57 @@ namespace BX.SJ
         /// </summary>
         public override string ToString() => $"[{base.ToString()}] state=({S}) error={Error}";
 
+        // Code execution only - can be readonly
+        protected State[] _stateStack = new State[DefaultStackSize];
+        protected int _stateStackCount = 0;
+        public int StackedStateCount => _stateStackCount;
+        protected virtual void ResizeStateStack(int size)
+        {
+            System.Array.Resize(ref _stateStack, size);
+        }
+        public virtual int PushState()
+        {
+            if (maxStateStack > 0 && _stateStackCount >= maxStateStack) return -1;
+            if (_stateStackCount >= _stateStack?.Length)
+            {
+                int size = Math.Max((_stateStack?.Length ?? 0) * 2, DefaultStackSize);
+                if (maxStateStack > 0) size = Math.Min(maxStateStack, size);
+                ResizeStateStack(size);
+            }
+
+            // Copy the data to the entry in stateStack
+            ref var next = ref _stateStack[_stateStackCount];
+            if ((next._stacked?.Length ?? -1) < S._stacked?.Length)
+            {
+                next._stacked = new State.Stacked[Math.Max(S._stacked?.Length ?? 0, DefaultStackSize)];
+            }
+            S.CopyTo(ref next);
+            return _stateStackCount++;
+        }
+        public virtual int PopState()
+        {
+            if (_stateStackCount <= 0) return -1;
+
+            // Should set by value to copy it instead of setting the reference.
+            // No need to copy the existing array entries, it can be discarded.
+            // ↑ Although this will allocate garbage instead of reusing the memory, so just copy it..
+            ref var prev = ref _stateStack[--_stateStackCount];
+            if ((S._stacked?.Length ?? -1) < prev._stacked?.Length)
+            {
+                S._stacked = new State.Stacked[Math.Max(prev._stacked?.Length ?? 0, DefaultStackSize)];
+            }
+            prev.CopyTo(ref S);
+            return _stateStackCount;
+        }
+        /// <summary>
+        /// Starts a <see cref="SJWriter"/> transaction, which will reset if this state is disposed.
+        /// </summary>
+        public StateScope UseState(bool popIfError = false) => new StateScope(this, popIfError);
+
         public virtual void Reset()
         {
             S.Reset();
+            _stateStackCount = 0;
             Error = null;
         }
 #pragma warning restore IDE0057 // ***** does not support System.Range
