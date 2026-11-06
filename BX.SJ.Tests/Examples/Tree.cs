@@ -1,4 +1,5 @@
 ﻿#pragma warning disable CA1510 // Use ArgumentNullException throw helper
+#pragma warning disable IDE0090 // Initialization can be simplified
 #nullable disable
 
 using System.Globalization;
@@ -42,7 +43,7 @@ namespace BX.SJ.Tests.Examples
                 throw new ArgumentException($"Given SJReader has an error : {reader.Error}", nameof(reader));
             }
 
-            for (var root = reader.Read(); !reader.s.ended; root = reader.Read())
+            for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
             {
                 WriteFromInternal(tree, reader, root);
             }
@@ -196,3 +197,4 @@ namespace BX.SJ.Tests.Examples
 
 #nullable restore
 #pragma warning restore CA1510
+#pragma warning restore IDE0090

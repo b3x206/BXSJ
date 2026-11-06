@@ -9,7 +9,7 @@
     <PackageId>BX.SJ</PackageId>
     <Version>3.0.0</Version>
     <Authors>B3X</Authors>
-    <Description>Simple library to facilitate parsing/writing JSON documents.</Description>
+    <Description>Library to facilitate parsing/writing of JSON documents.</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -376,7 +376,7 @@ namespace BX.SJ
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Append(char c)
         {
-            S.count++;
+            checked { S.count++; }
             DoAppend(c);
         }
         protected virtual void DoAppend(ReadOnlySpan<char> s)
@@ -388,7 +388,7 @@ namespace BX.SJ
         /// </summary>
         public void Append(ReadOnlySpan<char> s)
         {
-            S.count += s.Length;
+            checked { S.count += s.Length; }
             DoAppend(s);
         }
 

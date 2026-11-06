@@ -231,7 +231,7 @@ namespace BX.SJ
                 stream.Position = sp;
             }
         }
-        private long[] _streamPositions = new long[DefaultStackSize];
+        private int[] _streamPositions = new int[DefaultStackSize];
         protected override void ResizeStateStack(int size)
         {
             base.ResizeStateStack(size);
@@ -240,7 +240,8 @@ namespace BX.SJ
         public override int PushState()
         {
             int baseResult = base.PushState();
-            if (baseResult >= 0) _streamPositions[baseResult] = stream.Position;
+            // count is more accurate as a position of writing than the stream pos, which does not update unless flushed
+            if (baseResult >= 0) _streamPositions[baseResult] = S.count;
             return baseResult;
         }
         public override int PopState()
@@ -248,22 +249,11 @@ namespace BX.SJ
             int baseResult = base.PopState();
             if (baseResult >= 0)
             {
-                // If the encoder is expecting data, we should flush that as well before rolling back.
-                // Does the saved last rollback point in the stream expect a continuation of UTF-16 sequence?
-                // If that is the case, we must also reset the encoder to that point.
-                // Generally, this shouldn't be the case as non-erroreneous sequences always write ASCII tokens,
-                // so erroreneously encoded string cases should just print unicode replacement character,
-                // which will be deleted by the result of this.
-                // Any bug caused by using "WriteLiteral" that isn't caught by the tests are the user's (my) problem.
-                // ------
-                // TODO : To make this faster, We should flush the existing buffer if
-                //        where the rollback position and (the absolute position of) streamCurrent are near
-                //        instead of flushing everything then deleting it.
-                //        Although that has finicky logic so I won't do it as this is simpler.
-                // ------
-                // Because this is an erroreneous case where the position changes I should also flush the encoder.
+                // todo : fix
+                // set this env value 1
+                // https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-mstest-writing-tests-testcontext#per-test-temporary-directory
                 Flush(true, true, true);
-                long pos = _streamPositions[baseResult];
+                int pos = _streamPositions[baseResult];
                 stream.Position = pos;
                 stream.SetLength(pos);
             }

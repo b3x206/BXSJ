@@ -13,17 +13,21 @@ namespace BX.SJ
     {
         Error,
 
+        // Values
         Number,
         Key,
         String,
         Bool,
         Null,
 
+        // Structure
         Object,
         Array,
         End,
 
+        // Metadata
         Comment,
+        Type,
     }
 
     /// <summary>
@@ -53,7 +57,6 @@ namespace BX.SJ
         {
             public readonly SJReader reader;
             public SJType type, prevType;
-            public int typeStart, typeEnd;
             public int start, end;
             /// <summary>
             /// Object typed value depth of this value. This is used for <see cref="DiscardUntil(int)"/>.
@@ -71,7 +74,6 @@ namespace BX.SJ
                 this.reader = reader;
                 type = prevType = SJType.Error;
                 start = end = 0;
-                typeStart = typeEnd = 0;
                 objectDepth = 0;
                 depth = (ushort)(reader?.S.depth ?? 0);
             }
@@ -80,7 +82,6 @@ namespace BX.SJ
                 this.reader = reader;
                 type = prevType = stubType;
                 start = end = 0;
-                typeStart = typeEnd = 0;
                 objectDepth = 0;
                 depth = (ushort)(reader?.S.depth ?? 0);
             }
@@ -112,27 +113,6 @@ namespace BX.SJ
                 Debug.Assert((start + length) <= Length);
                 return reader.Slice(this.start + start, length);
             }
-
-            public readonly int TypeLength
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => typeEnd - typeStart;
-            }
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> Type() => reader.Slice(typeStart, typeEnd - typeStart);
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> Type(int start)
-            {
-                Debug.Assert(start <= TypeLength);
-                return reader.Slice(typeStart + start, TypeLength - start);
-            }
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> Type(int start, int length)
-            {
-                Debug.Assert((start + length) <= TypeLength);
-                return reader.Slice(typeStart + start, length);
-            }
-
             public override readonly string ToString()
             {
                 return $"[SJReader.Value] type:{type}, start:{start}, end:{end}, depth:{objectDepth}";
@@ -166,7 +146,13 @@ namespace BX.SJ
         }
         public const int DefaultStackSize = 8;
         [Flags]
-        public enum Expect { None = 0, Comma = 1 << 0, Key = 1 << 1, Colon = 1 << 2 }
+        public enum Expect
+        {
+            None = 0,
+            Comma = 1 << 0,  // Used for checking duplicate and trailing commas
+            Key = 1 << 1,    // Used for checking key type on key entries
+            Colon = 1 << 2,  // Used for checking duplicate colons
+        }
         public struct State
         {
             public struct Stacked
@@ -219,7 +205,12 @@ namespace BX.SJ
             /// <remarks>
             /// <see cref="IterateObject(Value, out Value, out Value)"/> uses this value to keep it's key variable, it is also used as a failsafe value.
             /// </remarks>
-            public Value LastEntryKey { get; set; }
+            public Value lastEntryKey;
+            /// <summary>
+            /// Last type read on key or value. Does not apply to comments.
+            /// </summary>
+            public Value lastEntryType;
+            public bool notExpectingType;
 
             /// <summary>
             /// Whether if the reader reached end. If you want to validate end of JSON document,
@@ -290,11 +281,11 @@ namespace BX.SJ
                 s._stacked = stacked;
                 _stacked.CopyTo((Span<Stacked>)s._stacked);
             }
-        
+
             public void Reset()
             {
                 current = depth = 0;
-                LastEntryKey = default;
+                lastEntryKey = default;
                 ended = false;
                 _error = null;
             }
@@ -310,6 +301,9 @@ namespace BX.SJ
         /// <br>Set to zero to disable any depth checks.</br>
         /// </summary>
         public ushort maxDepth = 128;
+        /// <summary>
+        /// Maximum amount of stackable state.
+        /// </summary>
         public int maxStateStack = 128;
         /// <summary>
         /// <br>Allows comments on JSON file : </br><br/>
@@ -332,13 +326,17 @@ namespace BX.SJ
         /// </summary>
         public bool allowTrailingComma = false;
         /// <summary>
-        /// Allow type declarations before a value.
+        /// Allow prefix type declarations before a value.
         /// The type declarations do nothing, they are extra metadata to be not confused with other values.
         /// <br>(The alternative would have been to embed these into a <see cref="SJType.String"/>, 
         /// but that can be "confused". Writer will also have tooling for this. This is useful to retain extra information.)</br>
-        /// <br>A schema could have been used, but this will do for now.</br>
+        /// <br>The type declarations are optional, they are not needed for every entry.</br>
         /// <br></br>
-        /// <br><c>{ "k": (TypeName)[1, 2, 3], "k2": (0x7463)"TypeCode.Int32" }</c></br>
+        /// <br><c>{ "k": (TypeName)[1, 2, 3], "k2": (0x7463)"TypeCode.Int32", "k3": "aa" }</c></br>
+        /// <br>Type literals can be like string. They don't need to be properly escaped (like strings) as SJReader is more tolerant on strings and only matches '"'.</br>
+        /// <br><c>{ "k": ("Type name with everythin, including ()")[1, 2, 3], "k2": ("System.Array, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral")[1, 2, 3] }</c></br>
+        /// <br>Type literals can exist for the root object.</br>
+        /// <br><c>(MyType){ "foo": 42, "bar": ["baz", 2, "fizz"] }</c></br>
         /// </summary>
         public bool allowTypeDeclarations = false;
         protected bool _ThrowOnError = false;
@@ -363,7 +361,7 @@ namespace BX.SJ
         }
 
         // state
-        private State _S;
+        private State _S = State.Create();
         public ref State S => ref _S;
         /// <summary>
         /// The error string detailing why the reader failed.
@@ -373,6 +371,7 @@ namespace BX.SJ
             get => S._error;
             set
             {
+                Console.WriteLine($"Written error as {value}");
                 if (string.IsNullOrEmpty(value))
                 {
                     S._error = string.Empty;
@@ -400,7 +399,7 @@ namespace BX.SJ
         public abstract char At(int i);
         /// <summary>
         /// Create a literal "char" slice, starting from <paramref name="start"/> with <paramref name="length"/> on the data source.
-        /// <br>Used for the <see cref="Value"/>'s <see cref="Value.Slice"/></br>
+        /// <br>Used for the lazy <see cref="Value"/>'s <see cref="Value.Slice"/>.</br>
         /// </summary>
         public abstract ReadOnlySpan<char> Slice(int start, int length);
 
@@ -410,9 +409,32 @@ namespace BX.SJ
         /// <br>Accepts base 16 (hex) numbers. To store larger bases of integers or data as format, prefer <see cref="SJType.String"/></br>
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        protected static bool IsNumberContinuation(char c) =>
+        public static bool IsNumberContinuation(char c) =>
             (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
             || c == '.' || c == '-' || c == '+' || c == 'x' || c == 'o';
+        /// <summary>
+        /// <see cref="SJType.Type"/> as literal (not string) continuation check.
+        /// <br>String continuation should be checked similarly to <see cref="SJType.String"/></br>
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsTypeLiteralContinuation(char c)
+        {
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')))
+            {
+                switch (c)
+                {
+                    case '-':
+                    case '_':
+                    case '.':
+                    case '=':
+                        return true;
+
+                    default:
+                        return false;
+                }
+            }
+            return true;
+        }
         /// <summary>
         /// String inspector for token.
         /// <br>Outputs <paramref name="c"/> as <c>{c}/{(int)c}</c></br>
@@ -421,11 +443,10 @@ namespace BX.SJ
         protected static string Tk(char c) => c == '\0' ? "\\0/0" : $"{c}/{(int)c}";
 
         /// <summary>
-        /// Read a range of comments, starting from <see cref="s.current"/> for the reader data.
+        /// Read a range of comment, starting from <see cref="State.current"/> for the reader data.
         /// </summary>
-        /// <param name="setError">Set <see cref="Error"/> if the comment block is invalid.</param>
-        /// <returns>Start and ending range. If the block isn't a comment, -1 is returned for both regions</returns>
-        protected (int start, int end) GetCommentRange(bool setError)
+        /// <returns>Start and ending range. If the block doesn't start with '/', -1 is returned for start and end.</returns>
+        protected (int start, int end) GetCommentRange()
         {
             ref var s = ref S;
             int start = s.current, end = s.current;
@@ -459,10 +480,7 @@ namespace BX.SJ
                         {
                             if (end >= Length)
                             {
-                                if (setError)
-                                {
-                                    Error = $"Expected */, got '{Tk(ch)}+{Tk(next)}'";
-                                }
+                                Error = $"Expected */, got '{Tk(ch)}+{Tk(next)}'";
                                 return (-1, -1);
                             }
 
@@ -476,22 +494,96 @@ namespace BX.SJ
                     }
                     else
                     {
-                        if (setError)
-                        {
-                            Error = $"Unexpected comment token '{Tk(next)}', expected '/ or *'";
-                        }
+                        Error = $"Unexpected comment token '{Tk(next)}', expected '/ or *' to start a comment.";
                         return (-1, -1);
                     }
                 }
                 else
                 {
-                    // Not skipping while on a comment block
                     return (-1, -1);
                 }
             }
 
             // Nothing to skip, but not an "error"
             return (-1, -1);
+        }
+        /// <summary>
+        /// Read a range of type, starting from <see cref="State.current"/> for the reader data.
+        /// </summary>
+        /// <returns>Start and ending range. If the block doesn't start with '/', -1 is returned for start and end.</returns>
+        protected (int start, int end) GetTypeRange()
+        {
+            ref var s = ref S;
+            int start = s.current, end = s.current;
+            if (end < 0 || end >= Length) return (-1, -1);
+            
+            char ch = At(start++);
+            if (ch == '(') end = start;
+            else return (-1, -1); // Not error, but not type literal.
+
+            int current = end;
+            bool capturedStr = false;
+            while (true)
+            {
+                if (++current >= Length)
+                {
+                    Error = "Unclosed type container, expected ')'";
+                    return (-1, -1);
+                }
+
+                ch = At(current);
+                if (ch == '"')
+                {
+                    start++;
+                    capturedStr = true;
+                    while (true)
+                    {
+                        if (++current >= Length)
+                        {
+                            Error = "Unclosed type string";
+                            return (-1, -1);
+                        }
+
+                        ch = At(current);
+                        if (ch == '"' && end > 0 && (At(end - 1) != '\\'))
+                        {
+                            end = current - 1;
+                            break;
+                        }
+                    }
+                }
+                else if (capturedStr)
+                {
+                    if (char.IsWhiteSpace(ch))
+                    {
+                        continue;
+                    }
+                    else if (ch == ')')
+                    {
+                        return (start, end);
+                    }
+                    else
+                    {
+                        Error = $"Unexpected character '{Tk(ch)}', expected ')' or whitespace.";
+                    }
+                }
+                else
+                {
+                    if (IsTypeLiteralContinuation(ch))
+                    {
+                        end = current;
+                        continue;
+                    }
+                    else if (ch == ')')
+                    {
+                        return (start, end);
+                    }
+                    else
+                    {
+                        Error = $"Unexpected character '{Tk(ch)}', expected ')' or type literal character.";
+                    }
+                }
+            }
         }
         /// <summary>
         /// Check remaining tokens after the JSON document is finished. (depth == 0)
@@ -593,7 +685,9 @@ namespace BX.SJ
         /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
         protected bool UpdateLastState(ref Value v)
         {
-            if (!S.HasStacked)
+            bool hasStacked = S.HasStacked;
+            S.notExpectingType = !hasStacked; // Expect only one type if not a stacked value entry.
+            if (!hasStacked)
             {
                 return true;
             }
@@ -668,10 +762,29 @@ namespace BX.SJ
             else if (allowComments && ch == '/')
             {
                 result.type = SJType.Comment;
-                (result.start, result.end) = GetCommentRange(true);
+                (result.start, result.end) = GetCommentRange();
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
                     s.current = result.end;
+                    return result;
+                }
+                goto _Top;
+            }
+            // Parse: Type (literal or something else). Treated sort of like a comment.
+            else if (allowTypeDeclarations && ch == '(')
+            {
+                if (!s.notExpectingType)
+                {
+                    Error = "Was not expecting a duplicate type definition";
+                    goto _Top;
+                }
+
+                result.type = SJType.Type;
+                (result.start, result.end) = GetTypeRange();
+                if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
+                {
+                    s.current = result.end;
+                    s.notExpectingType = true;
                     return result;
                 }
                 goto _Top;
@@ -696,6 +809,7 @@ namespace BX.SJ
                         }
 
                         st.expect &= ~Expect.Colon;
+                        s.notExpectingType = false; // Type entry can be written after ':' for the value type.
                     }
                     else if (ch == ',')
                     {
@@ -783,6 +897,7 @@ namespace BX.SJ
 
                 result.objectDepth = (ushort)s.depth;
                 s.current++;
+                s.notExpectingType = false; // Technically a value entry, just does not update last state.
 
                 if (!UpdateState(ref prev, ref result))
                 {
@@ -965,7 +1080,7 @@ namespace BX.SJ
             // SJType.Key is just promoted SJType.String
             if (result.type == SJType.Key)
             {
-                S.LastEntryKey = result;
+                S.lastEntryKey = result;
             }
             return true;
         }
@@ -1005,7 +1120,7 @@ namespace BX.SJ
                     default:
                         if (!gotKey)
                         {
-                            key = S.LastEntryKey;
+                            key = S.lastEntryKey;
                         }
                         value = result;
                         return true;

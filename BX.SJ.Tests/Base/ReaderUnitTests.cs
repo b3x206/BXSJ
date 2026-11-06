@@ -103,11 +103,11 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     /// <summary>
     /// Method to use if the reader must just be read and then disposed afterwards.
     /// </summary>
-    public virtual StringBuilder ReadJSCAndDispose(TReader reader, bool captureComments = false)
+    public virtual StringBuilder ReadJSCAndDispose(TReader reader)
     {
         try
         {
-            return ReaderTester.ReadJSC(reader, captureComments);
+            return ReaderTester.ReadJSC(reader);
         }
         finally
         {
@@ -262,7 +262,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
 
             reader.Reset();
             Assert.That.IsNullOrEmpty(reader.Error, "Error state must reset on Reset");
-            Assert.AreEqual(0, reader.s.current, "Reader position must be zero after reset");
+            Assert.AreEqual(0, reader.S.current, "Reader position must be zero after reset");
         }
         finally
         {
@@ -425,7 +425,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
                 }
             }
 
-            for (var v = r.Read(); !r.s.ended; v = r.Read())
+            for (var v = r.Read(); !r.S.ended; v = r.Read())
             {
                 if (v.type == SJType.Comment) continue; // Comments outside of the root value is ignored
 
@@ -519,7 +519,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     // JSC with Capture
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestJSCWithCapture() => ReadJSCAndDispose(CreateFromString(JsonDataComment), true);
+    public void TestJSCWithCapture() => ReadJSCAndDispose(CreateFromString(JsonDataComment));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(@"{ ""key"" /* inline */ : ""value"" }")]
@@ -527,11 +527,11 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     [DataRow(@"{ ""key"" : ""value"" /* trailing */ , ""key2"": ""value2"" }")]
     [DataRow(@"[ 1, 2, 3 /* trailing array */, 4, 5]")]
     [DataRow(@"[ 1, 2, 3 /* trailing array */]")]
-    public void TestJSCWithTrickyCapture(string data) => ReadJSCAndDispose(CreateFromString(data), true);
+    public void TestJSCWithTrickyCapture(string data) => ReadJSCAndDispose(CreateFromString(data));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestJSCInvalidWithCapture() => ReadJSCAndDispose(CreateFromString(JsonDataInvalid), true);
+    public void TestJSCInvalidWithCapture() => ReadJSCAndDispose(CreateFromString(JsonDataInvalid));
     // Do also read literals with no ignore JSC to test "Ended".
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
@@ -542,10 +542,10 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
         string CommentLeft = "// This is a comment!" + Environment.NewLine;
         string CommentRight = "// One more comment!" + Environment.NewLine + "/* Is it the end of file? */"; // All whitespace (surrounding the document) is ignored.
 
-        Assert.AreEqual(data, ReadJSCAndDispose(CreateFromString(data), true).ToString());
+        Assert.AreEqual(data, ReadJSCAndDispose(CreateFromString(data)).ToString());
         // To spice it up, surround root data with comments on second iter.
         var data2 = $"{CommentLeft}{data}{CommentRight}";
-        Assert.AreEqual(data2, ReadJSCAndDispose(CreateFromString(data2), true).ToString());
+        Assert.AreEqual(data2, ReadJSCAndDispose(CreateFromString(data2)).ToString());
     }
 
     // Empty root

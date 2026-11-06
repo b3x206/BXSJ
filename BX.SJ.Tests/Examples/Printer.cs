@@ -18,6 +18,7 @@ namespace BX.SJ.Tests.Examples
                         break;
                     }
                 case SJType.Comment:
+                case SJType.End:
                     {
                         // Discard comments explicitly, if capturing those and don't care about it.
                         break;

@@ -34,7 +34,7 @@ public sealed class ReadmeUnitTests
         const string data = @"{ ""x"": 42.0, ""y"": -42.0, ""z"": 0.0 }";
         var reader = new SJStringReader(data);
 
-        for (SJReader.Value root = reader.Read(); !reader.s.ended; root = reader.Read())
+        for (SJReader.Value root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
             Console.WriteLine($"Saved Position : {ReadVector3(reader, root)}");
         }
@@ -94,10 +94,9 @@ public sealed class ReadmeUnitTests
         var reader = new SJStringReader(data)
         {
             allowComments = true,
-            captureComments = true // Opt-in to the new behaviour.
         };
 
-        for (var root = reader.Read(); !reader.s.ended; root = reader.Read())
+        for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
             // Skip root level comments if they are irrelevant
             if (root.type == SJType.Comment)
@@ -209,7 +208,7 @@ public sealed class ReadmeUnitTests
             try
             {
                 var reader = new SJStringReader(Data);
-                for (var v = reader.Read(); !reader.s.ended; v = reader.Read())
+                for (var v = reader.Read(); !reader.S.ended; v = reader.Read())
                 {
                     switch (v.type)
                     {
@@ -277,19 +276,19 @@ public sealed class ReadmeUnitTests
         var reader = new SJStringReader(Data)
         {
             allowComments = true,
-            captureComments = true // Not knowing we are interacting with older code
+            // default behaviour captures comments now
         };
 
         Assert.ThrowsException<ArgumentException>(() =>
         {
-            // And this deserialization code is not aware of "captureComments"
+            // And this deserialization code is not aware of the default capture comments behaviour
             // ❌ : The Read will have SJType.Comment supplied into it!
             var root = reader.Read();
             Process(reader, root);
         });
         reader.Reset();
         // ↓ Instead do this
-        for (var root = reader.Read(); !reader.s.ended; root = reader.Read())
+        for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
             // ✅ : Discard comments when interacting with code that disallow or not expect it
             if (root.type == SJType.Comment) continue;
@@ -301,8 +300,6 @@ public sealed class ReadmeUnitTests
     // 6: New feature that is tested elsewhere
 
     // - Migration 2.x -> 3.x
-    // 1. Change that the compiler will error out for
-    // 2. Change that the compiler will error out for
-    // 3. Change that the compiler will error out for
+    // *: Change that the compiler will error out for
 #pragma warning restore IDE0059 // Unnecessary assignment of a value
 }

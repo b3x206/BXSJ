@@ -198,7 +198,7 @@ You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of th
 * More explicit API (but migrating to explicitness will likely not break older code, except for the new Key type)
 * Reader now asserts correctness better
 * Stack management is explicit
-* Can capture `SJType.Comment` blocks if comments are allowed (opt-in via `SJReader.captureComments = true`)
+* Can capture `SJType.Comment` blocks if comments are allowed ~~(opt-in via `SJReader.captureComments = true`)~~ No longer opt-in as of 3.0.*
 
 **▶ SJWriter**
 * Writer now asserts correctness better
@@ -217,7 +217,7 @@ You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of th
 * Allow supplying of a custom class inheriting SJ classes
 * Improve writer benchmark
 
-The inner workings have been reworked partially..
+The inner workings have been redone..
 
 <details>
 
@@ -398,9 +398,9 @@ From 1.x, everything else is more or less the same, except the inner workings of
 
 ### - 3.0.0
 **▶ SJReader**
-* [ ] Move all state to `ref State S`.
-  * [ ] Stacked state is moved to `BX.SJ.SJReader+State+Stacked`.
-  * [ ] `PushState`/`PopState` to save / load opaque `SJWriter` state.
+* [X] Move all state to `ref State S`.
+  * [X] Stacked state is moved to `BX.SJ.SJReader+State+Stacked`.
+  * [X] `PushState`/`PopState` to save / load opaque `SJWriter` state.
   * [ ] Tests
 * [X] Allow `SJType.Key` values outside of `SJType.String`, that aren't recursive. The slices are provided as is, but requires some minor code changes. <br>
   (can use `SJReader.Value.prevType` to check whether if the type was formerly bare [not `String`])
@@ -408,7 +408,7 @@ From 1.x, everything else is more or less the same, except the inner workings of
 * [X] Allow custom key types (non recursive data for now, `{ 0x21498124: "b", }`)
 * [ ] Allow types on keys or values (`{ (CustomType)0x21498124: (0x1234)"b", }`)
   (Numbers or type names are allowed, type must pass regex similar to `\([A-Za-z0-9\-_]\)`..)
-* [ ] Removed the non-captured comment reading (to ignore comments, just skip them if `SJReader.Value.type` is `SJType.Comment`)
+* [X] Removed the non-captured comment reading (to ignore comments, just skip them if `SJReader.Value.type` is `SJType.Comment`, which is added to the code regardless for the potential of a `SJReader` with `allowComments`)
 * [X] More tolerant with tokens of type `SJType.Number`. <br>
   (octal [`0o`], hexadecimal [`0x`] and binary [`0b`] is now allowed, if prefixed with their respective sequence)
 * [X] `PeekEntryCount` to peek the entries within any `SJType.Object` or `SJType.Array`.

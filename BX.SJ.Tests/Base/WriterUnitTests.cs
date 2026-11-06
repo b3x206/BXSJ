@@ -633,7 +633,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             DisposeWriter(writer);
         }
     }
-
+    public TestContext? TestContext { get; set; }
     // State
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
@@ -644,6 +644,9 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     )]
     public void TestState(string write)
     {
+        Console.WriteLine($"TestContext : {TestContext?.ResultsDirectory}");
+        Console.WriteLine($"TestContext : {TestContext?.TestResultsDirectory}");
+
         // Test this with many strings (including emoji spam,
         // to check for stuff like whether if the StreamWriter has
         // resetted it's state correctly, well as correct as it can be.)

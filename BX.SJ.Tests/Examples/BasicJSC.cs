@@ -2,7 +2,6 @@
 {
     /// <summary>
     /// Example for reading JsonC documents with comment capturing.
-    /// <br>This enables the opt-in (since 2.x) feature of using </br>
     /// </summary>
     sealed class BasicJSC
     {
@@ -18,6 +17,9 @@
                 {
                     case SJType.Error:
                         return;
+
+                    case SJType.End:
+                        continue;
 
                     case SJType.Comment:
                         const string SummaryTk = "@summary";
@@ -60,10 +62,9 @@
             var reader = new SJStringReader(data)
             {
                 allowComments = true,
-                captureComments = true // Opt-in to the new behaviour.
             };
 
-            for (var root = reader.Read(); !reader.s.ended; root = reader.Read())
+            for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
             {
                 // Skip root level comments if they are irrelevant
                 if (root.type == SJType.Comment)
