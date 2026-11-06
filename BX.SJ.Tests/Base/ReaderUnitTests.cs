@@ -262,7 +262,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
 
             reader.Reset();
             Assert.That.IsNullOrEmpty(reader.Error, "Error state must reset on Reset");
-            Assert.AreEqual(0, reader.current, "Reader position must be zero after reset");
+            Assert.AreEqual(0, reader.s.current, "Reader position must be zero after reset");
         }
         finally
         {
@@ -425,7 +425,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
                 }
             }
 
-            for (var v = r.Read(); !r.ended; v = r.Read())
+            for (var v = r.Read(); !r.s.ended; v = r.Read())
             {
                 if (v.type == SJType.Comment) continue; // Comments outside of the root value is ignored
 

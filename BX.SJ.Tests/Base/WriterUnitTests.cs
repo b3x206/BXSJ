@@ -698,7 +698,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     [Timeout(TestTimeouts.Short)]
     public void TestLargeState()
     {
-        
+        throw new NotImplementedException();
     }
 
     [TestMethod]

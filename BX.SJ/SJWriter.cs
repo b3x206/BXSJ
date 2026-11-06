@@ -130,7 +130,7 @@ namespace BX.SJ
             public bool WrittenType { get; private set; }
             public bool WrittenCustomKey { get; private set; }
             public bool WrittenCustomValue { get; private set; }
-            public readonly bool Has => depth > 0;
+            public readonly bool HasStacked => depth > 0;
 
             internal Stacked[] _stacked;
             // This can be shared among writers
@@ -148,7 +148,7 @@ namespace BX.SJ
             }
             public readonly ref Stacked Peek()
             {
-                if (!Has)
+                if (!HasStacked)
                 {
                     _stubState = Stacked.Invalid;
                     return ref _stubState;
@@ -158,7 +158,7 @@ namespace BX.SJ
             public ref Stacked Pop()
             {
                 // Pop should throw as it mutates..
-                if (!Has) throw new InvalidOperationException("Cannot peek state while there is no state.");
+                if (!HasStacked) throw new InvalidOperationException("Cannot peek state while there is no state.");
                 return ref _stacked[--depth];
             }
 
@@ -180,7 +180,7 @@ namespace BX.SJ
             }
             public readonly void CopyTo(ref State s)
             {
-                // Mutable references that are re  used should be preserved
+                // Mutable references that are reused should be preserved
                 // (_error is not mutable)
                 Stacked[] stacked = s._stacked;
                 s = this;
@@ -199,6 +199,7 @@ namespace BX.SJ
                 expect = Expect.None;
                 fmtExpect = FormatExpect.None;
                 ended = false;
+                _error = null;
             }
 
             public override readonly string ToString()
@@ -301,6 +302,11 @@ namespace BX.SJ
 
         // state
         private State _S = State.Create();
+        /// <summary>
+        /// Primary state contained in the writer.
+        /// <br>This may not contain the other states that this writer may have.
+        /// Use the other state management methods to save/load state.</br>
+        /// </summary>
         public ref State S => ref _S;
         /// <summary>
         /// The error string detailing why the writer failed.
@@ -872,7 +878,6 @@ namespace BX.SJ
         /// <param name="name">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
         public bool WriteKey(ReadOnlySpan<char> name) => WriteLiteralKey(name, asString: true);
-
         public bool WriteKeyNumber(float number, string format = "G")
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
@@ -900,6 +905,130 @@ namespace BX.SJ
         }
         public bool WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false", asString: false);
         public bool WriteKeyNull() => WriteLiteralKey("null", asString: false);
+
+        /// <summary>
+        /// Writes a literal value with the rules for the top level object or array.
+        /// <br><b>Warning :</b> Using this, you can write invalid JSON
+        /// (because it writes the value as is, but with the value rules and indenting).
+        /// This method is not recommended for use, unless you know what you are doing.</br>
+        /// <br>If on a object or array, comma is appended before the <paramref name="data"/> 
+        /// (on <see cref="PrepareValue"/>). Use <see cref="WriteComment"/>- family of methods to write comment instead of this!.</br>
+        /// <br>This also can be used as a faster way to write numbers if you have data for that.</br>
+        /// </summary>
+        /// <returns>Whether if the write was successful.</returns>
+        public virtual bool WriteLiteralValue(ReadOnlySpan<char> data)
+        {
+            ref var s = ref S;
+            if (s.ended)
+            {
+                Error = "Attempt to write into a finished JSONWriter";
+                return false;
+            }
+            if ((s.expect & Expect.Key) == Expect.Key)
+            {
+                Error = "Expected writing object key, got WriteLiteral";
+                return false;
+            }
+
+            PrepareValue();
+            Append(data);
+
+            if (s.depth <= 0)
+            {
+                // Value is top level
+                s.ended = true;
+            }
+            else
+            {
+                var t = s.Peek().type;
+                switch (t)
+                {
+                    case SJType.Object:
+                        s.expect = Expect.Key | Expect.Comma;
+                        break;
+                    case SJType.Array:
+                        s.expect = Expect.Value | Expect.Comma;
+                        break;
+                    default:
+                        Error = $"Invalid top level type {t}";
+                        return false;
+                }
+            }
+            s.fmtExpect = FormatExpect.NewlineIndent;
+
+            return true;
+        }
+        public virtual bool WriteString(ReadOnlySpan<char> value)
+        {
+            ref var s = ref S;
+            // This one does some things different enough that it can't be "WriteLiteral"
+            if (s.ended)
+            {
+                Error = "Attempt to write into a finished JSONWriter";
+                return false;
+            }
+            if ((s.expect & Expect.Key) == Expect.Key)
+            {
+                // eh sure, works, similar intent
+                return WriteKey(value);
+            }
+
+            PrepareValue();
+            Append('"');
+
+            WriteEscaped(value, asciiOnly);
+            Append('"');
+
+            if (s.depth <= 0)
+            {
+                s.ended = true;
+            }
+            else
+            {
+                var t = s.Peek().type;
+                switch (t)
+                {
+                    case SJType.Object:
+                        s.expect = Expect.Key | Expect.Comma;
+                        break;
+                    case SJType.Array:
+                        s.expect = Expect.Value | Expect.Comma;
+                        break;
+                    default:
+                        Error = $"Invalid top level type {t}";
+                        return false;
+                }
+            }
+            s.fmtExpect = FormatExpect.NewlineIndent;
+
+            return true;
+        }
+        public bool WriteNumber(float number, string format = "G")
+        {
+            static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
+        }
+        public bool WriteNumber(double number, string format = "G")
+        {
+            static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
+        }
+        public bool WriteLong(long number, string format = "G", string prefix = null)
+        {
+            static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
+        }
+        public bool WriteULong(ulong number, string format = "G", string prefix = null)
+        {
+            static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
+        }
+        public bool WriteBool(bool value) => WriteLiteralValue(value ? "true" : "false");
+        public bool WriteNull() => WriteLiteralValue("null");
 
         /// <summary>
         /// Write a comment for JSON, starting with /* and ending with */.
@@ -1026,130 +1155,6 @@ namespace BX.SJ
 
             return true;
         }
-
-        /// <summary>
-        /// Writes a literal value with the rules for the top level object or array.
-        /// <br><b>Warning :</b> Using this, you can write invalid JSON
-        /// (because it writes the value as is, but with the value rules and indenting).
-        /// This method is not recommended for use, unless you know what you are doing.</br>
-        /// <br>If on a object or array, comma is appended before the <paramref name="data"/> 
-        /// (on <see cref="PrepareValue"/>). Use <see cref="WriteComment"/>- family of methods to write comment instead of this!.</br>
-        /// <br>This also can be used as a faster way to write numbers if you have data for that.</br>
-        /// </summary>
-        /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteLiteralValue(ReadOnlySpan<char> data)
-        {
-            ref var s = ref S;
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.Key) == Expect.Key)
-            {
-                Error = "Expected writing object key, got WriteLiteral";
-                return false;
-            }
-
-            PrepareValue();
-            Append(data);
-
-            if (s.depth <= 0)
-            {
-                // Value is top level
-                s.ended = true;
-            }
-            else
-            {
-                var t = s.Peek().type;
-                switch (t)
-                {
-                    case SJType.Object:
-                        s.expect = Expect.Key | Expect.Comma;
-                        break;
-                    case SJType.Array:
-                        s.expect = Expect.Value | Expect.Comma;
-                        break;
-                    default:
-                        Error = $"Invalid top level type {t}";
-                        return false;
-                }
-            }
-            s.fmtExpect = FormatExpect.NewlineIndent;
-
-            return true;
-        }
-        public virtual bool WriteString(ReadOnlySpan<char> value)
-        {
-            ref var s = ref S;
-            // This one does some things different enough that it can't be "WriteLiteral"
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.Key) == Expect.Key)
-            {
-                // eh sure, works, similar intent
-                return WriteKey(value);
-            }
-
-            PrepareValue();
-            Append('"');
-
-            WriteEscaped(value, asciiOnly);
-            Append('"');
-
-            if (s.depth <= 0)
-            {
-                s.ended = true;
-            }
-            else
-            {
-                var t = s.Peek().type;
-                switch (t)
-                {
-                    case SJType.Object:
-                        s.expect = Expect.Key | Expect.Comma;
-                        break;
-                    case SJType.Array:
-                        s.expect = Expect.Value | Expect.Comma;
-                        break;
-                    default:
-                        Error = $"Invalid top level type {t}";
-                        return false;
-                }
-            }
-            s.fmtExpect = FormatExpect.NewlineIndent;
-
-            return true;
-        }
-        public bool WriteNumber(float number, string format = "G")
-        {
-            static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
-                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
-            return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
-        }
-        public bool WriteNumber(double number, string format = "G")
-        {
-            static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
-                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
-            return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
-        }
-        public bool WriteLong(long number, string format = "G", string prefix = null)
-        {
-            static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
-                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
-            return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
-        }
-        public bool WriteULong(ulong number, string format = "G", string prefix = null)
-        {
-            static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
-                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
-            return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
-        }
-        public bool WriteBool(bool value) => WriteLiteralValue(value ? "true" : "false");
-        public bool WriteNull() => WriteLiteralValue("null");
 
         // These are like "extensions"
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1344,7 +1349,6 @@ namespace BX.SJ
         {
             S.Reset();
             _stateStackCount = 0;
-            Error = null;
         }
 #pragma warning restore IDE0057 // ***** does not support System.Range
     }

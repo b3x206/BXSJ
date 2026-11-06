@@ -34,7 +34,7 @@ public sealed class ReadmeUnitTests
         const string data = @"{ ""x"": 42.0, ""y"": -42.0, ""z"": 0.0 }";
         var reader = new SJStringReader(data);
 
-        for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
+        for (SJReader.Value root = reader.Read(); !reader.s.ended; root = reader.Read())
         {
             Console.WriteLine($"Saved Position : {ReadVector3(reader, root)}");
         }
@@ -97,7 +97,7 @@ public sealed class ReadmeUnitTests
             captureComments = true // Opt-in to the new behaviour.
         };
 
-        for (var root = reader.Read(); !reader.ended; root = reader.Read())
+        for (var root = reader.Read(); !reader.s.ended; root = reader.Read())
         {
             // Skip root level comments if they are irrelevant
             if (root.type == SJType.Comment)
@@ -209,7 +209,7 @@ public sealed class ReadmeUnitTests
             try
             {
                 var reader = new SJStringReader(Data);
-                for (var v = reader.Read(); !reader.ended; v = reader.Read())
+                for (var v = reader.Read(); !reader.s.ended; v = reader.Read())
                 {
                     switch (v.type)
                     {
@@ -289,7 +289,7 @@ public sealed class ReadmeUnitTests
         });
         reader.Reset();
         // ↓ Instead do this
-        for (var root = reader.Read(); !reader.ended; root = reader.Read())
+        for (var root = reader.Read(); !reader.s.ended; root = reader.Read())
         {
             // ✅ : Discard comments when interacting with code that disallow or not expect it
             if (root.type == SJType.Comment) continue;

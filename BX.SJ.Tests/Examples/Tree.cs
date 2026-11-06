@@ -42,7 +42,7 @@ namespace BX.SJ.Tests.Examples
                 throw new ArgumentException($"Given SJReader has an error : {reader.Error}", nameof(reader));
             }
 
-            for (var root = reader.Read(); !reader.ended; root = reader.Read())
+            for (var root = reader.Read(); !reader.s.ended; root = reader.Read())
             {
                 WriteFromInternal(tree, reader, root);
             }

@@ -63,7 +63,7 @@
                 captureComments = true // Opt-in to the new behaviour.
             };
 
-            for (var root = reader.Read(); !reader.ended; root = reader.Read())
+            for (var root = reader.Read(); !reader.s.ended; root = reader.Read())
             {
                 // Skip root level comments if they are irrelevant
                 if (root.type == SJType.Comment)

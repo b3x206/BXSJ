@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
@@ -61,7 +62,7 @@ namespace BX.SJ
             /// </summary>
             public ushort objectDepth;
             /// <summary>
-            /// <see cref="SJReader.depth"/> of the <see cref="reader"/> while this Value was being created.
+            /// <see cref="SJReader.s.depth"/> of the <see cref="reader"/> while this Value was being created.
             /// </summary>
             public readonly ushort depth;
 
@@ -72,7 +73,7 @@ namespace BX.SJ
                 start = end = 0;
                 typeStart = typeEnd = 0;
                 objectDepth = 0;
-                depth = (ushort)(reader?.depth ?? 0);
+                depth = (ushort)(reader?.S.depth ?? 0);
             }
             private Value(SJType stubType, SJReader reader = null)
             {
@@ -81,7 +82,7 @@ namespace BX.SJ
                 start = end = 0;
                 typeStart = typeEnd = 0;
                 objectDepth = 0;
-                depth = (ushort)(reader?.depth ?? 0);
+                depth = (ushort)(reader?.S.depth ?? 0);
             }
 
             public static Value Error() => new Value(SJType.Error);
@@ -137,43 +138,179 @@ namespace BX.SJ
                 return $"[SJReader.Value] type:{type}, start:{start}, end:{end}, depth:{objectDepth}";
             }
         }
+        public struct StateScope : IDisposable
+        {
+            private bool disposed;
+            private readonly bool popIfError;
+            private readonly SJReader reader;
 
+            public StateScope(SJReader reader, bool popIfError)
+            {
+                this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
+
+                disposed = false;
+                this.popIfError = popIfError;
+                reader.PushState();
+            }
+
+            public void Dispose()
+            {
+                if (disposed || reader == null) return;
+
+                if (!popIfError || !string.IsNullOrEmpty(reader.Error))
+                {
+                    reader.PopState();
+                }
+                disposed = true;
+            }
+        }
+        public const int DefaultStackSize = 8;
         [Flags]
         public enum Expect { None = 0, Comma = 1 << 0, Key = 1 << 1, Colon = 1 << 2 }
         public struct State
         {
-            public SJType type;
-            public int valueCount;
-            public Expect expect;
-            public readonly bool invalid;
-            public static State Invalid => new State(true);
+            public struct Stacked
+            {
+                public SJType type;
+                public int valueCount;
+                public Expect expect;
+                public readonly bool invalid;
+                public static Stacked Invalid => new Stacked(true);
 
-            private State(bool invalid)
-            {
-                type = SJType.Error;
-                valueCount = 0;
-                expect = Expect.None;
-                this.invalid = invalid;
-            }
-            public State(SJType type, Expect expect)
-            {
-                this.type = type switch
+                private Stacked(bool invalid)
                 {
-                    SJType.Object => type,
-                    SJType.Array => type,
-                    _ => throw new ArgumentException("Supplied stateful type must be Object or Array only", nameof(type))
+                    type = SJType.Error;
+                    valueCount = 0;
+                    expect = Expect.None;
+                    this.invalid = invalid;
+                }
+                public Stacked(SJType type, Expect expect)
+                {
+                    this.type = type switch
+                    {
+                        SJType.Object => type,
+                        SJType.Array => type,
+                        _ => throw new ArgumentException("Supplied stateful type must be Object or Array only", nameof(type))
+                    };
+                    this.expect = expect;
+                    valueCount = 0;
+                    invalid = false;
+                }
+
+                public override readonly string ToString()
+                {
+                    if (invalid) return "invalid";
+                    return $"type={type}, valueCount={valueCount}, expect={expect}";
+                }
+            }
+
+            /// <summary>
+            /// Error should be managed through <see cref="SJReader"/>.
+            /// <br>It can be used to clear state, if needed..</br>
+            /// </summary>
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            public string _error;
+            public int depth;   // "Current depth" tracker. Used with the so called "stack"
+            public int current; // "Current index" tracker
+            /// <summary>
+            /// Last key read on a object key/value pair. If a non <see cref="SJType.Key"/>
+            /// <see cref="Value"/> is returned while this is set, this value is the key that is for it.
+            /// </summary>
+            /// <remarks>
+            /// <see cref="IterateObject(Value, out Value, out Value)"/> uses this value to keep it's key variable, it is also used as a failsafe value.
+            /// </remarks>
+            public Value LastEntryKey { get; set; }
+
+            /// <summary>
+            /// Whether if the reader reached end. If you want to validate end of JSON document,
+            /// you should do this if <see cref="captureComments"/> is <see langword="true"/>:
+            /// <c>
+            /// <br>for (var value = reader.Read(); !reader.S.Ended; value = reader.Read())</br>
+            /// <br>{</br>
+            /// <br>switch (value.type) // ... processing code, if type is comment next "Read" must be called again to proceed ... </br>
+            /// <br>// Also, errors must be handled correctly. If <see cref="Read"/> is called while in error state, this field won't be touched.</br>
+            /// <br>}</br>
+            /// </c>
+            /// </summary>
+            public bool ended;
+
+            // This can be shared among readers
+            public readonly bool HasStacked => depth > 0;
+            private static Stacked _stubState = Stacked.Invalid;
+            internal Stacked[] _stacked;
+
+            public int Push(Stacked s)
+            {
+                if ((_stacked?.Length - 1) < depth)
+                {
+                    System.Array.Resize(ref _stacked, _stacked.Length <= 0 ? DefaultStackSize : _stacked.Length * 2);
+                }
+                int pushIndex = depth++;
+                _stacked[pushIndex] = s;
+                return pushIndex;
+            }
+            public readonly ref Stacked Peek()
+            {
+                if (!HasStacked)
+                {
+                    _stubState = Stacked.Invalid;
+                    return ref _stubState;
+                }
+                return ref _stacked[depth - 1];
+            }
+            public ref Stacked Pop()
+            {
+                // Pop should throw as it mutates..
+                if (!HasStacked) throw new InvalidOperationException("Cannot peek state while there is no state.");
+                return ref _stacked[--depth];
+            }
+
+            public static State Create()
+            {
+                return new State()
+                {
+                    _stacked = new Stacked[DefaultStackSize]
                 };
-                this.expect = expect;
-                valueCount = 0;
-                invalid = false;
+            }
+            public readonly State Copy()
+            {
+                var s = new State
+                {
+                    _stacked = new Stacked[_stacked.Length]
+                };
+                CopyTo(ref s);
+                return s;
+            }
+            public readonly void CopyTo(ref State s)
+            {
+                // Mutable references that are reused should be preserved
+                // (_error is not mutable)
+                Stacked[] stacked = s._stacked;
+                s = this;
+                s._stacked = stacked;
+                _stacked.CopyTo((Span<Stacked>)s._stacked);
+            }
+        
+            public void Reset()
+            {
+                current = depth = 0;
+                LastEntryKey = default;
+                ended = false;
+                _error = null;
+            }
+            public override readonly string ToString()
+            {
+                return $"current={current}, depth={depth}, top={{{Peek()}}}";
             }
         }
 
         // config
         /// <summary>
         /// Maximum read depth as generally recursion is used to read.
+        /// <br>Set to zero to disable any depth checks.</br>
         /// </summary>
         public ushort maxDepth = 128;
+        public int maxStateStack = 128;
         /// <summary>
         /// <br>Allows comments on JSON file : </br><br/>
         /// <br><c>// &lt;-- single line, until \n</c></br>
@@ -204,15 +341,6 @@ namespace BX.SJ
         /// <br><c>{ "k": (TypeName)[1, 2, 3], "k2": (0x7463)"TypeCode.Int32" }</c></br>
         /// </summary>
         public bool allowTypeDeclarations = false;
-        /// <summary>
-        /// Captured JSON comments are skipped
-        /// <br>(they are not pushed as JSON values from <see cref="Read"/> method)</br>
-        /// <br><b>Caution:</b> If you set this <see langword="false"/>, the document must be 
-        /// read differently compared to the basic method, as EOF validation and other things 
-        /// are done implicitly (eg: getting next value, because comments can be anywhere) depending on this value.
-        /// </br>
-        /// </summary>
-        public bool captureComments = false;
         protected bool _ThrowOnError = false;
         /// <summary>
         /// When an erroreneous case occurs (or <see cref="Error"/> is set to anything other 
@@ -235,73 +363,23 @@ namespace BX.SJ
         }
 
         // state
-        public int depth = 0;   // "Current depth" tracker. Used with the so called "stack"
-        public int current = 0; // "Current index" tracker
-        /// <summary>
-        /// Last key read on a object key/value pair. If a non <see cref="SJType.Key"/>
-        /// <see cref="Value"/> is returned while this is set, this value is the key that is for it.
-        /// </summary>
-        /// <remarks>
-        /// <see cref="IterateObject(Value, out Value, out Value)"/> uses this value to keep it's key variable, it is also used as a failsafe value.
-        /// </remarks>
-        public Value LastEntryKey { get; protected set; }
-        protected const int DefaultStackSize = 8;
-        protected State[] _stateStack = new State[DefaultStackSize];
-        private State _stubState = State.Invalid;
-        public bool HasState => depth > 0;
-        public int PushState(State s)
-        {
-            if ((_stateStack?.Length - 1) < depth)
-            {
-                Array.Resize(ref _stateStack, _stateStack.Length <= 0 ? DefaultStackSize : _stateStack.Length * 2);
-            }
-            int pushIndex = depth++;
-            _stateStack[pushIndex] = s;
-            return pushIndex;
-        }
-        public ref State PeekState()
-        {
-            if (!HasState)
-            {
-                _stubState = State.Invalid;
-                return ref _stubState;
-            }
-            return ref _stateStack[depth - 1];
-        }
-        public ref State PopState()
-        {
-            // PopState should throw as it mutates..
-            if (!HasState) throw new InvalidOperationException("Cannot peek state while there is no state.");
-            return ref _stateStack[--depth];
-        }
-        /// <summary>
-        /// Whether if the reader reached end. If you want to validate end of JSON document,
-        /// you should do this if <see cref="captureComments"/> is <see langword="true"/>:
-        /// <c>
-        /// <br>for (var value = reader.Read(); !reader.Ended; value = reader.Read())</br>
-        /// <br>{</br>
-        /// <br>switch (value.type) // ... processing code, if type is comment next "Read" must be called again to proceed ... </br>
-        /// <br>// Also, errors must be handled correctly. If <see cref="Read"/> is called while in error state, this field won't be touched.</br>
-        /// <br>}</br>
-        /// </c>
-        /// </summary>
-        public bool ended;
-        protected string _Error = string.Empty;
+        private State _S;
+        public ref State S => ref _S;
         /// <summary>
         /// The error string detailing why the reader failed.
         /// </summary>
         public string Error
         {
-            get => _Error;
+            get => S._error;
             set
             {
                 if (string.IsNullOrEmpty(value))
                 {
-                    _Error = string.Empty;
+                    S._error = string.Empty;
                     return;
                 }
 
-                _Error = value;
+                S._error = value;
                 if (_ThrowOnError)
                 {
                     ThrowError();
@@ -343,31 +421,14 @@ namespace BX.SJ
         protected static string Tk(char c) => c == '\0' ? "\\0/0" : $"{c}/{(int)c}";
 
         /// <summary>
-        /// Validates and skips comment. This ignores the <see cref="allowComments"/> and parses the comment.
-        /// <br><b>Note : </b> This method only skips and validates comments, if the character at <see cref="current"/> is '/'.
-        /// It will fail on white space intentionally, but won't set error (because it isn't comment).
-        /// You should check <c>At(current) == '/' &amp;&amp; <see cref="SkipComment"/></c></br>
-        /// </summary>
-        /// <returns>Whether if the comment block was valid.</returns>
-        protected bool SkipComment()
-        {
-            (int start, int end) = GetCommentRange(true);
-            if (start >= 0 && end >= 0)
-            {
-                current = end;
-                return true;
-            }
-
-            return false;
-        }
-        /// <summary>
-        /// Read a range of comments, starting from <see cref="current"/> for the reader data.
+        /// Read a range of comments, starting from <see cref="s.current"/> for the reader data.
         /// </summary>
         /// <param name="setError">Set <see cref="Error"/> if the comment block is invalid.</param>
         /// <returns>Start and ending range. If the block isn't a comment, -1 is returned for both regions</returns>
         protected (int start, int end) GetCommentRange(bool setError)
         {
-            int start = current, end = current;
+            ref var s = ref S;
+            int start = s.current, end = s.current;
             if (start < Length)
             {
                 // I should validate the current character twice, for external uses.
@@ -442,32 +503,22 @@ namespace BX.SJ
         /// </returns>
         protected bool UpdateEnding()
         {
-            if (depth < 0)
+            ref var s = ref S;
+            if (s.depth < 0)
             {
                 return false;
             }
 
             // assert EOF or only whitespace if depth is zero.
-            for (; depth == 0 && current < Length; current++)
+            for (; s.depth == 0 && s.current < Length; s.current++)
             {
-                char ch = At(current);
+                char ch = At(s.current);
 
                 if (allowComments && ch == '/')
                 {
-                    if (!captureComments)
-                    {
-                        if (!SkipComment())
-                        {
-                            Error = $"[end] {Error}";
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        // Yield for parsing the comment line as current points to == '/',
-                        // as it's "not EOF" and "more data available"
-                        return true;
-                    }
+                    // Yield for parsing the comment line as current points to == '/',
+                    // as it's "not EOF" and "more data available"
+                    return true;
                 }
                 else if (!char.IsWhiteSpace(ch))
                 {
@@ -481,11 +532,11 @@ namespace BX.SJ
         }
 
         /// <summary>
-        /// Check last <see cref="State"/> on the stack according to the rules.
+        /// Check last <see cref="Stacked"/> on the stack according to the rules.
         /// <br>It also validates <paramref name="v"/> and can mutate that value as well</br>
         /// </summary>
         /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
-        protected virtual bool UpdateState(ref State cs, ref Value v)
+        protected virtual bool UpdateState(ref State.Stacked cs, ref Value v)
         {
             if (cs.invalid)
             {
@@ -542,12 +593,12 @@ namespace BX.SJ
         /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
         protected bool UpdateLastState(ref Value v)
         {
-            if (!HasState)
+            if (!S.HasStacked)
             {
                 return true;
             }
 
-            return UpdateState(ref PeekState(), ref v);
+            return UpdateState(ref S.Peek(), ref v);
         }
 
         /// <summary>
@@ -565,8 +616,9 @@ namespace BX.SJ
         /// </summary>
         public virtual Value Read()
         {
+            ref var s = ref S;
             var result = new Value(this);
-            ended = !string.IsNullOrEmpty(Error);
+            s.ended = !string.IsNullOrEmpty(Error);
         _Top:
             if (!string.IsNullOrEmpty(Error))
             {
@@ -580,16 +632,16 @@ namespace BX.SJ
                 Error = "Empty data";
                 goto _Top;
             }
-            if (current >= Length)
+            if (s.current >= Length)
             {
                 // Reaching end of document is no longer an error, but it should return an empty "error" value.
                 result.type = SJType.Error;
-                result.start = result.end = current;
+                result.start = result.end = s.current;
                 result.objectDepth = 0;
-                ended = true;
-                if (depth > 0)
+                s.ended = true;
+                if (s.depth > 0)
                 {
-                    Error = PeekState().type switch
+                    Error = s.Peek().type switch
                     {
                         SJType.Object => "Unclosed object",
                         SJType.Array => "Unclosed array",
@@ -598,70 +650,63 @@ namespace BX.SJ
                 }
                 return result;
             }
-            if (maxDepth > 0 && depth > maxDepth)
+            if (maxDepth > 0 && s.depth > maxDepth)
             {
                 Error = $"Exceeded maximum depth {maxDepth}";
                 goto _Top;
             }
 
-            result.start = current;
-            char ch = At(current);
+            result.start = s.current;
+            char ch = At(s.current);
             // Skip : White Space
             if (char.IsWhiteSpace(ch))
             {
-                current++;
+                s.current++;
                 goto _Top;
             }
             // Validate / Parse : Comments
             else if (allowComments && ch == '/')
             {
-                if (!captureComments)
+                result.type = SJType.Comment;
+                (result.start, result.end) = GetCommentRange(true);
+                if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
-                    SkipComment();
-                }
-                else
-                {
-                    result.type = SJType.Comment;
-                    (result.start, result.end) = GetCommentRange(true);
-                    if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
-                    {
-                        current = result.end;
-                        return result;
-                    }
+                    s.current = result.end;
+                    return result;
                 }
                 goto _Top;
             }
             // Validate : Object == KV Colon, Array == Comma
             else if (ch == ':' || ch == ',')
             {
-                if (HasState)
+                if (s.HasStacked)
                 {
-                    ref State s = ref PeekState();
+                    ref var st = ref s.Peek();
                     if (ch == ':')
                     {
-                        if (s.type != SJType.Object)
+                        if (st.type != SJType.Object)
                         {
                             Error = "Unexpected ':' in top level array";
                             goto _Top;
                         }
-                        else if ((s.expect & Expect.Colon) != Expect.Colon)
+                        else if ((st.expect & Expect.Colon) != Expect.Colon)
                         {
                             Error = "Unexpected ':', exceeding required";
                             goto _Top;
                         }
 
-                        s.expect &= ~Expect.Colon;
+                        st.expect &= ~Expect.Colon;
                     }
                     else if (ch == ',')
                     {
                         // both Array and Object get commas
-                        if ((s.expect & Expect.Comma) != Expect.Comma)
+                        if ((st.expect & Expect.Comma) != Expect.Comma)
                         {
                             Error = "Unexpected ',', exceeding required";
                             goto _Top;
                         }
 
-                        s.expect &= ~Expect.Comma;
+                        st.expect &= ~Expect.Comma;
                     }
                     else
                     {
@@ -675,10 +720,10 @@ namespace BX.SJ
                     Error = "Unexpected ':' or ',' in top level nothing";
                 }
 
-                current++;
+                s.current++;
                 goto _Top;
             }
-            else if ((PeekState().expect & Expect.Colon) == Expect.Colon)
+            else if ((s.Peek().expect & Expect.Colon) == Expect.Colon)
             {
                 // Colons are strict, they are seperator for key/value
                 Error = $"Unexpected '{Tk(ch)}', expected ':'";
@@ -689,15 +734,15 @@ namespace BX.SJ
             {
                 result.type = SJType.End;
                 // Validate last state and update "topmost current state"
-                State s = PopState();
-                if (depth < 0 || s.type != ((ch == '}') ? SJType.Object : SJType.Array))
+                var st = s.Pop();
+                if (s.depth < 0 || st.type != ((ch == '}') ? SJType.Object : SJType.Array))
                 {
                     Error = (ch == '}') ? "Stray '}'" : "Stray ']'";
                     goto _Top;
                 }
-                if (s.valueCount > 0)
+                if (st.valueCount > 0)
                 {
-                    if ((s.expect & Expect.Comma) != Expect.Comma)
+                    if ((st.expect & Expect.Comma) != Expect.Comma)
                     {
                         if (!allowTrailingComma)
                         {
@@ -707,12 +752,12 @@ namespace BX.SJ
                         else
                         {
                             // Set state to what is normal
-                            s.expect |= Expect.Comma;
+                            st.expect |= Expect.Comma;
                         }
                     }
                 }
 
-                result.end = ++current;
+                result.end = ++s.current;
 
                 // UpdateState here is not needed because the upper state will be checked later
                 if (!UpdateEnding())
@@ -721,7 +766,7 @@ namespace BX.SJ
                 }
             }
             // Validate: Commas
-            else if ((PeekState().expect & Expect.Comma) == Expect.Comma)
+            else if ((S.Peek().expect & Expect.Comma) == Expect.Comma)
             {
                 // Commas are more flexible and can be found anywhere else,
                 // however they are not required for object declarations,
@@ -733,11 +778,11 @@ namespace BX.SJ
             else if (ch == '{' || ch == '[')
             {
                 result.type = ch == '{' ? SJType.Object : SJType.Array;
-                ref State prev = ref PeekState();
-                PushState(new State(result.type, ch == '{' ? Expect.Key : Expect.None));
+                ref var prev = ref s.Peek();
+                s.Push(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
 
-                result.objectDepth = (ushort)depth;
-                current++;
+                result.objectDepth = (ushort)s.depth;
+                s.current++;
 
                 if (!UpdateState(ref prev, ref result))
                 {
@@ -748,11 +793,11 @@ namespace BX.SJ
             else if (char.IsDigit(ch) || ch == '-')
             {
                 result.type = SJType.Number;
-                while (current < Length && IsNumberContinuation(At(current)))
+                while (s.current < Length && IsNumberContinuation(At(s.current)))
                 {
-                    current++;
+                    s.current++;
                 }
-                result.end = current;
+                result.end = s.current;
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -762,29 +807,29 @@ namespace BX.SJ
             // Parse : String
             else if (ch == '"')
             {
-                ch = At(++current);
+                ch = At(++s.current);
                 result.type = SJType.String;
-                result.start = current;
+                result.start = s.current;
 
                 while (true)
                 {
-                    if (current >= Length)
+                    if (s.current >= Length)
                     {
                         Error = "Unclosed string";
                         goto _Top;
                     }
                     // Do have to handle the current escape here
-                    if (ch == '"' && (current > 0 && At(current - 1) != '\\'))
+                    if (ch == '"' && (s.current > 0 && At(s.current - 1) != '\\'))
                     {
                         break;
                     }
 
-                    if (ch == '\\' || current < Length)
+                    if (ch == '\\' || s.current < Length)
                     {
-                        ch = At(++current);
+                        ch = At(++s.current);
                     }
                 }
-                result.end = current++;
+                result.end = s.current++;
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -795,25 +840,25 @@ namespace BX.SJ
             else if (ch == 'n' || ch == 't' || ch == 'f')
             {
                 result.type = (ch == 'n') ? SJType.Null : SJType.Bool;
-                int remaining = Length - current;
-                if (Slice(current, Math.Min(remaining, 4)).Equals("null", StringComparison.Ordinal))
+                int remaining = Length - s.current;
+                if (Slice(s.current, Math.Min(remaining, 4)).Equals("null", StringComparison.Ordinal))
                 {
-                    current += 4;
+                    s.current += 4;
                 }
-                else if (Slice(current, Math.Min(remaining, 4)).Equals("true", StringComparison.Ordinal))
+                else if (Slice(s.current, Math.Min(remaining, 4)).Equals("true", StringComparison.Ordinal))
                 {
-                    current += 4;
+                    s.current += 4;
                 }
-                else if (Slice(current, Math.Min(remaining, 5)).Equals("false", StringComparison.Ordinal))
+                else if (Slice(s.current, Math.Min(remaining, 5)).Equals("false", StringComparison.Ordinal))
                 {
-                    current += 5;
+                    s.current += 5;
                 }
                 else
                 {
                     Error = $"Unknown token '{Tk(ch)}' or truncated literal";
                     goto _Top;
                 }
-                result.end = current;
+                result.end = s.current;
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -830,12 +875,13 @@ namespace BX.SJ
             return result;
         }
         /// <summary>
-        /// Moves <see cref="depth"/> and <see cref="current"/> until a depth.
+        /// Moves <see cref="s.depth"/> and <see cref="s.current"/> until a depth.
         /// </summary>
         protected void DiscardUntil(int depth)
         {
+            ref var s = ref S;
             var value = Value.Null();
-            while (!ended && this.depth != depth && value.type != SJType.Error)
+            while (!s.ended && s.depth != depth && value.type != SJType.Error)
             {
                 value = Read();
             }
@@ -854,7 +900,7 @@ namespace BX.SJ
             }
 
             DiscardUntil(value.objectDepth);
-            ref State current = ref PeekState();
+            ref var current = ref S.Peek();
             result = Read();
             if (result.type == SJType.Comment)
             {
@@ -919,7 +965,7 @@ namespace BX.SJ
             // SJType.Key is just promoted SJType.String
             if (result.type == SJType.Key)
             {
-                LastEntryKey = result;
+                S.LastEntryKey = result;
             }
             return true;
         }
@@ -959,7 +1005,7 @@ namespace BX.SJ
                     default:
                         if (!gotKey)
                         {
-                            key = LastEntryKey;
+                            key = S.LastEntryKey;
                         }
                         value = result;
                         return true;
@@ -1004,12 +1050,13 @@ namespace BX.SJ
 
             // For this instance since we aren't going to traverse towards inside explicitly and
             // only change the current depth's state object, it should be safe to save / load state like this..
-            int prevCurrent = current;
-            int prevDepth = depth;
-            State prevState = PeekState();
+            ref var s = ref S;
+            int prevCurrent = s.current;
+            int prevDepth = s.depth;
+            var prevState = s.Peek();
 
             // get a ref to the current state, before starting
-            ref State currentState = ref PeekState();
+            ref var currentState = ref s.Peek();
 
             DiscardUntil(v.objectDepth);
             Value innerValue = Read();
@@ -1040,11 +1087,57 @@ namespace BX.SJ
                 }
             }
 
-            current = prevCurrent;
-            depth = prevDepth;
+            s.current = prevCurrent;
+            s.depth = prevDepth;
             currentState = prevState;
             return result;
         }
+
+        protected State[] _stateStack = new State[DefaultStackSize];
+        protected int _stateStackCount = 0;
+        public int StackedStateCount => _stateStackCount;
+        protected virtual void ResizeStateStack(int size)
+        {
+            System.Array.Resize(ref _stateStack, size);
+        }
+        public virtual int PushState()
+        {
+            if (maxStateStack > 0 && _stateStackCount >= maxStateStack) return -1;
+            if (_stateStackCount >= _stateStack?.Length)
+            {
+                int size = Math.Max((_stateStack?.Length ?? 0) * 2, DefaultStackSize);
+                if (maxStateStack > 0) size = Math.Min(maxStateStack, size);
+                ResizeStateStack(size);
+            }
+
+            // Copy the data to the entry in stateStack
+            ref var next = ref _stateStack[_stateStackCount];
+            if ((next._stacked?.Length ?? -1) < S._stacked?.Length)
+            {
+                next._stacked = new State.Stacked[Math.Max(S._stacked?.Length ?? 0, DefaultStackSize)];
+            }
+            S.CopyTo(ref next);
+            return _stateStackCount++;
+        }
+        public virtual int PopState()
+        {
+            if (_stateStackCount <= 0) return -1;
+
+            // Should set by value to copy it instead of setting the reference.
+            // No need to copy the existing array entries, it can be discarded.
+            // ↑ Although this will allocate garbage instead of reusing the memory, so just copy it..
+            ref var prev = ref _stateStack[--_stateStackCount];
+            if ((S._stacked?.Length ?? -1) < prev._stacked?.Length)
+            {
+                S._stacked = new State.Stacked[Math.Max(prev._stacked?.Length ?? 0, DefaultStackSize)];
+            }
+            prev.CopyTo(ref S);
+            return _stateStackCount;
+        }
+        /// <summary>
+        /// Starts a <see cref="SJWriter"/> transaction, which will reset if this state is disposed.
+        /// </summary>
+        public StateScope UseState(bool popIfError = false) => new StateScope(this, popIfError);
 
         /// <summary>
         /// Get the current readout location.
@@ -1057,8 +1150,9 @@ namespace BX.SJ
                 return false;
             }
 
+            int c = S.current;
             line = column = 1;
-            for (int i = 0; i < current; i++)
+            for (int i = 0; i < c; i++)
             {
                 char cur = At(i);
                 if (cur == '\n')
@@ -1085,15 +1179,12 @@ namespace BX.SJ
         /// </remarks>
         public virtual void Reset()
         {
-            current = depth = 0;
-            LastEntryKey = default;
-            Error = null;
-            ended = false;
+            S.Reset();
         }
 
         public override string ToString()
         {
-            return $"[SJReader] current={current}, depth={depth}, error={Error}";
+            return $"[SJReader] state=({S}), error={Error}";
         }
     }
 }

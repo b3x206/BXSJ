@@ -408,6 +408,7 @@ From 1.x, everything else is more or less the same, except the inner workings of
 * [X] Allow custom key types (non recursive data for now, `{ 0x21498124: "b", }`)
 * [ ] Allow types on keys or values (`{ (CustomType)0x21498124: (0x1234)"b", }`)
   (Numbers or type names are allowed, type must pass regex similar to `\([A-Za-z0-9\-_]\)`..)
+* [ ] Removed the non-captured comment reading (to ignore comments, just skip them if `SJReader.Value.type` is `SJType.Comment`)
 * [X] More tolerant with tokens of type `SJType.Number`. <br>
   (octal [`0o`], hexadecimal [`0x`] and binary [`0b`] is now allowed, if prefixed with their respective sequence)
 * [X] `PeekEntryCount` to peek the entries within any `SJType.Object` or `SJType.Array`.
