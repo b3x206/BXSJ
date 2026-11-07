@@ -54,6 +54,7 @@ public abstract class ReaderBenchmark<TReader> where TReader : SJReader
         switch (value.type)
         {
             case SJType.Comment:
+            case SJType.Type:
             case SJType.Number:
             case SJType.Key:
             case SJType.String:
@@ -70,6 +71,7 @@ public abstract class ReaderBenchmark<TReader> where TReader : SJReader
                     {
                         case SJType.Key:
                             k = v;
+                            unchecked { counter += k.Slice().Length; }
                             continue;
                         case SJType.Comment:
                             ReadRecursiveInternal(reader, v, ref counter);

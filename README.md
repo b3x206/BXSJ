@@ -44,7 +44,7 @@ static Vector3 ReadVector3(SJReader reader, SJReader.Value root)
             case 'x': result.X = float.Parse(value.Slice(), CultureInfo.InvariantCulture); break;
             case 'y': result.Y = float.Parse(value.Slice(), CultureInfo.InvariantCulture); break;
             case 'z': result.Z = float.Parse(value.Slice(), CultureInfo.InvariantCulture); break;
-            default: throw new Exception($"Invalid key : {key}");
+            default: throw new Exception($"Invalid Vector3 key : {key}");
         }
     }
     return result;
@@ -55,6 +55,7 @@ var reader = new SJStringReader(data);
 
 for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
 {
+    // Can conditionally skip the irrelevant values here if it exists.
     Console.WriteLine($"Saved Position : {ReadVector3(reader, root)}");
 }
 ```
@@ -63,20 +64,10 @@ for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
 Unlike the original SJ, there is also a string escaping implementation if desired:
 
 ```cs
-
-// ...
-switch (SJReader.Value.type)
-{
-    // ...
-    case SJType.String:
-    {
-        string result = SJEscape.Unescape(SJReader.Value.Slice());
-        // `SJEscape.Escape(string | ReadOnlySpan<char>)` is for the other way around...
-        // If you want to allocate less, use SJEscape.Unescape with the append delegate.
-        // In future I may add something like "Escaper" with it's state like "Encoder"
-        break;
-    }
-}
+const string source = "Hello world! Back slash: \\, Quote: \"";
+string escape = SJEscape.Escape(source);
+string result = SJEscape.Unescape(escape);
+Console.WriteLine($"Escaped: <{escape}>, Unescaped: <{result}>");
 ```
 
 This is used as the default string escape for the Writer.
@@ -94,12 +85,14 @@ using System.Globalization;
 static Vector3 ReadVector3(SJReader reader, SJReader.Value root) { /*...*/ } // Copy the method from above Vector3 reader
 
 // Serialize an arbitrary Vector3
+var initialPosition = new Vector3(1f, 2f, 3f);
+var position = initialPosition;
+
 var writer = new SJStringWriter()
 {
     // Enable pretty printing
     indentSize = 4,
 };
-var position = new Vector3(1f, 2f, 3f);
 using (writer.Object())
 {
     writer.WriteKV("X", position.X);
@@ -109,12 +102,13 @@ using (writer.Object())
 
 // Now deserialize it
 position = Vector3.Zero;
+
 string data = writer.ReadData();
 var reader = new SJStringReader(data);
 position = ReadVector3(reader, reader.Read());
 
 // Use ReadData to read the resulting string.
-Console.WriteLine($"Saved Position : {data}, Read Position : {position}");
+Console.WriteLine($"Saved Position : {data}, Read Position : {position}, Equals : {initialPosition == position}");
 ```
 
 <!--
@@ -127,7 +121,7 @@ Console.WriteLine($"Saved Position : {data}, Read Position : {position}");
 * ReadLarge = Read a [large file (5mb.json)](TestFiles/5mb.json) 32 times
 * Write = Write few kb of JSON (`{ "random_key": "random_value", ... 512 entries }`) 256 times
 * WriteLarge = Write ~500kb JSON (`{ "random_key": "random_value", ... 16384 entries }`) 32 times
-* Baseline = Do the same action, just without processing.
+* Baseline = Do the same action, just without processing but read/write it.
 
 Classes used are [`SJStringReader`](./SJ/SJStringReader.cs) and [`SJStringWriter`](SJ/SJStringWriter.cs)
 
@@ -161,11 +155,6 @@ BenchmarkDotNet v0.15.8, Linux Debian GNU/Linux 13 (trixie)
 | WriteLargeBaseline |   0.0001 ms | 0.0000 ms | 0.0000 ms |       1.00 |     0.00 | 0.0134 |     168 B |        1.00 |
 | WriteLarge         |  45.7750 ms | 0.1747 ms | 0.1548 ms | 575,208.09 | 2,453.84 |      - |     168 B |        1.00 |
 
-
-**Note:** I'm not really good at writing benchmarks and these were not tested in 100% optimal situation (hence the ratio being too large on some "benches").
-Also, the speed could be worse than this as other code will run alongside it.
-
-_I speculate that_ the lack of performance could be caused by excessive bound checking + redundant state for the Reader, the Escape that Writer does and other many factors (using netstandard2 build could also contribute too, maybe.)..
 -->
 
 ---
@@ -432,6 +421,7 @@ From 1.x, everything else is more or less the same, except the inner workings of
 * [X] Built-in format buffer that moves from `stackalloc -> char[] -> ArrayPool<char>.Shared` (reuse of writer is better)
 
 **▶ New**
+* [ ] Reached 99% of test coverage (for `sj.dll`)
 * `SJStreamReader` to read from a `System.IO.Stream` with encoding.
 * `SJStreamWriter` to write into a `System.IO.Stream` with encoding.
 * `SJLinearWriter` to write into a contiguous region of `char[]` <br>

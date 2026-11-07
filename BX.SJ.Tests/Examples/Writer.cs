@@ -1,5 +1,8 @@
 ﻿namespace BX.SJ.Tests.Examples
 {
+    /// <summary>
+    /// Demonstrates the capabilities of the <see cref="SJWriter"/>, using <see cref="SJStringWriter"/>.
+    /// </summary>
     sealed class Writer
     {
         public static void TMain(string[] args)
@@ -66,10 +69,10 @@
                 {
                     using (writer.ArrayKV("in childhood"))
                     {
-                        writer.Write(3.141592); // Larp pro max
-                        writer.Write(2); // It's nice
-                        writer.Write(5); // Was my first favourite
-                        writer.Write(8); // Also good
+                        writer.Write(3.141592); // Larp ~~pro max~~ duo
+                        writer.Write(2);        // It's nice
+                        writer.Write(5);        // Was my first favourite
+                        writer.Write(8);        // Also good
                     }
 
                     // Now I fail math. But dw I don't hate it, because I'm not a mathmetician

@@ -130,6 +130,7 @@ namespace BX.SJ
             public bool WrittenType { get; private set; }
             public bool WrittenCustomKey { get; private set; }
             public bool WrittenCustomValue { get; private set; }
+            public bool WrittenTrailingComma { get; private set; }
             public readonly bool HasStacked => depth > 0;
 
             internal Stacked[] _stacked;
@@ -192,9 +193,10 @@ namespace BX.SJ
             public void MarkWrittenCustomKey() => WrittenCustomKey = true;
             public void MarkWrittenCustomValue() => WrittenCustomValue = true;
             public void MarkWrittenType() => WrittenType = true;
+            public void MarkWrittenTrailingComma() => WrittenTrailingComma = true;
             public void Reset()
             {
-                WrittenComment = WrittenCustomKey = WrittenCustomValue = WrittenType = false;
+                WrittenComment = WrittenCustomKey = WrittenCustomValue = WrittenType = WrittenTrailingComma = false;
                 count = depth = 0;
                 expect = Expect.None;
                 fmtExpect = FormatExpect.None;
@@ -269,11 +271,20 @@ namespace BX.SJ
         /// Whether to allow any <see cref="WriteComment"/>.
         /// </summary>
         public bool allowComments = false;
+        /// <summary>
+        /// Allows writing trailing comma.
+        /// <br>This case only happens when <see cref="WriteComment"/> was called
+        /// with "hasNextValue" set as true, but there wasn't going to be any next value.</br>
+        /// </summary>
         public bool allowTrailingComma = false;
         /// <summary>
-        /// Whether to allow any <see cref="WriteCustomKey"/>.
+        /// Whether to allow any <see cref="State.WriteCustomKey"/>.
         /// </summary>
         public bool allowOtherKeyTypes = false;
+        /// <summary>
+        /// Allows writing types for key or value. Check <see cref="SJReader.allowTypes"/> for more info.
+        /// </summary>
+        public bool allowTypes = false;
         /// <summary>
         /// Prefer ascii only string output. This can be used as a compatibility measure 
         /// with older servers / systems not behaving well with non-ascii strings.
@@ -771,10 +782,17 @@ namespace BX.SJ
                 Error = "Expected writing object key";
                 return false;
             }
-            if ((s.expect & Expect.Comma) != Expect.Comma && !allowTrailingComma)
+            if ((s.expect & Expect.Comma) != Expect.Comma)
             {
-                Error = "Trailing comma written - the comment functions may cause this, if no end of content is specified.";
-                return false;
+                if (!allowTrailingComma)
+                {
+                    Error = "Trailing comma written - the comment functions may cause this, if no end of content is specified.";
+                    return false;
+                }
+                else
+                {
+                    s.MarkWrittenTrailingComma();
+                }
             }
             ref var top = ref S.Peek();
             if (!top.Valid || top.type != SJType.Array)

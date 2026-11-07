@@ -241,6 +241,7 @@ namespace BX.SJ
         {
             int baseResult = base.PushState();
             // count is more accurate as a position of writing than the stream pos, which does not update unless flushed
+            // TODO : Must test what happens when 'S.count' is overflowed. I added "checked" as a safety measure.
             if (baseResult >= 0) _streamPositions[baseResult] = S.count;
             return baseResult;
         }
@@ -249,10 +250,10 @@ namespace BX.SJ
             int baseResult = base.PopState();
             if (baseResult >= 0)
             {
-                // todo : fix
-                // set this env value 1
-                // https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-mstest-writing-tests-testcontext#per-test-temporary-directory
-                Flush(true, true, true);
+                // TODO : Fix
+                Flush(true, false, false);
+                streamCurrent = 0;
+
                 int pos = _streamPositions[baseResult];
                 stream.Position = pos;
                 stream.SetLength(pos);

@@ -24,12 +24,12 @@ public sealed class ExamplesUnitTests
     [TestMethod]
     public void TestBasic()
     {
-        Basic.TMain([]);
+        Reader.TMain([]);
     }
     [TestMethod]
     public void TestBasicJSC()
     {
-        BasicJSC.TMain([]);
+        ReaderJSC.TMain([]);
     }
     [TestMethod]
     [DynamicData(nameof(TestDataProcessors))]
@@ -48,6 +48,11 @@ public sealed class ExamplesUnitTests
     public void TestWriter()
     {
         Writer.TMain([]);
+    }
+    [TestMethod]
+    public void TestWriterEx()
+    {
+        WriterEx.TMain([]);
     }
 
     [TestMethod]

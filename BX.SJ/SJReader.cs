@@ -338,7 +338,7 @@ namespace BX.SJ
         /// <br>Type literals can exist for the root object.</br>
         /// <br><c>(MyType){ "foo": 42, "bar": ["baz", 2, "fizz"] }</c></br>
         /// </summary>
-        public bool allowTypeDeclarations = false;
+        public bool allowTypes = false;
         protected bool _ThrowOnError = false;
         /// <summary>
         /// When an erroreneous case occurs (or <see cref="Error"/> is set to anything other 
@@ -771,7 +771,7 @@ namespace BX.SJ
                 goto _Top;
             }
             // Parse: Type (literal or something else). Treated sort of like a comment.
-            else if (allowTypeDeclarations && ch == '(')
+            else if (allowTypes && ch == '(')
             {
                 if (!s.notExpectingType)
                 {

@@ -25,7 +25,7 @@ public sealed class ReadmeUnitTests
                     case 'x': result.X = float.Parse(value.Slice(), CultureInfo.InvariantCulture); break;
                     case 'y': result.Y = float.Parse(value.Slice(), CultureInfo.InvariantCulture); break;
                     case 'z': result.Z = float.Parse(value.Slice(), CultureInfo.InvariantCulture); break;
-                    default: throw new Exception($"Invalid key : {key}");
+                    default: throw new Exception($"Invalid Vector3 key : {key}");
                 }
             }
             return result;
@@ -36,81 +36,21 @@ public sealed class ReadmeUnitTests
 
         for (SJReader.Value root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
+            // Can conditionally skip the irrelevant values here if it exists.
             Console.WriteLine($"Saved Position : {ReadVector3(reader, root)}");
-        }
-    }
-    [TestMethod]
-    public void NewMethodReaderSnippet()
-    {
-        static void InspectConfigData(SJReader reader, SJReader.Value root)
-        {
-            if (root.type != SJType.Object) throw new ArgumentException("Config node type must be object", nameof(root));
-
-            string entrySum = "";
-            SJReader.Value key = SJReader.Value.Error();
-            while (reader.IterateObjectEntries(root, out var value))
-            {
-                switch (value.type)
-                {
-                    case SJType.Error:
-                        return;
-
-                    case SJType.Comment:
-                        const string SummaryTk = "@summary";
-                        var comment = value.Slice(2, value.Length - 2).Trim(); // Skip // or /*
-                        if (comment.StartsWith(SummaryTk))
-                        {
-                            // Skip */
-                            if (comment.EndsWith("*/"))
-                            {
-                                comment = comment.Slice(0, comment.Length - 2).Trim();
-                            }
-
-                            entrySum = new string(comment.Slice(SummaryTk.Length).Trim());
-                        }
-                        continue;
-                    case SJType.Key:
-                        key = value;
-                        continue;
-
-                    default:
-                        Console.WriteLine($"Summary: {entrySum}\n  {new string(key.Slice())} = {new string(value.Slice())}");
-                        continue;
-                }
-            }
-        }
-
-        const string data = @"// The problem with comments is that they can appear anywhere.
-// Which makes some things that were implicit, explicit now.
-{
-    // Comments in JSON doesn't make much sense actually. Just use ini
-    /* @summary This field is 42, and actually you can put this within the JSON, but whatever.. */
-    ""is42"": 42,
-    /* @summary And this field is 67, you know why.. */
-    ""is67"": 67 // its the short form content number! 
-}
-// And to validate EOF, do this (it was implicit with the last Read()) ↓
-";
-        var reader = new SJStringReader(data)
-        {
-            allowComments = true,
-        };
-
-        for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
-        {
-            // Skip root level comments if they are irrelevant
-            if (root.type == SJType.Comment)
-                continue;
-
-            InspectConfigData(reader, root);
         }
     }
 
     [TestMethod]
     public void UnescapeSnippet()
     {
-        string result = SJEscape.Unescape("Hello world! Back slash:\\\\ Quote:\\\"");
-        Console.WriteLine(result);
+        const string source = "Hello world! Back slash: \\, Quote: \"";
+        string escape = SJEscape.Escape(source);
+        string result = SJEscape.Unescape(escape);
+        Console.WriteLine($"Escaped: <{escape}>, Unescaped: <{result}>");
+
+        // -- Assertions
+        Assert.AreEqual(source, result);
     }
     [TestMethod]
     public void WriterSnippet()
@@ -136,12 +76,14 @@ public sealed class ReadmeUnitTests
         }
 
         // Serialize an arbitrary Vector3
+        var initialPosition = new Vector3(1f, 2f, 3f);
+        var position = initialPosition;
+
         var writer = new SJStringWriter()
         {
             // Enable pretty printing
             indentSize = 4,
         };
-        var position = new Vector3(1f, 2f, 3f);
         using (writer.Object())
         {
             writer.WriteKV("X", position.X);
@@ -151,12 +93,16 @@ public sealed class ReadmeUnitTests
 
         // Now deserialize it
         position = Vector3.Zero;
+
         string data = writer.ReadData();
         var reader = new SJStringReader(data);
         position = ReadVector3(reader, reader.Read());
 
         // Use ReadData to read the resulting string.
-        Console.WriteLine($"Saved Position : {data}, Read Position : {position}");
+        Console.WriteLine($"Saved Position : {data}, Read Position : {position}, Equals : {initialPosition == position}");
+
+        // -- Assertions
+        Assert.AreEqual(initialPosition, position);
     }
 
     // - Migration 1.x -> 2.x

@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Text;
 
 namespace BX.SJ.Tests;
 
@@ -645,7 +646,6 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     public void TestState(string write)
     {
         Console.WriteLine($"TestContext : {TestContext?.ResultsDirectory}");
-        Console.WriteLine($"TestContext : {TestContext?.TestResultsDirectory}");
 
         // Test this with many strings (including emoji spam,
         // to check for stuff like whether if the StreamWriter has
@@ -664,6 +664,9 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             {
                 writer.WriteKV("Hello", write);
 
+                // Write current state. Surely, '"' must be appended after "write" the string.
+                File.WriteAllText(Path.Combine(TestContext?.ResultsDirectory ?? "", "data_first_state.txt"), writer.ReadData(), Encoding.Unicode);
+
                 // Me thinks this next code can do a mistake
                 Assert.AreEqual(0, writer.PushState(), "Must push state at index 0");
                 {
@@ -681,9 +684,10 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             {
                 // Ensure rollback of data works properly for the writer and that it correctly truncates.
                 string data = writer.ReadData();
-                Assert.AreEqual(
-                    $@"{{""{Key1}"":""{SJEscape.Escape(write, writer.asciiOnly)}"",""{Key2}"":{Val2Prefix}{Val2.ToString(Val2Fmt)}}}", data
-                );
+                string expected = $@"{{""{Key1}"":""{SJEscape.Escape(write, writer.asciiOnly)}"",""{Key2}"":{Val2Prefix}{Val2.ToString(Val2Fmt)}}}";
+                File.WriteAllText(Path.Combine(TestContext?.ResultsDirectory ?? "", "data.txt"), data, Encoding.Unicode);
+                File.WriteAllText(Path.Combine(TestContext?.ResultsDirectory ?? "", "data_ex.txt"), data, Encoding.Unicode);
+                Assert.AreEqual(expected, data);
                 Console.WriteLine(data);
             }
             else

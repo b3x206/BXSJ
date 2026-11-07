@@ -1,12 +1,19 @@
 ﻿#pragma warning disable CA1510 // Use ArgumentNullException throw helper
 #pragma warning disable IDE0090 // Initialization can be simplified
+#pragma warning disable IDE0005
+#pragma warning disable IDE0057
 #nullable disable
 
+using BX.SJ;
+using System;
 using System.Globalization;
 
 namespace BX.SJ.Tests.Examples
 {
-    // A basic tree structure. Used for testing, but also available in the Examples
+    /// <summary>
+    /// A basic tree structure. Used for testing, but also available in the Examples
+    /// <br>Shows the capabilities of using both <see cref="SJWriter"/> and <see cref="SJReader"/>.</br> 
+    /// </summary>
     sealed class SJTree
     {
         // Since the SJ value is lazily evaluated, we should copy the data here too.
@@ -16,7 +23,8 @@ namespace BX.SJ.Tests.Examples
         public bool boolValue;
         public double numberValue;
         public Lazy<List<SJTree>> arrayValue = new Lazy<List<SJTree>>();
-        // ↓ Keys are asserted to be "string"
+        // ↓ Keys are assumed to be "string", but they can be anything else as well.
+        //   So string is used as a catch-all, until recursive keys are possible.
         public Lazy<Dictionary<string, SJTree>> objectValue = new Lazy<Dictionary<string, SJTree>>();
 
         // Note : Does not check cyclic references, but those can be handled with a Dictionary<SJTree, string /* for path */>
@@ -58,12 +66,17 @@ namespace BX.SJ.Tests.Examples
                 case SJType.Error:
                     {
                         // Throw the error with one of the following methods
-                        // 1. reader.ThrowError = true; → Mutates the reader. Could be undesired if exception is being caught.
+                        // 1. reader.ThrowOnError = true;               → Mutates the reader. Could be undesired if exception is being caught.
                         // 2. throw new SJReader.ReadException(reader); → Throws error without changing 
-                        // 3. reader.ThrowError(); → Less verbose
+                        // 3. reader.ThrowError();                      → Less verbose. Throws regardless of "Error" being null/empty or "ThrowOnError".
                         reader.ThrowError();
                         break;
                     }
+                case SJType.Null:
+                case SJType.End:
+                case SJType.Type:
+                case SJType.Comment:
+                    break;
 
                 case SJType.Array:
                     {
@@ -104,16 +117,38 @@ namespace BX.SJ.Tests.Examples
                     }
                 case SJType.Number:
                     {
-                        tree.numberValue = double.Parse(root.Slice(), NumberStyles.AllowThousands | NumberStyles.Float, CultureInfo.InvariantCulture);
+                        // This may not work with hexadecimal numbers, so try to parse according to prefix
+                        var s = root.Slice();
+                        bool n = false;
+                        if (s.Length > 2)
+                        {
+                            switch ((s[0], char.ToLower(s[1])))
+                            {
+                                case ('0', 'x'):
+                                    tree.numberValue = long.Parse(s.Slice(2), NumberStyles.HexNumber);
+                                    n = true;
+                                    break;
+                                case ('0', 'b'):
+                                    tree.numberValue = long.Parse(s.Slice(2), NumberStyles.BinaryNumber);
+                                    n = true;
+                                    break;
+                                // C# does not have this. Maybe enable if they add it, or use a custom impl.
+                                // It shouldn't be too hard, BXSJ uses all numbers as invariant culture.
+                                // case ('0', 'o'):
+                                    // tree.numberValue = long.Parse(s.Slice(2), NumberStyles.OctalNumber);
+                                    // n = true;
+                                    // break;
+                            }
+                        }
+                        if (!n)
+                        {
+                            tree.numberValue = double.Parse(root.Slice(), NumberStyles.AllowThousands | NumberStyles.Float, CultureInfo.InvariantCulture);
+                        }
                         break;
                     }
                 case SJType.Bool:
                     {
                         tree.boolValue = char.ToLower(root.Slice()[0]) == 't';
-                        break;
-                    }
-                case SJType.Null:
-                    {
                         break;
                     }
             }
@@ -179,7 +214,7 @@ namespace BX.SJ.Tests.Examples
                     break;
 
                 default:
-                    throw new InvalidOperationException($"Invalid node type '{tree.type}'");
+                    throw new InvalidOperationException($"Invalid node type '{tree.type}', a node cannot be key, type or anything else.");
             }
         }
 
@@ -196,5 +231,7 @@ namespace BX.SJ.Tests.Examples
 }
 
 #nullable restore
+#pragma warning restore IDE0005
 #pragma warning restore CA1510
 #pragma warning restore IDE0090
+#pragma warning disable IDE0057

@@ -1,4 +1,7 @@
-﻿using System.Text;
+﻿#pragma warning disable IDE0005
+using System;
+using System.Text;
+using BX.SJ;
 
 namespace BX.SJ.Tests.Examples
 {
@@ -18,6 +21,7 @@ namespace BX.SJ.Tests.Examples
                         break;
                     }
                 case SJType.Comment:
+                case SJType.Type:
                 case SJType.End:
                     {
                         // Discard comments explicitly, if capturing those and don't care about it.
@@ -97,3 +101,4 @@ namespace BX.SJ.Tests.Examples
         }
     }
 }
+#pragma warning restore IDE0005

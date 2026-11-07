@@ -1,9 +1,13 @@
-﻿namespace BX.SJ.Tests.Examples
+﻿#pragma warning disable IDE0005
+using System;
+using BX.SJ;
+
+namespace BX.SJ.Tests.Examples
 {
     /// <summary>
-    /// Example for reading JsonC documents with comment capturing.
+    /// Example for reading JsonC documents with comment capturing using <see cref="SJWriter"/>.
     /// </summary>
-    sealed class BasicJSC
+    sealed class ReaderJSC
     {
         static void InspectConfigData(SJReader reader, SJReader.Value root)
         {
@@ -61,7 +65,7 @@
 ";
             var reader = new SJStringReader(data)
             {
-                allowComments = true,
+                allowComments = true, // This is disabled by default, you must enable it to read comments.
             };
 
             for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
@@ -75,3 +79,4 @@
         }
     }
 }
+#pragma warning restore IDE0005

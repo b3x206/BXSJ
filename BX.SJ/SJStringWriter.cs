@@ -35,6 +35,7 @@ namespace BX.SJ
         public override string ReadData() => sb.ToString();
 
         private int[] _sbStates = new int[DefaultStackSize];
+
         protected override void ResizeStateStack(int size)
         {
             base.ResizeStateStack(size);

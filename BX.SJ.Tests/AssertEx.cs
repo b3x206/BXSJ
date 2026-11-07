@@ -12,4 +12,9 @@ public static class AssertEx
     {
         Assert.IsFalse(string.IsNullOrEmpty(data), message ?? $"Expected string data to be not null or empty, got {(data is null ? "null data" : "empty data")} instead");
     }
+
+    public static void AreEqual(this Assert _, ReadOnlySpan<char> expected, ReadOnlySpan<char> actual)
+    {
+        Assert.IsTrue(MemoryExtensions.SequenceEqual(expected, actual), $"Expected string data to equal '{expected}', got '{actual}'");
+    }
 }
