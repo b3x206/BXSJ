@@ -31,7 +31,7 @@ namespace BX.SJ
     }
 
     /// <summary>
-    /// Base class for <i>most</i> JSON readers.
+    /// Base class for <i>most</i> Json compatible BXSJ readers.
     /// </summary>
     /// <example>
     /// // Refer to file:///./SJStringReader.cs
@@ -39,7 +39,7 @@ namespace BX.SJ
     public abstract class SJReader
     {
         /// <summary>
-        /// Exception thrown on an error case while reading JSON.
+        /// Exception thrown on an error case while reading BXSJ.
         /// </summary>
         public class ReadException : Exception
         {
@@ -51,7 +51,7 @@ namespace BX.SJ
             { }
         }
         /// <summary>
-        /// Value result from <see cref="Read"/>.
+        /// Intermediate value result from <see cref="Read"/>.
         /// </summary>
         public struct Value
         {
@@ -113,6 +113,21 @@ namespace BX.SJ
                 Debug.Assert((start + length) <= Length);
                 return reader.Slice(this.start + start, length);
             }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars) => chars.Slice(start, end - start);
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars, int start)
+            {
+                Debug.Assert(start <= chars.Length);
+                return chars.Slice(this.start + start, Length - start);
+            }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars, int start, int length)
+            {
+                Debug.Assert((start + length) <= chars.Length);
+                return chars.Slice(this.start + start, length);
+            }
+
             public override readonly string ToString()
             {
                 return $"[SJReader.Value] type:{type}, start:{start}, end:{end}, depth:{objectDepth}";
@@ -210,11 +225,13 @@ namespace BX.SJ
             /// Last type read on key or value. Does not apply to comments.
             /// </summary>
             public Value lastEntryType;
+            /// <summary>
+            /// Used as a global state to check whether if type is expected. Resets when a value or key is encountered.
+            /// </summary>
             public bool notExpectingType;
 
             /// <summary>
-            /// Whether if the reader reached end. If you want to validate end of JSON document,
-            /// you should do this if <see cref="captureComments"/> is <see langword="true"/>:
+            /// Whether if the reader reached end. Correct usage is as shown:
             /// <c>
             /// <br>for (var value = reader.Read(); !reader.S.Ended; value = reader.Read())</br>
             /// <br>{</br>
@@ -306,7 +323,7 @@ namespace BX.SJ
         /// </summary>
         public int maxStateStack = 128;
         /// <summary>
-        /// <br>Allows comments on JSON file : </br><br/>
+        /// <br>Allows comments on BXSJ file : </br><br/>
         /// <br><c>// &lt;-- single line, until \n</c></br>
         /// <br><c>/* &lt;-- until end token, not stacked --&gt; */</c></br>
         /// </summary>
@@ -444,21 +461,32 @@ namespace BX.SJ
 
         /// <summary>
         /// Read a range of comment, starting from <see cref="State.current"/> for the reader data.
+        /// <br>The returned range contains the content of the comment rather than the entire comment block 
+        /// to be consistent to the other typed ranges..</br>
         /// </summary>
-        /// <returns>Start and ending range. If the block doesn't start with '/', -1 is returned for start and end.</returns>
-        protected (int start, int end) GetCommentRange()
+        /// <param name="prefixSize">Size of the comment prefix token. This is generally 2.</param>
+        /// <param name="postfixSize">Size of the comment postfix token. This is generally 1 or 2.</param>
+        /// <returns>Start and ending range. If the block doesn't start with '/', 
+        /// -1 is returned for start and end without setting error.</returns>
+        protected (int start, int end) GetCommentRange(out byte prefixSize, out byte postfixSize)
         {
             ref var s = ref S;
             int start = s.current, end = s.current;
+            prefixSize = postfixSize = 0;
             if (start < Length)
             {
                 // I should validate the current character twice, for external uses.
                 char ch = At(end);
                 if (ch == '/')
                 {
+                    prefixSize++;
+                    start++;
                     char next = At(++end);
                     if (next == '/')
                     {
+                        prefixSize++;
+                        start++;
+                        bool crlf = false;
                         while (ch != '\n')
                         {
                             if (end >= Length)
@@ -467,15 +495,20 @@ namespace BX.SJ
                                 return (start, end);
                             }
 
+                            crlf = ch == '\r';
                             ch = At(++end);
                         }
 
                         // include '\n'
-                        end += 1;
-                        return (start, end);
+                        postfixSize = (byte)(1 + (crlf ? 1 : 0));
+                        return (start, end - postfixSize);
                     }
                     else if (next == '*')
                     {
+                        prefixSize++;
+                        start++;
+
+                        // ?? Skips */
                         while (!(ch == '*' && next == '/'))
                         {
                             if (end >= Length)
@@ -489,8 +522,8 @@ namespace BX.SJ
                         }
 
                         // include '*/'
-                        end += 2;
-                        return (start, end);
+                        postfixSize = 2;
+                        return (start, end - postfixSize);
                     }
                     else
                     {
@@ -510,19 +543,24 @@ namespace BX.SJ
         /// <summary>
         /// Read a range of type, starting from <see cref="State.current"/> for the reader data.
         /// </summary>
-        /// <returns>Start and ending range. If the block doesn't start with '/', -1 is returned for start and end.</returns>
-        protected (int start, int end) GetTypeRange()
+        /// <param name="prefixSize">The prefix size starting from the returned <c>start</c>,
+        /// left trimming the string according to <c>^\((?:\s*"|\s*[A-Za-z0-9_\-])</c></param>
+        /// <param name="postfixSize">The postfix size starting from the returned <c>end</c>,
+        /// right trimming the string according to <c>(?:"\s*|[A-Za-z0-9_\-]\s*)\)</c></param>
+        /// <returns>Start and ending range. If the block doesn't start with '(', -1 is returned for start and end.</returns>
+        protected (int start, int end) GetTypeRange(out int prefixSize, out int postfixSize)
         {
             ref var s = ref S;
             int start = s.current, end = s.current;
+            prefixSize = postfixSize = 0;
             if (end < 0 || end >= Length) return (-1, -1);
-            
+
             char ch = At(start++);
-            if (ch == '(') end = start;
-            else return (-1, -1); // Not error, but not type literal.
+            if (ch == '(') { end = start; }
+            else { return (-1, -1); }        // Not error, but not type literal.
 
             int current = end;
-            bool capturedStr = false;
+            bool capturedType = false;
             while (true)
             {
                 if (++current >= Length)
@@ -532,61 +570,76 @@ namespace BX.SJ
                 }
 
                 ch = At(current);
-                if (ch == '"')
+                if (!capturedType)
                 {
-                    start++;
-                    capturedStr = true;
-                    while (true)
+                    if (ch == '"')
                     {
-                        if (++current >= Length)
+                        start = current + 1; // Skip '"'
+                        capturedType = true;
+                        while (true)
                         {
-                            Error = "Unclosed type string";
-                            return (-1, -1);
-                        }
+                            if (++current >= Length)
+                            {
+                                Error = "Unclosed type declaration string";
+                                return (-1, -1);
+                            }
 
-                        ch = At(current);
-                        if (ch == '"' && end > 0 && (At(end - 1) != '\\'))
+                            ch = At(current);
+                            if (ch == '"' && end > 0 && (At(end - 1) != '\\'))
+                            {
+                                end = current - 1; // current is '"', which will be skipped
+                                break;
+                            }
+                        }
+                    }
+                    else if (IsTypeLiteralContinuation(ch))
+                    {
+                        start = current;
+                        capturedType = true;
+                        while (true)
                         {
-                            end = current - 1;
-                            break;
+                            if (++current >= Length)
+                            {
+                                Error = "Unclosed type declaration";
+                                return (-1, -1);
+                            }
+
+                            ch = At(current);
+                            if (!IsTypeLiteralContinuation(ch))
+                            {
+                                end = --current; // current is anything, which shouldn't be skipped
+                                break;
+                            }
                         }
                     }
                 }
-                else if (capturedStr)
+                else if (char.IsWhiteSpace(ch))
                 {
-                    if (char.IsWhiteSpace(ch))
+                    continue;
+                }
+                else if (ch == ')')
+                {
+                    // something like (\s*), which is interpreted as empty.
+                    // let's not allow "empty literals", but require string to exist
+                    if (start == end)
                     {
-                        continue;
+                        Error = "Empty type literal, to define as empty use (\"\") or omit the type literal.";
+                        return (-1, -1);
                     }
-                    else if (ch == ')')
-                    {
-                        return (start, end);
-                    }
-                    else
-                    {
-                        Error = $"Unexpected character '{Tk(ch)}', expected ')' or whitespace.";
-                    }
+
+                    prefixSize = start - current;
+                    postfixSize = end - current;
+                    return (start, end);
                 }
                 else
                 {
-                    if (IsTypeLiteralContinuation(ch))
-                    {
-                        end = current;
-                        continue;
-                    }
-                    else if (ch == ')')
-                    {
-                        return (start, end);
-                    }
-                    else
-                    {
-                        Error = $"Unexpected character '{Tk(ch)}', expected ')' or type literal character.";
-                    }
+                    Error = $"Unexpected character in type literal '{Tk(ch)}'";
+                    return (-1, -1);
                 }
             }
         }
         /// <summary>
-        /// Check remaining tokens after the JSON document is finished. (depth == 0)
+        /// Check remaining tokens after the document is finished. (depth == 0)
         /// <br>Does parsing of comments if <see cref="allowComments"/></br>
         /// </summary>
         /// <returns>
@@ -614,7 +667,7 @@ namespace BX.SJ
                 }
                 else if (!char.IsWhiteSpace(ch))
                 {
-                    Error = $"Unexpected '{Tk(ch)}' after end of JSON document";
+                    Error = $"Unexpected '{Tk(ch)}' after end of document";
                     return false;
                 }
             }
@@ -706,7 +759,7 @@ namespace BX.SJ
 
         // Base sj.h
         /// <summary>
-        /// Top level JSON read, <see cref="SJType.Object"/> and <see cref="SJType.Array"/> requires special iteration.
+        /// Top level reader for a single non-recursive lexable generic value.
         /// </summary>
         public virtual Value Read()
         {
@@ -762,10 +815,10 @@ namespace BX.SJ
             else if (allowComments && ch == '/')
             {
                 result.type = SJType.Comment;
-                (result.start, result.end) = GetCommentRange();
+                (result.start, result.end) = GetCommentRange(out byte _, out byte postfix);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
-                    s.current = result.end;
+                    s.current = result.end + postfix;
                     return result;
                 }
                 goto _Top;
@@ -780,11 +833,12 @@ namespace BX.SJ
                 }
 
                 result.type = SJType.Type;
-                (result.start, result.end) = GetTypeRange();
+                (result.start, result.end) = GetTypeRange(out int _, out int postfix);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
-                    s.current = result.end;
+                    s.current = result.end + postfix;
                     s.notExpectingType = true;
+                    s.lastEntryType = result;
                     return result;
                 }
                 goto _Top;
@@ -1035,8 +1089,8 @@ namespace BX.SJ
         /// <remarks>
         /// <b>This skips <see cref="SJType.Comment"/> blocks (for compatibility) regardless 
         /// of <see cref="captureComments"/>' value. If you want to capture comments 
-        /// while reading a JSON object, use lower level method of
-        /// <see cref="IterateArrayEntries(Value, out EntryType, out Value)"/> instead.</b>
+        /// while reading an object, use lower level method of
+        /// <see cref="IterateArrayEntries(Value, out Value)"/> instead.</b>
         /// </remarks>
         /// <returns>Whether if more data is available to read from <paramref name="value"/>.</returns>
         public bool IterateArray(Value value, out Value result)
@@ -1089,8 +1143,8 @@ namespace BX.SJ
         /// </summary>
         /// <remarks>
         /// <b>This skips <see cref="SJType.Comment"/> blocks regardless of <see cref="captureComments"/>' value.
-        /// If you want to capture comments while reading a JSON object, use lower level method of
-        /// <see cref="IterateObjectEntries(Value, out EntryType, out Value)"/> instead.</b>
+        /// If you want to capture comments while reading an object, use lower level method of
+        /// <see cref="IterateObjectEntries(Value, out Value)"/> instead.</b>
         /// <br>Calling <see cref="IterateObject(Value, out Value, out Value)"/> with an existing key 
         /// value will use that key value and poll for it's value, unless the value for that key was already read, 
         /// which in this case, this method will return the next key/value.

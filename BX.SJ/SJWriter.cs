@@ -60,9 +60,20 @@ namespace BX.SJ
         }
         public const int DefaultStackSize = 8;
         [Flags]
-        public enum Expect { None, Key = 1 << 0, Value = 1 << 1, Comma = 1 << 2 }
+        public enum Expect
+        {
+            // This state isn't quite "stacked" and can work under assumptions
+            // (because it's controlled if interacted in the intended way),
+            // so we can preserve the negative type literal check here.
+            None, Key = 1 << 0, Value = 1 << 1, Comma = 1 << 2, NotType = 1 << 3
+        }
         [Flags]
         public enum FormatExpect { None, Newline = 1 << 0, Indent = 1 << 1, NewlineIndent = Newline | Indent }
+        // TODO(?): Move other operations to target this enumeration instead.
+        /// <summary>
+        /// Utility enumeration used to define the target <c>WriteLiteral-</c> method on formatted writers (with numbers)
+        /// </summary>
+        public enum WriteTarget { Value, Key, Comment, Type }
         /// <summary>
         /// Copyable state contained on a struct.
         /// This is not extensible as it should be opaque to the using code (`object` vs `SJWriter&lt;T&gt;` vs this).
@@ -372,13 +383,6 @@ namespace BX.SJ
             return true;
         }
 
-        // TODO(?): Move other operations to target this enumeration instead.
-        //          Though it is "slower" because branching, switch statements on release C# could be fast.
-        /// <summary>
-        /// Utility enumeration used to define the target <c>WriteLiteral-</c> method on formatted writers (with numbers)
-        /// </summary>
-        public enum WriteTarget { Value, Key, Comment }
-
         protected abstract void DoAppend(char c);
         /// <summary>
         /// Append to the underlying StringBuilder/Stream-like object.
@@ -449,7 +453,7 @@ namespace BX.SJ
                 }
             }
         }
-        protected virtual void WriteEscaped(ReadOnlySpan<char> data, bool asciiOnly)
+        protected virtual void AppendEscaped(ReadOnlySpan<char> data, bool asciiOnly)
         {
             SJEscape.Escape(this, selfAppend, data, asciiOnly);
         }
@@ -513,6 +517,22 @@ namespace BX.SJ
 
             PrepareFormat();
         }
+        protected void PrepareType()
+        {
+            ref var s = ref S;
+            if (s.depth > 0)
+            {
+                if ((s.expect & Expect.Comma) == Expect.Comma)
+                {
+                    Append(',');
+
+                    s.expect &= ~Expect.Comma;
+                }
+            }
+
+            // Needed regardless as format is "postfix" to the previous value.
+            PrepareFormat();
+        }
         protected void PrepareEndValue(int prevIndex)
         {
             ref var s = ref S;
@@ -557,6 +577,48 @@ namespace BX.SJ
                 _ => true // Will likely postfix the invalid format specifier?
             };
         }
+        protected static bool IsInvalidTypeLiteral(ReadOnlySpan<char> literal, out char invalid)
+        {
+            int checkSt = 0;
+            for (int i = 0; i < literal.Length; i++)
+            {
+                char c = literal[i];
+                switch (checkSt)
+                {
+                    case 0:
+                        if (SJReader.IsTypeLiteralContinuation(c) || c == '"') checkSt = 1;
+                        else if (!char.IsWhiteSpace(c))
+                        {
+                            invalid = c;
+                            return false;
+                        }
+                        break;
+                    case 1:
+                        if (char.IsWhiteSpace(c) || c == '"' && (literal[i - 1] != '\\')) checkSt = 2;
+                        else if (!SJReader.IsTypeLiteralContinuation(c))
+                        {
+                            invalid = c;
+                            return false;
+                        }
+                        break;
+                    case 2:
+                        if (!char.IsWhiteSpace(c))
+                        {
+                            invalid = c;
+                            return false;
+                        }
+                        break;
+
+                    default:
+                        checkSt = 0;
+                        break;
+                }
+            }
+
+            bool r = checkSt <= 0;
+            invalid = r ? ' ' : '\0';
+            return r; // empty literals / spaces aren't valid
+        }
         protected static int CleanupCharacters(ref Span<char> s, ReadOnlySpan<char> cs)
         {
             // Currency format or other "number seperation" on invariant culture is like ¤1,234.00,
@@ -595,12 +657,13 @@ namespace BX.SJ
         }
         public delegate bool TryFormatHandler<in T>(T number, Span<char> dest, ReadOnlySpan<char> format, out int charsWritten);
         protected bool WriteFormattedNumber<T>(
-            WriteTarget target, T number, ReadOnlySpan<char> format, ReadOnlySpan<char> prefix, TryFormatHandler<T> tryFormat
+            WriteTarget target, T number, ReadOnlySpan<char> format, ReadOnlySpan<char> prefix, TryFormatHandler<T> tryFormat,
+            bool checkEnded = true
         )
         {
             ref var s = ref S;
             if (!string.IsNullOrEmpty(Error)) return false;
-            if (s.ended)
+            if (checkEnded && s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
@@ -640,8 +703,9 @@ namespace BX.SJ
                 CleanupCharacters(ref data, ", ");
                 return target switch
                 {
-                    WriteTarget.Key => WriteLiteralKey(data, asString: false),
+                    WriteTarget.Key => WriteLiteralKey(data, stringify: false),
                     WriteTarget.Comment => WriteComment(data),
+                    WriteTarget.Type => WriteType(data, stringify: false),
                     _ => WriteLiteralValue(data),
                 };
             }
@@ -699,10 +763,22 @@ namespace BX.SJ
                 Error = "Expected writing object value";
                 return false;
             }
+            if ((s.expect & Expect.NotType) == Expect.NotType)
+            {
+                Error = "Expected a Key or Value after type literal";
+                return false;
+            }
             if ((s.expect & Expect.Key) != Expect.Key && (s.expect & Expect.Comma) != Expect.Comma)
             {
-                Error = "Trailing comma written - the comment functions may cause this, if no end of content is specified.";
-                return false;
+                if (!allowTrailingComma)
+                {
+                    Error = "Trailing comma written - the comment functions may cause this, if no end of content is specified.";
+                    return false;
+                }
+                else
+                {
+                    s.MarkWrittenTrailingComma();
+                }
             }
 
             // Can end object
@@ -715,6 +791,7 @@ namespace BX.SJ
             if (s.depth <= 0)
             {
                 s.ended = true;
+                s.expect |= Expect.NotType;
             }
             else
             {
@@ -782,6 +859,11 @@ namespace BX.SJ
                 Error = "Expected writing object key";
                 return false;
             }
+            if ((s.expect & Expect.NotType) == Expect.NotType)
+            {
+                Error = "Expected a Value after type literal";
+                return false;
+            }
             if ((s.expect & Expect.Comma) != Expect.Comma)
             {
                 if (!allowTrailingComma)
@@ -810,6 +892,7 @@ namespace BX.SJ
             if (s.depth <= 0)
             {
                 s.ended = true;
+                s.expect |= Expect.NotType;
             }
             else
             {
@@ -838,14 +921,14 @@ namespace BX.SJ
 
         /// <summary>
         /// Write a key, while <see cref="s.expect"/> has <see cref="Expect.Key"/>.
-        /// <b>This method will output the <paramref name="value"/> literally if <paramref name="asString"/> is false.</b>
+        /// <b>This method will output the <paramref name="value"/> literally if <paramref name="stringify"/> is false.</b>
         /// </summary>
         /// <remarks>
         /// No duplicates are checked.
         /// </remarks>
         /// <param name="value">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteLiteralKey(ReadOnlySpan<char> value, bool asString = false)
+        public virtual bool WriteLiteralKey(ReadOnlySpan<char> value, bool stringify = false)
         {
             ref var s = ref S;
             if (s.ended)
@@ -858,7 +941,7 @@ namespace BX.SJ
                 Error = "Did not s.expect an object key";
                 return false;
             }
-            if (!asString)
+            if (!stringify)
             {
                 if (!allowOtherKeyTypes)
                 {
@@ -870,10 +953,10 @@ namespace BX.SJ
             }
 
             PrepareValue();
-            if (asString) { Append('"'); }
-            if (asString) { WriteEscaped(value, asciiOnly); }
+            if (stringify) { Append('"'); }
+            if (stringify) { AppendEscaped(value, asciiOnly); }
             else { Append(value); }
-            if (asString) { Append('"'); }
+            if (stringify) { Append('"'); }
             Append(':');
 
             if (indentSize > 0)
@@ -895,7 +978,7 @@ namespace BX.SJ
         /// </remarks>
         /// <param name="name">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public bool WriteKey(ReadOnlySpan<char> name) => WriteLiteralKey(name, asString: true);
+        public bool WriteKey(ReadOnlySpan<char> name) => WriteLiteralKey(name, stringify: true);
         public bool WriteKeyNumber(float number, string format = "G")
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
@@ -921,8 +1004,8 @@ namespace BX.SJ
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
-        public bool WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false", asString: false);
-        public bool WriteKeyNull() => WriteLiteralKey("null", asString: false);
+        public bool WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false", stringify: false);
+        public bool WriteKeyNull() => WriteLiteralKey("null", stringify: false);
 
         /// <summary>
         /// Writes a literal value with the rules for the top level object or array.
@@ -934,7 +1017,7 @@ namespace BX.SJ
         /// <br>This also can be used as a faster way to write numbers if you have data for that.</br>
         /// </summary>
         /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteLiteralValue(ReadOnlySpan<char> data)
+        public virtual bool WriteLiteralValue(ReadOnlySpan<char> data, bool stringify = false)
         {
             ref var s = ref S;
             if (s.ended)
@@ -949,12 +1032,22 @@ namespace BX.SJ
             }
 
             PrepareValue();
-            Append(data);
+            if (stringify)
+            {
+                Append('"');
+                AppendEscaped(data, asciiOnly);
+                Append('"');
+            }
+            else
+            {
+                Append(data);
+            }
 
             if (s.depth <= 0)
             {
                 // Value is top level
                 s.ended = true;
+                s.expect |= Expect.NotType;
             }
             else
             {
@@ -971,56 +1064,14 @@ namespace BX.SJ
                         Error = $"Invalid top level type {t}";
                         return false;
                 }
+                // Key or value which can be typed both
+                s.expect &= ~Expect.NotType;
             }
             s.fmtExpect = FormatExpect.NewlineIndent;
 
             return true;
         }
-        public virtual bool WriteString(ReadOnlySpan<char> value)
-        {
-            ref var s = ref S;
-            // This one does some things different enough that it can't be "WriteLiteral"
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.Key) == Expect.Key)
-            {
-                // eh sure, works, similar intent
-                return WriteKey(value);
-            }
-
-            PrepareValue();
-            Append('"');
-
-            WriteEscaped(value, asciiOnly);
-            Append('"');
-
-            if (s.depth <= 0)
-            {
-                s.ended = true;
-            }
-            else
-            {
-                var t = s.Peek().type;
-                switch (t)
-                {
-                    case SJType.Object:
-                        s.expect = Expect.Key | Expect.Comma;
-                        break;
-                    case SJType.Array:
-                        s.expect = Expect.Value | Expect.Comma;
-                        break;
-                    default:
-                        Error = $"Invalid top level type {t}";
-                        return false;
-                }
-            }
-            s.fmtExpect = FormatExpect.NewlineIndent;
-
-            return true;
-        }
+        public virtual bool WriteString(ReadOnlySpan<char> value) => WriteLiteralValue(value, stringify: true);
         public bool WriteNumber(float number, string format = "G")
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
@@ -1047,6 +1098,61 @@ namespace BX.SJ
         }
         public bool WriteBool(bool value) => WriteLiteralValue(value ? "true" : "false");
         public bool WriteNull() => WriteLiteralValue("null");
+        /// <summary>
+        /// Write a type prefix.
+        /// </summary>
+        /// <param name="type">Type literal or id. Should be a valid character matching <see cref="SJReader.IsTypeLiteralContinuation(char)"/>.</param>
+        /// <param name="stringify">Write it as a string value (with '"' quotes) instead of a literal.</param>
+        public virtual bool WriteType(ReadOnlySpan<char> type, bool stringify = false)
+        {
+            ref var s = ref S;
+            if (!allowTypes)
+            {
+                Error = "Cannot write types on this writer, enable 'allowTypes'";
+                return false;
+            }
+            if (s.ended)
+            {
+                Error = "Attempt to write into a finished JSONWriter";
+                return false;
+            }
+            if ((s.expect & Expect.NotType) == Expect.NotType)
+            {
+                Error = "Not expected type literal to be written";
+                return false;
+            }
+
+            s.MarkWrittenType();
+            PrepareType();
+            Append('(');
+            if (stringify)
+            {
+                Append('"');
+                AppendEscaped(type, asciiOnly);
+                Append('"');
+            }
+            else
+            {
+                // Validating ts string for some reason. Whatever
+                if (IsInvalidTypeLiteral(type, out char invalid))
+                {
+                    Error = $"Invalid type literal 'char={invalid}', use stringify if invalid type charaters are needed.";
+                    return false;
+                }
+
+                Append(type);
+            }
+            Append(')');
+            s.expect |= Expect.NotType;
+
+            return true;
+        }
+        public bool WriteType(long typeCode, string format = "G")
+        {
+            static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Type, typeCode, format, null, TryFormat);
+        }
 
         /// <summary>
         /// Write a comment for JSON, starting with /* and ending with */.

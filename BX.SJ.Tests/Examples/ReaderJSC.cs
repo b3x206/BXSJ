@@ -1,4 +1,5 @@
 ﻿#pragma warning disable IDE0005
+#pragma warning disable IDE0057
 using System;
 using BX.SJ;
 
@@ -27,16 +28,10 @@ namespace BX.SJ.Tests.Examples
 
                     case SJType.Comment:
                         const string SummaryTk = "@summary";
-                        var comment = value.Slice(2, value.Length - 2).Trim(); // Skip // or /*
+                        var comment = value.Slice().Trim();
                         if (comment.StartsWith(SummaryTk))
                         {
-                            // Skip */
-                            if (comment.EndsWith("*/"))
-                            {
-                                comment = comment.Slice(0, comment.Length - 2).Trim();
-                            }
-
-                            entrySum = new string(comment.Slice(SummaryTk.Length).Trim());
+                            entrySum = new string(comment.Slice(SummaryTk.Length).TrimStart());
                         }
                         continue;
                     case SJType.Key:
@@ -79,4 +74,5 @@ namespace BX.SJ.Tests.Examples
         }
     }
 }
+#pragma warning restore IDE0057
 #pragma warning restore IDE0005

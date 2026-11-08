@@ -2,6 +2,9 @@
 
 namespace BX.SJ.Tests.Examples
 {
+    /// <summary>
+    /// Extended demonstration for <see cref="SJWriter"/>, with it's non standard bxsj features.
+    /// </summary>
     sealed class WriterEx
     {
         public static void TMain(string[] args)
@@ -34,7 +37,8 @@ namespace BX.SJ.Tests.Examples
             }
             else
             {
-                Debug.Assert(false, "Fail. We are testing the code after all.");
+                Debug.Fail("Fail. We are testing the code after all.");
+                return;
             }
 
             // The state will have it's "written comment" marked:
@@ -48,8 +52,13 @@ namespace BX.SJ.Tests.Examples
                 writer.WriteLong(1);
                 writer.WriteLong(2);
                 writer.WriteLong(3);
+                using (writer.Object())
+                {
+                    writer.WriteKV("don't", "mind me");
+                    writer.WriteComment("yeah don't it's normal", hasNextValue: true);
+                }
                 writer.WriteLong(4);
-                writer.WriteCommentLine("Well, this is weird, the dev lied to us!", hasNextValue: true);
+                writer.WriteCommentLine("Unexpectedly, the dev lied to us!", hasNextValue: true);
             } // The "allowTrailingComma" check will be done here.
             Console.WriteLine($"Has trailing comma: {writer.S.WrittenTrailingComma}");
             Console.WriteLine($"Final state: {writer.ReadData()}");
@@ -80,9 +89,57 @@ namespace BX.SJ.Tests.Examples
             }
             Console.WriteLine($"Has custom key: {writer.S.WrittenCustomKey}");
             Console.WriteLine($"Final state: {writer.ReadData()}");
+            writer.Reset();
 
-            // TODO : Do the types
-            throw new NotImplementedException("Type writing is not yet done");
+            // Type prefixes can be written as extra metadata.
+            // They do nothing outside of storing extra data about the next Key or Value entry.
+            using (writer.Object())
+            {
+                // Custom types:
+                // ↓ "smolNumber": (Int16)-32767
+                writer.WriteKey("smolNumber");
+                writer.WriteType(nameof(Int16));
+                writer.WriteLong(ushort.MinValue);
+
+                // ↓ "prettyColor": (Color)[81, 43, 212]
+                writer.WriteKey("prettyColor");
+                writer.WriteType("Color");
+                using (writer.Array())
+                {
+                    writer.WriteNumber(81);
+                    writer.WriteNumber(43);
+                    writer.WriteNumber(212);
+                }
+
+                // Assume that there's a type enum with type codes
+                // ↓ "mappedType": (0xC0DE){ ... }
+                writer.WriteKey("mappedType");
+                writer.WriteType(0xC0DE, "X");
+                using (writer.Object())
+                {
+                    writer.WriteKV("privateKey", 4);
+                    writer.WriteKV("security", true);
+                    writer.WriteKV("dontHack", "yes on");
+                }
+
+                // Types can be applied to keys and values as well
+                // ↓ (CowKey)0xBEEF: (WeightTon)1E+24
+                writer.WriteType("CowKey");
+                writer.WriteKeyLong(0xBEEF, "X");
+                writer.WriteType("WeightTon");
+                writer.WriteNumber(1e+24);
+
+                // Types with invalid characters can be stringified (with escapes)
+                writer.WriteKey("cSharpObject");
+                writer.WriteType(typeof(object).AssemblyQualifiedName, true);
+                writer.WriteNull(); // :shrug:
+            }
+            Console.WriteLine($"Has type literals (or types): {writer.S.WrittenType}");
+            Console.WriteLine($"Final state: {writer.ReadData()}");
+
+            // // Note : If errors are ignored, SJWriter keeps writing :P
+            // // Unwinding an erroreneous implicit stack is easier with exceptions, hence that's why I added support for it.
+            // throw new Exception("Type writing fails miserably");
         }
     }
 }

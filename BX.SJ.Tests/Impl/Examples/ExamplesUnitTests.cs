@@ -22,16 +22,25 @@ public sealed class ExamplesUnitTests
     ];
 
     [TestMethod]
-    public void TestBasic()
+    [Timeout(TestTimeouts.Short)]
+    public void TestReader()
     {
         Reader.TMain([]);
     }
     [TestMethod]
-    public void TestBasicJSC()
+    [Timeout(TestTimeouts.Short)]
+    public void TestReaderJSC()
     {
         ReaderJSC.TMain([]);
     }
     [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestReaderEx()
+    {
+        ReaderEx.TMain([]);
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(TestDataProcessors))]
     public void TestPrinter(string data)
     {
@@ -45,17 +54,20 @@ public sealed class ExamplesUnitTests
         }
     }
     [TestMethod]
+    [Timeout(TestTimeouts.Short)]
     public void TestWriter()
     {
         Writer.TMain([]);
     }
     [TestMethod]
+    [Timeout(TestTimeouts.Short)]
     public void TestWriterEx()
     {
         WriterEx.TMain([]);
     }
 
     [TestMethod]
+    [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(TestDataProcessors))]
     public void TestTreeFrom(string data)
     {
@@ -70,6 +82,7 @@ public sealed class ExamplesUnitTests
         Console.WriteLine($"Parsed Tree : {tree}");
     }
     [TestMethod]
+    [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(TestDataProcessors))]
     public void TestTreeTo(string data)
     {

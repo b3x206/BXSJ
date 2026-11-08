@@ -250,10 +250,11 @@ namespace BX.SJ
             int baseResult = base.PopState();
             if (baseResult >= 0)
             {
-                // TODO : Fix
-                Flush(true, false, false);
-                streamCurrent = 0;
+                // TODO : Fix, truncates invalidly and creates mojibake
+                // Flush(true, false, false);
+                streamCurrent = 0; // Discard the stream writing buffer
 
+                // This will flush or discard the stream buffer anyways
                 int pos = _streamPositions[baseResult];
                 stream.Position = pos;
                 stream.SetLength(pos);
