@@ -245,7 +245,7 @@ namespace BX.SJ
                 stream.Position = sp;
             }
         }
-        private int[] _streamPositions = new int[DefaultStackSize];
+        private long[] _streamPositions = new long[DefaultStackSize];
         protected override void ResizeStateStack(int size)
         {
             base.ResizeStateStack(size);
@@ -254,12 +254,15 @@ namespace BX.SJ
         public override int PushState()
         {
             int baseResult = base.PushState();
-            // State.count is more accurate as a position of writing than the stream pos,
-            // which does not update unless all buffers are flushed.
-            // TODO : Should test what happens when 'S.count' is overflowed within SJWriter.
-            //        I added "checked" as a safety measure, so that it throws if it overflows.
-            //        I don't think anyone will want to write 8PB * sizeof(char) of BXSJ :P
-            if (baseResult >= 0) _streamPositions[baseResult] = S.count;
+            // We must flush buffer before saving state, this is to get the position accurately
+            // I forgot that there's an encoding. Don't be silly like me and set the UTF-16 position.
+            if (baseResult >= 0)
+            {
+                // Technically, flushing the encoder is not needed as most rule-compliant
+                // strings are padded with ASCII characters which should prevent U+FEFF.
+                Flush(false, true, true);
+                _streamPositions[baseResult] = stream.Position;
+            }
             return baseResult;
         }
         public override int PopState()
@@ -267,13 +270,11 @@ namespace BX.SJ
             int baseResult = base.PopState();
             if (baseResult >= 0)
             {
-                // TODO : Fix, truncates invalidly and creates mojibake
-                // Flush(true, false, false);
                 encoder.Reset();
                 streamCurrent = 0; // Discard the stream writing buffer
 
                 // This will flush or discard the stream buffer anyways
-                int pos = _streamPositions[baseResult];
+                var pos = _streamPositions[baseResult];
                 stream.Position = pos;
                 stream.SetLength(pos);
             }

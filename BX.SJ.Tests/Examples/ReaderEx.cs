@@ -24,7 +24,9 @@ namespace BX.SJ.Tests.Examples
             private SJReader.Value _Value;
             public SJReader.Value Value => _Value;
             private readonly Lazy<List<SJReader.Value>> _Values = new Lazy<List<SJReader.Value>>();
-            public SJReader.Value NonMetaValue => this.First(v => v.type switch { SJType.Comment => false, SJType.Type => false, _ => true });
+            public SJReader.Value NonMetaValue => this.FirstOrDefault(v => v.type
+                switch { SJType.Comment => false, SJType.Type => false, _ => true }
+            );
 
             public int Count { get; private set; }
 
@@ -84,7 +86,8 @@ namespace BX.SJ.Tests.Examples
                     continue;
                 }
 
-                ReadIntoDictionary(reader, reader.Read(), Root, dict);
+                // Root seperator is appended when going towards children.
+                ReadIntoDictionary(reader, root, Root, dict);
             }
 
             return dict;
@@ -121,31 +124,30 @@ namespace BX.SJ.Tests.Examples
                 case SJType.Object:
                     {
                         string keyStr = null;
-                        ValueOrList vol = new ValueOrList(), prevVol = null;
+                        var vol = new ValueOrList(); // For the first entries until a key is found.
                         while (reader.IterateObjectEntries(value, out var kvo))
                         {
                             switch (kvo.type)
                             {
                                 case SJType.Key:
-                                    keyStr = $"{path}/{new string(kvo.Slice())}"; // Key type is irrelevant for this instance
-                                    dict.Add(keyStr, vol);
+                                    // Key type is irrelevant for this instance as it's just used for indexing.
+                                    keyStr = path == "/" ? $"{path}{new string(kvo.Slice())}" : $"{path}/{new string(kvo.Slice())}";
+                                    if (vol != null)
+                                    {
+                                        dict.Add(keyStr, vol);
+                                        vol = null;
+                                    }
                                     break;
-                                case SJType.Comment:
-                                case SJType.Type:
-                                    // Append to the next expected key.
-                                    vol.Add(kvo);
-                                    break;
+
                                 default:
                                     if (keyStr == null)
                                     {
-                                        Debug.Fail("Did not receive any key string.");
+                                        vol.Add(kvo);
                                     }
-                                    ReadIntoDictionary(reader, kvo, keyStr, dict);
-                                    // Potentially new declaration.
-                                    // Note that some data may be lost if no new K/V exists,
-                                    // so append this to the previous one if needed.
-                                    prevVol = vol;
-                                    vol = new ValueOrList();
+                                    else
+                                    {
+                                        ReadIntoDictionary(reader, kvo, keyStr, dict);
+                                    }
                                     break;
                             }
                         }
@@ -154,20 +156,19 @@ namespace BX.SJ.Tests.Examples
                 case SJType.Array:
                     {
                         int index = 0;
-                        var vol = new ValueOrList();
                         while (reader.IterateArrayEntries(value, out var vo))
                         {
+                            string keyStr = path == "/" ? $"{path}{index}" : $"{path}/{index}";
+                            ReadIntoDictionary(reader, vo, keyStr, dict);
+                            // Non values shouldn't increment index and should be related to the upcoming value.
+                            // If nothing exists within the array, the inner metadata should be contained in a dummy index (0)
                             switch (vo.type)
                             {
                                 case SJType.Comment:
                                 case SJType.Type:
-                                    // Append to the next expected key
-                                    vol.Add(vo);
                                     break;
                                 default:
-                                    string keyStr = $"{path}/{index}";
-                                    dict.Add(keyStr, vol);
-                                    ReadIntoDictionary(reader, vo, keyStr, dict);
+                                    index++;
                                     break;
                             }
                         }
@@ -245,12 +246,13 @@ namespace BX.SJ.Tests.Examples
             {
                 // "values" will become stale as soon as reader.Data changes due to how ValueOrList is implemented.
                 // This is why it is recommended to treat SJReader.Value as perishable rather than to store it forever. It is better to copy it.
-                // (when rust port so that it's a compiler error)
-
+                // (when rust port so that it's a compiler error :P)
+                // ReadIntoDictionary uses paths like "/path/to/object", root "/" contains root level comments as well.
+                // Check "ReaderEx
                 Dictionary<string, ValueOrList> values = ReadIntoDictionary(reader);
                 // We can now inspect the values, as long as the reader.Data stays the same or we supply CommentData.
                 // SJReader.Value's are considered somewhat perishable ranges, but can be used with caution or be converted to strings.
-                foreach (var relatedEntries in values["resolution"])
+                foreach (var relatedEntries in values["/resolution"])
                 {
                     switch (relatedEntries.type)
                     {
@@ -263,7 +265,7 @@ namespace BX.SJ.Tests.Examples
                             // Since we added the children with "/", we can iterate those as well:
                             foreach (var child in
                                 /* Used to get the first layer of children, as it could contain deeper objects. → */
-                                values.Where(kv => IsChildOfParent("resolution", kv.Key)
+                                values.Where(kv => IsChildOfParent("/resolution", kv.Key)
                             ))
                             {
                                 // Keys are appended only to the dictionary, these will provide the value:
@@ -277,7 +279,7 @@ namespace BX.SJ.Tests.Examples
                     }
                 }
                 // Or we can directly access a relevant child value as :
-                Console.WriteLine(values["textureQuality"].NonMetaValue);
+                Console.WriteLine(values["/textureQuality"].NonMetaValue);
             }
 
             // ---
@@ -302,7 +304,8 @@ namespace BX.SJ.Tests.Examples
                     if (value.type != SJType.Object) continue;
                     while (reader.IterateObject(value, out var k, out var v))
                     {
-                        Console.WriteLine($"Key <{new string(k.Slice())}>, Current type <{k.type}>, Prev type <{v.type}>");
+                        if (v.Length < 0) continue;
+                        Console.WriteLine($"Key <{new string(k.Slice())}>, Current type <{k.type}>, Prev type <{k.prevType}>");
                         Console.WriteLine($"Value <{new string(v.Slice())}>");
                     }
                 }
@@ -345,6 +348,81 @@ namespace BX.SJ.Tests.Examples
                     for (var value = reader.Read(); !reader.S.ended; value = reader.Read()) ;
                 }
             }
+
+            // ---
+            // # Types
+            // * Types are prefix to any non-metadata entry (including the types themselves).
+            // * There can be only one type per value or key.
+            // * They are the "really non-standard metadata extension" BXSJ has as of 3.0, making it distinct.
+            // * Literals have to match SJReader.IsTypeLiteralContinuation (or any partial regex). Strings are, well, strings.
+            // * Captures contain the type data rather than it with it's tokens.
+            const string TypeData1 = @"(MyObject){
+    ""literal"": (Literal)""yes"",
+    ""nonLiteral"": (""Non literal that can contain (\"")"")""ok"",
+    ""typeCode"": (0x1234)""Considered a literal"",
+    (WithKeyType)""k"": (AndValueType)null
+}",
+            TypeData2 = @"(""System.Array, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral"")[
+    (Number)1, (Number)2, (AreWeSure)3, (Number)""don't mind me"", (Number)4, (NotNumber)5
+]";
+            reader.Data = TypeData1;
+            {
+                for (var value = reader.Read(); !reader.S.ended; value = reader.Read())
+                {
+                    if (value.type != SJType.Object) continue;
+                    SJReader.Value lastType = SJReader.Value.Error(),
+                        lastKey = SJReader.Value.Error();
+                    while (reader.IterateObjectEntries(value, out var kvt))
+                    {
+                        if (kvt.Length < 0) continue;
+
+                        switch (kvt.type)
+                        {
+                            case SJType.Comment:
+                                break;
+
+                            case SJType.Type:
+                                lastType = kvt;
+                                break;
+                            case SJType.Key:
+                                Console.WriteLine($"Key ({(lastType.Length > 0 ? new string(lastType.Slice()) : "")})<{new string(kvt.Slice())}>");
+                                lastType = default;
+                                break;
+                            default:
+                                Console.WriteLine($"Value ({(lastType.Length > 0 ? new string(lastType.Slice()) : "")})<{new string(kvt.Slice())}>");
+                                lastType = default;
+                                break;
+                        }
+                    }
+                }
+            }
+            reader.Data = TypeData2;
+            {
+                for (var value = reader.Read(); !reader.S.ended; value = reader.Read())
+                {
+                    if (value.type != SJType.Array) continue;
+                    SJReader.Value lastType = SJReader.Value.Error();
+                    while (reader.IterateArrayEntries(value, out var vt))
+                    {
+                        if (vt.Length < 0) continue;
+
+                        switch (vt.type)
+                        {
+                            case SJType.Comment:
+                                break;
+
+                            case SJType.Type:
+                                lastType = vt;
+                                break;
+                            default:
+                                Console.WriteLine($"Value ({(lastType.Length > 0 ? new string(lastType.Slice()) : "")})<{new string(vt.Slice())}>");
+                                lastType = default;
+                                break;
+                        }
+                    }
+                }
+            }
+            throw new Exception("Type does not work.");
         }
     }
 }

@@ -125,31 +125,39 @@ namespace BX.SJ
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly char At(int i) => reader.At(start + i);
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> Slice() => reader.Slice(start, end - start);
+            public readonly ReadOnlySpan<char> Slice()
+            {
+                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
+                return reader.Slice(start, end - start);
+            }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice(int start)
             {
-                Debug.Assert(start <= Length);
+                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
                 return reader.Slice(this.start + start, Length - start);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice(int start, int length)
             {
-                Debug.Assert((start + length) <= Length);
+                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
                 return reader.Slice(this.start + start, length);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars) => chars.Slice(start, end - start);
+            public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars)
+            {
+                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
+                return chars.Slice(start, end - start);
+            }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars, int start)
             {
-                Debug.Assert(start <= chars.Length);
+                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
                 return chars.Slice(this.start + start, Length - start);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars, int start, int length)
             {
-                Debug.Assert((start + length) <= chars.Length);
+                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
                 return chars.Slice(this.start + start, length);
             }
 
@@ -794,10 +802,23 @@ namespace BX.SJ
                 case SJType.Object:
                     if ((cs.expect & Expect.Key) == Expect.Key)
                     {
-                        if (v.type != SJType.String && (!allowOtherKeyTypes || v.type == SJType.Object || v.type == SJType.Array))
+                        if (v.type != SJType.String)
                         {
-                            Error = "Expected object key as valid Key type";
-                            return false;
+                            if (allowOtherKeyTypes)
+                            {
+                                switch (v.type)
+                                {
+                                    case SJType.Array:
+                                    case SJType.Object:
+                                        Error = "Recursive key types are not supported";
+                                        return false;
+                                }
+                            }
+                            else
+                            {
+                                Error = "Expected object key as valid Key type";
+                                return false;
+                            }
                         }
                         v.prevType = v.type;
                         v.type = SJType.Key;
@@ -1057,9 +1078,12 @@ namespace BX.SJ
             // Parse : Number (technically, hex and binary is supported if prefixed with 0x)
             else if (char.IsDigit(ch) || ch == '-')
             {
-                // Finite automata? What for
+                // Finite automata? What "for"
                 result.type = SJType.Number;
-                for (ch = At(s.current); s.current < Length && IsNumberContinuation(ch, out var foundOn); s.current++)
+                for (ch = At(s.current);
+                    s.current < Length && IsNumberContinuation(ch, out var foundOn);
+                    s.current++, ch = At(s.current)
+                )
                 {
                     // Not super accurate, but will do.
                     // Theoretically we can check number literal validity this way,
@@ -1227,10 +1251,14 @@ namespace BX.SJ
         {
             while (IterateArrayEntries(value, out var v))
             {
-                if (v.type != SJType.Comment)
+                switch (v.type)
                 {
-                    result = v;
-                    return true;
+                    case SJType.Comment:
+                    case SJType.Type:
+                        continue;
+                    default:
+                        result = v;
+                        return true;
                 }
             }
 
@@ -1294,6 +1322,7 @@ namespace BX.SJ
                     case SJType.End:
                         goto _Fail;
                     case SJType.Comment:
+                    case SJType.Type:
                         continue;
 
                     case SJType.Key:

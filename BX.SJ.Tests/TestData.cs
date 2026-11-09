@@ -42,8 +42,9 @@ public static class TestData
     ""empty"": { ""obj"": {}, ""arr"": [] }
 }";
     // Fire data
-    // Creates 1MB of UTF-8 string. Quite wholesome.
+    // Creates 1MB of UTF-16 string. Quite wholesome.
     public static readonly string DataEmojiSpam = string.Concat(Enumerable.Repeat("🅱️🅱️🅱️🍄‍🍕🍕🍕🍄‍🍄‍🍕🍄‍🍕🍕🍕🍕🍄‍🍕🍄‍", 10240));
+    public const string DataNormalEmojis = "🔴🟡🟢😭";
     public const string JsonDataSpamKey = "YoThisDataIsFire";
     public static readonly string JsonDataSpamValue = string.Concat(Enumerable.Repeat("🔥", 32768));
     public static readonly string JsonData3 = $@"{{
@@ -75,7 +76,7 @@ public static class TestData
     ""{JsonDataDiscardKey}"": {{
         ""cardNumber"": 1234123412341234,
         ""hondaCivic"": 676,
-        ""transactions"": [{{ 67984gjkdsngjkfhn ewrg,,jkhgku.jshf.h ""addawdws"" ,,:: // }}]
+        ""transactions"": [1.4, {{ 67984gjkdsngjkfhn ewrg,,jkhgku.jshf.h ""addawdws"" ,,:: // }}]
     }},
     ""stats"": {{
         ""score"": 99999999999,
@@ -119,7 +120,7 @@ public static class TestData
     /// <br>Contains <see cref="string.Empty"/>.</br>
     /// </summary>
     public static IEnumerable<object[]> StringDataProvider => [
-        [DataEmojiSpam], [JsonDataSpamKey], [JsonData1], [DepthMaxxKey],
+        [DataEmojiSpam], [DataNormalEmojis], [JsonDataSpamKey], [JsonData1], [DepthMaxxKey],
         [ObjectTwisterKey], [SciNumsKey], [JsonDataEmptyArray], [JsonDataRootBoolFalse],
         [JsonDataRootBoolTrue], [JsonDataRootNumber], [JsonDataRootNull], [DataEmpty]
     ];

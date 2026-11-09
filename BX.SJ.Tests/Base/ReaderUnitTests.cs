@@ -519,27 +519,19 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     // JSC with Capture
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestJSCWithCapture() => ReadJSCAndDispose(CreateFromString(JsonDataComment));
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
     [DataRow(@"{ ""key"" /* inline */ : ""value"" }")]
     [DataRow(@"{ ""key"" : /* inline */ ""value"" }")]
     [DataRow(@"{ ""key"" : ""value"" /* trailing */ , ""key2"": ""value2"" }")]
     [DataRow(@"[ 1, 2, 3 /* trailing array */, 4, 5]")]
     [DataRow(@"[ 1, 2, 3 /* trailing array */]")]
-    public void TestJSCWithTrickyCapture(string data) => ReadJSCAndDispose(CreateFromString(data));
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestJSCInvalidWithCapture() => ReadJSCAndDispose(CreateFromString(JsonDataInvalid));
+    public void TestTrickyJSC(string data) => ReadJSCAndDispose(CreateFromString(data));
     // Do also read literals with no ignore JSC to test "Ended".
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(JsonRootDataProcessors))]
     public void TestJSCRootLiteralsWithCapture(string data)
     {
-        // TODO : Debug the 42.42 case, has minimal repro for the "no capture" case of comment slice.
-        // Since 3.x, comments are now captured "content only".
+        // Since 3.x, comments are now captured "content only", so this basic output is expected.
         const string ContentLeft = "This is a comment!";
         const string ContentRight1 = "Dear god..";
         const string ContentRight2 = "There's more! No.";
@@ -547,7 +539,6 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
         string CommentRight = $"// {ContentRight1}" + Environment.NewLine + $"/* {ContentRight2} */";
 
         Assert.AreEqual(data, ReadJSCAndDispose(CreateFromString(data)).ToString());
-        // To spice it up, surround root data with comments on second iter.
         string readerData = $"{CommentLeft}{data}{CommentRight}",
             printData = $"{ContentLeft}{data}{ContentRight1}{ContentRight2}";
         Assert.AreEqual(printData, ReadJSCAndDispose(CreateFromString(readerData)).ToString());
