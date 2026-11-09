@@ -17,6 +17,8 @@ _(all tests pass, benchmarks are consistent, slightly worse or slightly improved
 
 3. Contrary to it's base or name, it is _not simple_ and is OOP, but whatever, it got like this because of my arbitrary requirements.
 
+4. Should have used antlr or re2c (or some other lexer tool to process the logical units), but those are also very large. Enjoy the handwritten slow lexer (it _works_ so _it's a good_).
+
 ## Examples
 
 ### Reader
@@ -383,24 +385,29 @@ From 1.x, everything else is more or less the same, except the inner workings of
 
 </details>
 
-**Note** : There has been a supposed "3.x" release with, however it should be treated more as "2.x bugfix with breaking changes". You can use that if you would like to rollback to a version that is simpler with some of these changes.
+**Note** : There has been a supposed "3.x" release with, however it should be treated more as "2.x bugfix with breaking changes". You can use that if you would like to rollback to a version that is simpler with some of these changes. It will exist as an intermediate commit in `master`.
 
 ### - 3.0.0
 **▶ SJReader**
 * [X] Move all state to `ref State S`.
-  * [X] Stacked state is moved to `BX.SJ.SJReader+State+Stacked`.
+  * [X] Stacked reader state is moved to `BX.SJ.SJReader+State+Stacked`.
   * [X] `PushState`/`PopState` to save / load opaque `SJWriter` state.
   * [ ] Tests
 * [X] Allow `SJType.Key` values outside of `SJType.String`, that aren't recursive. The slices are provided as is, but requires some minor code changes. <br>
   (can use `SJReader.Value.prevType` to check whether if the type was formerly bare [not `String`])
 * [X] Allow trailing commas (`{ "a": "b", }`)
 * [X] Allow custom key types (non recursive data for now, `{ 0x21498124: "b", }`)
-* [ ] Allow types on keys or values (`{ (CustomType)0x21498124: (0x1234)"b", }`)
-  (Numbers or type names are allowed, type must pass regex similar to `\([A-Za-z0-9\-_]\)`..)
+* [X] Allow types on keys or values (`{ (CustomType)0x21498124: (0x1234)"b", }`)
+  (Numbers or type names are allowed, type must pass regex similar to `\(\s*([A-Za-z0-9\-_=]*|"(?:[^"]|(?<=\\)")*")\s*\)`..)
+  * [ ] Tests
 * [X] Removed the non-captured comment reading (to ignore comments, just skip them if `SJReader.Value.type` is `SJType.Comment`, which is added to the code regardless for the potential of a `SJReader` with `allowComments`)
+* [X] `SJType.Comment` slices now trim the prefix `//` or `/*`, the postfix `*/` and the surrounding whitespace. To determine the variety of the `SJType.Comment`, use `SJReader.Value.variant`.
 * [X] More tolerant with tokens of type `SJType.Number`. <br>
   (octal [`0o`], hexadecimal [`0x`] and binary [`0b`] is now allowed, if prefixed with their respective sequence)
 * [X] `PeekEntryCount` to peek the entries within any `SJType.Object` or `SJType.Array`.
+* `SJType.Comment` now only includes the content contained within the `SJType.Comment`. This behaviour is not opt-in, .
+* [X] `SJTypeVariant` to check the variant of value or comment to guess the value correctly. Currently this is useful with `SJType.Number` and `SJType.Comment`.
+  * [ ] Tests
 
 **▶ SJWriter**
 * [X] Move all state to `ref State S`.

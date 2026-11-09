@@ -186,7 +186,13 @@ namespace BX.SJ
                 streamCurrent += remaining.Length;
             }
         }
-        public override void Reset()
+        /// <param name="resetStream">
+        /// Whether to reset the stream to it's initial state.
+        /// <br>If this is false, the contents are committed.
+        /// This could be useful if the write is successful,
+        /// but the stream position has changed to inject bxsj somewhere else.</br>
+        /// </param>
+        public void Reset(bool resetStream)
         {
             if (disposed || stream == null)
             {
@@ -194,13 +200,21 @@ namespace BX.SJ
                 ThrowError();
                 return;
             }
-
             base.Reset();
-            stream.Position = startPosition;
-            stream.SetLength(startPosition); // Truncate the stream on Reset
-            encoder.Reset();
+
+            if (resetStream)
+            {
+                stream.Position = startPosition;
+                stream.SetLength(startPosition); // Truncate the stream on Reset
+            }
+            else
+            {
+                Flush(true, true, true);
+            }
             streamCurrent = 0;
+            encoder.Reset();
         }
+        public override void Reset() => Reset(true);
 
         public override bool CanReadData => stream.CanSeek;
         /// <summary>
@@ -240,8 +254,11 @@ namespace BX.SJ
         public override int PushState()
         {
             int baseResult = base.PushState();
-            // count is more accurate as a position of writing than the stream pos, which does not update unless flushed
-            // TODO : Must test what happens when 'S.count' is overflowed. I added "checked" as a safety measure.
+            // State.count is more accurate as a position of writing than the stream pos,
+            // which does not update unless all buffers are flushed.
+            // TODO : Should test what happens when 'S.count' is overflowed within SJWriter.
+            //        I added "checked" as a safety measure, so that it throws if it overflows.
+            //        I don't think anyone will want to write 8PB * sizeof(char) of BXSJ :P
             if (baseResult >= 0) _streamPositions[baseResult] = S.count;
             return baseResult;
         }
@@ -252,6 +269,7 @@ namespace BX.SJ
             {
                 // TODO : Fix, truncates invalidly and creates mojibake
                 // Flush(true, false, false);
+                encoder.Reset();
                 streamCurrent = 0; // Discard the stream writing buffer
 
                 // This will flush or discard the stream buffer anyways

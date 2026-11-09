@@ -93,6 +93,20 @@ namespace BX.SJ.Tests.Examples
 
             // Type prefixes can be written as extra metadata.
             // They do nothing outside of storing extra data about the next Key or Value entry.
+            // There can be only one per key or value entry, and can exist for the root object.
+            writer.WriteType("Root1");
+            if (writer.WriteType("Root2"))
+            {
+                writer.WriteNumber(1234.1234f);
+                Assert.Fail();
+            }
+            else
+            {
+                Console.WriteLine($"Error : {writer.Error}");
+            }
+            writer.Reset();
+
+            writer.WriteType("Root");
             using (writer.Object())
             {
                 // Custom types:
@@ -137,9 +151,9 @@ namespace BX.SJ.Tests.Examples
             Console.WriteLine($"Has type literals (or types): {writer.S.WrittenType}");
             Console.WriteLine($"Final state: {writer.ReadData()}");
 
-            // // Note : If errors are ignored, SJWriter keeps writing :P
-            // // Unwinding an erroreneous implicit stack is easier with exceptions, hence that's why I added support for it.
-            // throw new Exception("Type writing fails miserably");
+            // Note : If errors are ignored, SJWriter keeps writing :P
+            // Unwinding an erroreneous implicit stack is easier with exceptions,
+            // hence that's why I added ThrowOnError instead.
         }
     }
 }

@@ -538,14 +538,19 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     [DynamicData(nameof(JsonRootDataProcessors))]
     public void TestJSCRootLiteralsWithCapture(string data)
     {
-        // Micro$oft pls
-        string CommentLeft = "// This is a comment!" + Environment.NewLine;
-        string CommentRight = "// One more comment!" + Environment.NewLine + "/* Is it the end of file? */"; // All whitespace (surrounding the document) is ignored.
+        // TODO : Debug the 42.42 case, has minimal repro for the "no capture" case of comment slice.
+        // Since 3.x, comments are now captured "content only".
+        const string ContentLeft = "This is a comment!";
+        const string ContentRight1 = "Dear god..";
+        const string ContentRight2 = "There's more! No.";
+        string CommentLeft = $"// {ContentLeft}" + Environment.NewLine;
+        string CommentRight = $"// {ContentRight1}" + Environment.NewLine + $"/* {ContentRight2} */";
 
         Assert.AreEqual(data, ReadJSCAndDispose(CreateFromString(data)).ToString());
         // To spice it up, surround root data with comments on second iter.
-        var data2 = $"{CommentLeft}{data}{CommentRight}";
-        Assert.AreEqual(data2, ReadJSCAndDispose(CreateFromString(data2)).ToString());
+        string readerData = $"{CommentLeft}{data}{CommentRight}",
+            printData = $"{ContentLeft}{data}{ContentRight1}{ContentRight2}";
+        Assert.AreEqual(printData, ReadJSCAndDispose(CreateFromString(readerData)).ToString());
     }
 
     // Empty root

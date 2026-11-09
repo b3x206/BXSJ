@@ -1430,6 +1430,14 @@ namespace BX.SJ
         {
             System.Array.Resize(ref _stateStack, size);
         }
+        /// <summary>
+        /// Pushes a loadable stacked state.
+        /// </summary>
+        /// <returns>
+        /// The index of the pushed state.
+        /// For any other SJWriter with it's own state, this can be used to write it into it's own index like:
+        /// <br><c>result := <see cref="PushState"/>; myStack[result] = otherState;</c></br>
+        /// </returns>
         public virtual int PushState()
         {
             if (maxStateStack > 0 && _stateStackCount >= maxStateStack) return -1;
@@ -1449,6 +1457,14 @@ namespace BX.SJ
             S.CopyTo(ref next);
             return _stateStackCount++;
         }
+        /// <summary>
+        /// Loads a stacked state.
+        /// </summary>
+        /// <returns>
+        /// The index of the loaded state.
+        /// For any other SJWriter with it's own state, this can be used to read from it's own index like:
+        /// <br><c>result := <see cref="PopState"/>; otherState = myStack[result];</c></br>
+        /// </returns>
         public virtual int PopState()
         {
             if (_stateStackCount <= 0) return -1;
@@ -1469,6 +1485,15 @@ namespace BX.SJ
         /// </summary>
         public StateScope UseState(bool popIfError = false) => new StateScope(this, popIfError);
 
+        /// <summary>
+        /// Resets the writer to the default state. This also removes any stacked state if present.
+        /// </summary>
+        /// <remarks>
+        /// <br>Unlike the <see cref="SJReader"/>, this isn't required 
+        /// to commit any data and can remove present data. Use a Flush method if
+        /// data isn't commited as it's being written (ex: Stream sources)
+        /// and close the writer instead or use alternative Reset methods.</br>
+        /// </remarks>
         public virtual void Reset()
         {
             S.Reset();

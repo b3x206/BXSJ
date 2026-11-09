@@ -4,8 +4,10 @@
 
     .DESCRIPTION
     This is assumed to be ran from the development branch worktree, from the root directory.
-    It is essentially an automation of moving the relevant SJ files + examples into the other worktree that I have for the stable, non-development branch.
-    (It is overkill for SJ, but I will adapt it further for different projects using similar work style, like BXSave and others, that may have more complicated file structures)
+    It is essentially an automation of moving the relevant SJ files + examples into the 
+    other worktree that I have for the stable, non-development branch.
+    (It is pretty much overkill for SJ, but I will adapt it further for different projects using similar work style,
+     like BXSave and others, that may have more complicated file structures)
 
     .PARAMETER MoveDirs
     Directories to move matching folders, alongside their postprocessor script blocks called for each file that has been moved.
@@ -25,7 +27,8 @@
     (A choice is given for that - a valid $TargetDir must exist for dry run)
 
     .EXAMPLE
-    pwsh Tools/BuildMainBranch.ps1
+    # Run it from the root of the project:
+    pwsh Tools/BuildPrimaryBranch.ps1
 #>
 Param (
     $MoveDirs = (
@@ -121,7 +124,7 @@ try {
     # Check $TargetDir
     if (-not (Test-Path $TargetDir)) {
         switch ((Read-Choice "Info" "No BXSJ worktree at $((Resolve-Path $TargetDir).Path) that is on branch $Branch was found, would you like to create one?")) {
-            0 { throw "No destination $TargetDir exists that is a BXSJ worktree on branch $Branch." }
+            0 { throw "No destination $TargetDir exists that is a BXSJ worktree on branch $Branch. Create one yourself and checkout the target branch." }
             1 {
                 $branch = $null
                 $upstream = Get-GitUpstream
@@ -141,7 +144,9 @@ fetch those from remote or create a branch in the remote."
                 }
 
                 New-Item -Path $TargetDir -ItemType "Directory"
-                git worktree add --track -b $branch $TargetDir "$upstream/$branch" # TODO : This could be invalid, looking at my PS-GetReadLineOption history I just initialized another worktree.
+                # TODO : This could be invalid, according to my PS-GetReadLineOption history's worktree init code..
+                # I think without any of these parameters, it just copies the devel worktree instead.
+                git worktree add --track -b $branch $TargetDir "$upstream/$branch"
                 Write-Host -ForegroundColor Green "Created git worktree with branch $branch at $TargetDir, tracking $upstream/$branch"
             }
             default { throw "Invalid choice" }

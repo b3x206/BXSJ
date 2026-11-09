@@ -9,7 +9,7 @@ namespace BX.SJ
     /// Inferred type of the read data.
     /// <br>Custom types (if a declaration exists) are just given as a slice within <see cref="SJReader.Value"/>.</br>
     /// </summary>
-    public enum SJType
+    public enum SJType : ushort
     {
         Error,
 
@@ -28,6 +28,27 @@ namespace BX.SJ
         // Metadata
         Comment,
         Type,
+    }
+    /// <summary>
+    /// Inferred type variant, containing more information about the value.
+    /// </summary>
+    public enum SJTypeVariant : int // ! May change in future versions.
+    {
+        None,
+
+        // TODO : (3.1.x) More variant infers
+        // Values
+        ScientificNumber,
+        FloatNumber,
+        HexNumber,
+        OctalNumber,
+
+        // Metadata
+        MultiComment,
+        SingleComment,
+
+        TypeLiteral,
+        TypeString,
     }
 
     /// <summary>
@@ -55,8 +76,10 @@ namespace BX.SJ
         /// </summary>
         public struct Value
         {
+            // <= 32 bytes
             public readonly SJReader reader;
             public SJType type, prevType;
+            public SJTypeVariant variant;
             public int start, end;
             /// <summary>
             /// Object typed value depth of this value. This is used for <see cref="DiscardUntil(int)"/>.
@@ -73,6 +96,7 @@ namespace BX.SJ
             {
                 this.reader = reader;
                 type = prevType = SJType.Error;
+                variant = SJTypeVariant.None;
                 start = end = 0;
                 objectDepth = 0;
                 depth = (ushort)(reader?.S.depth ?? 0);
@@ -81,6 +105,7 @@ namespace BX.SJ
             {
                 this.reader = reader;
                 type = prevType = stubType;
+                variant = SJTypeVariant.None;
                 start = end = 0;
                 objectDepth = 0;
                 depth = (ushort)(reader?.S.depth ?? 0);
@@ -351,7 +376,7 @@ namespace BX.SJ
         /// <br></br>
         /// <br><c>{ "k": (TypeName)[1, 2, 3], "k2": (0x7463)"TypeCode.Int32", "k3": "aa" }</c></br>
         /// <br>Type literals can be like string. They don't need to be properly escaped (like strings) as SJReader is more tolerant on strings and only matches '"'.</br>
-        /// <br><c>{ "k": ("Type name with everythin, including ()")[1, 2, 3], "k2": ("System.Array, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral")[1, 2, 3] }</c></br>
+        /// <br><c>{ "k": ("Type name with everythin' including (\")")null, "k2": ("System.Array, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral")[1, 2, 3] }</c></br>
         /// <br>Type literals can exist for the root object.</br>
         /// <br><c>(MyType){ "foo": 42, "bar": ["baz", 2, "fizz"] }</c></br>
         /// </summary>
@@ -426,32 +451,53 @@ namespace BX.SJ
         /// <br>Accepts base 16 (hex) numbers. To store larger bases of integers or data as format, prefer <see cref="SJType.String"/></br>
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsNumberContinuation(char c) =>
-            (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-            || c == '.' || c == '-' || c == '+' || c == 'x' || c == 'o';
+        public static bool IsNumberContinuation(char c, out SJTypeVariant foundOn)
+        {
+            foundOn = SJTypeVariant.None;
+            if ((c >= '0' && c <= '9')) return true;
+            if ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
+            {
+                foundOn = c switch
+                {
+                    'e' => SJTypeVariant.ScientificNumber,
+                    'E' => SJTypeVariant.ScientificNumber,
+                    _ => SJTypeVariant.HexNumber
+                };
+                return true;
+            }
+            switch (c)
+            {
+                case '-':
+                case '+':
+                    return true;
+                case 'x':
+                    foundOn = SJTypeVariant.HexNumber;
+                    return true;
+                case '.':
+                    foundOn = SJTypeVariant.FloatNumber;
+                    return true;
+                case 'o':
+                    foundOn = SJTypeVariant.OctalNumber;
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>
         /// <see cref="SJType.Type"/> as literal (not string) continuation check.
         /// <br>String continuation should be checked similarly to <see cref="SJType.String"/></br>
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsTypeLiteralContinuation(char c)
+        public static bool IsTypeLiteralContinuation(char c) => ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) || c switch
         {
-            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')))
-            {
-                switch (c)
-                {
-                    case '-':
-                    case '_':
-                    case '.':
-                    case '=':
-                        return true;
-
-                    default:
-                        return false;
-                }
-            }
-            return true;
-        }
+            '-' => true,
+            '_' => true,
+            '.' => true,
+            '=' => true,
+            _ => false
+        };
         /// <summary>
         /// String inspector for token.
         /// <br>Outputs <paramref name="c"/> as <c>{c}/{(int)c}</c></br>
@@ -463,72 +509,117 @@ namespace BX.SJ
         /// Read a range of comment, starting from <see cref="State.current"/> for the reader data.
         /// <br>The returned range contains the content of the comment rather than the entire comment block 
         /// to be consistent to the other typed ranges..</br>
+        /// <br>The comment range is trimmed, to capture the whole comment remove 
+        /// <paramref name="postfixSize"/> from start and add <paramref name="prefixSize"/> to end.</br>
         /// </summary>
         /// <param name="prefixSize">Size of the comment prefix token. This is generally 2.</param>
         /// <param name="postfixSize">Size of the comment postfix token. This is generally 1 or 2.</param>
+        /// <param name="variant">Variant of multi comment.</param>
         /// <returns>Start and ending range. If the block doesn't start with '/', 
         /// -1 is returned for start and end without setting error.</returns>
-        protected (int start, int end) GetCommentRange(out byte prefixSize, out byte postfixSize)
+        protected (int start, int end) GetCommentRange(out int prefixSize, out int postfixSize, out SJTypeVariant variant)
         {
+            // Finite automata? What for?
             ref var s = ref S;
             int start = s.current, end = s.current;
             prefixSize = postfixSize = 0;
+            variant = SJTypeVariant.None;
             if (start < Length)
             {
-                // I should validate the current character twice, for external uses.
                 char ch = At(end);
-                if (ch == '/')
+                if (ch == '/') // Redundant on the only usage as it checks, but is fine.
                 {
                     prefixSize++;
-                    start++;
-                    char next = At(++end);
-                    if (next == '/')
+                    end = ++start;
+                    char next = At(end);
+
+                    switch (next)
                     {
-                        prefixSize++;
-                        start++;
-                        bool crlf = false;
-                        while (ch != '\n')
-                        {
-                            if (end >= Length)
+                        case '/':
                             {
-                                // Ended with // .... <EOF
+                                variant = SJTypeVariant.SingleComment;
+                                prefixSize++;
+                                end = ++start;
+                                ch = At(end);
+
+                                bool word = false;
+                                int whitespace = 0;
+                                while (ch != '\n')
+                                {
+                                    if (end >= Length)
+                                    {
+                                        // Ended with // .... <EOF
+                                        return (start, end);
+                                    }
+
+                                    if (!word)
+                                    {
+                                        if (char.IsWhiteSpace(ch))
+                                        {
+                                            start++;
+                                            prefixSize++;
+                                        }
+                                        else word = true;
+                                    }
+                                    else
+                                    {
+                                        if (char.IsWhiteSpace(ch)) whitespace++;
+                                        else whitespace = 0;
+                                    }
+
+                                    ch = At(++end);
+                                }
+
+                                // exclude + include '\s*'. end stops in '\n'
+                                // CRLF is stripped implicitly by being a part of whitespace.
+                                end -= whitespace;
+                                postfixSize = 1 + whitespace;
                                 return (start, end);
                             }
-
-                            crlf = ch == '\r';
-                            ch = At(++end);
-                        }
-
-                        // include '\n'
-                        postfixSize = (byte)(1 + (crlf ? 1 : 0));
-                        return (start, end - postfixSize);
-                    }
-                    else if (next == '*')
-                    {
-                        prefixSize++;
-                        start++;
-
-                        // ?? Skips */
-                        while (!(ch == '*' && next == '/'))
-                        {
-                            if (end >= Length)
+                        case '*':
                             {
-                                Error = $"Expected */, got '{Tk(ch)}+{Tk(next)}'";
-                                return (-1, -1);
+                                variant = SJTypeVariant.MultiComment;
+                                prefixSize++;
+                                end = ++start;
+                                ch = At(end);
+
+                                bool word = false;
+                                int whitespace = 0;
+                                while (!(ch == '*' && next == '/'))
+                                {
+                                    if (end >= Length)
+                                    {
+                                        Error = $"Expected */, got '{Tk(ch)}+{Tk(next)}'";
+                                        return (-1, -1);
+                                    }
+
+                                    if (!word)
+                                    {
+                                        if (char.IsWhiteSpace(ch))
+                                        {
+                                            start++;
+                                            prefixSize++;
+                                        }
+                                        else word = true;
+                                    }
+                                    else
+                                    {
+                                        if (char.IsWhiteSpace(ch)) whitespace++;
+                                        else whitespace = 0;
+                                    }
+
+                                    ch = At(++end);
+                                    next = At(end + 1);
+                                }
+
+                                // exclude + include '*/'. end stops in '*/'
+                                end -= whitespace;
+                                postfixSize = 2 + whitespace;
+                                return (start, end);
                             }
-
-                            ch = At(++end);
-                            next = At(end + 1);
-                        }
-
-                        // include '*/'
-                        postfixSize = 2;
-                        return (start, end - postfixSize);
-                    }
-                    else
-                    {
-                        Error = $"Unexpected comment token '{Tk(next)}', expected '/ or *' to start a comment.";
-                        return (-1, -1);
+                        default:
+                            Error = $"Unexpected comment token '{Tk(next)}', expected '/ or *' to start a comment.";
+                            return (-1, -1);
                     }
                 }
                 else
@@ -548,11 +639,13 @@ namespace BX.SJ
         /// <param name="postfixSize">The postfix size starting from the returned <c>end</c>,
         /// right trimming the string according to <c>(?:"\s*|[A-Za-z0-9_\-]\s*)\)</c></param>
         /// <returns>Start and ending range. If the block doesn't start with '(', -1 is returned for start and end.</returns>
-        protected (int start, int end) GetTypeRange(out int prefixSize, out int postfixSize)
+        protected (int start, int end) GetTypeRange(out int prefixSize, out int postfixSize, out SJTypeVariant variant)
         {
+            // Pilot's license? What for?
             ref var s = ref S;
             int start = s.current, end = s.current;
             prefixSize = postfixSize = 0;
+            variant = SJTypeVariant.None;
             if (end < 0 || end >= Length) return (-1, -1);
 
             char ch = At(start++);
@@ -574,6 +667,7 @@ namespace BX.SJ
                 {
                     if (ch == '"')
                     {
+                        variant = SJTypeVariant.TypeString;
                         start = current + 1; // Skip '"'
                         capturedType = true;
                         while (true)
@@ -594,6 +688,7 @@ namespace BX.SJ
                     }
                     else if (IsTypeLiteralContinuation(ch))
                     {
+                        variant = SJTypeVariant.TypeLiteral;
                         start = current;
                         capturedType = true;
                         while (true)
@@ -815,9 +910,10 @@ namespace BX.SJ
             else if (allowComments && ch == '/')
             {
                 result.type = SJType.Comment;
-                (result.start, result.end) = GetCommentRange(out byte _, out byte postfix);
+                (result.start, result.end) = GetCommentRange(out int _, out int postfix, out var variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
+                    result.variant = variant;
                     s.current = result.end + postfix;
                     return result;
                 }
@@ -833,7 +929,7 @@ namespace BX.SJ
                 }
 
                 result.type = SJType.Type;
-                (result.start, result.end) = GetTypeRange(out int _, out int postfix);
+                (result.start, result.end) = GetTypeRange(out int _, out int postfix, out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
                     s.current = result.end + postfix;
@@ -961,10 +1057,45 @@ namespace BX.SJ
             // Parse : Number (technically, hex and binary is supported if prefixed with 0x)
             else if (char.IsDigit(ch) || ch == '-')
             {
+                // Finite automata? What for
                 result.type = SJType.Number;
-                while (s.current < Length && IsNumberContinuation(At(s.current)))
+                for (ch = At(s.current); s.current < Length && IsNumberContinuation(ch, out var foundOn); s.current++)
                 {
-                    s.current++;
+                    // Not super accurate, but will do.
+                    // Theoretically we can check number literal validity this way,
+                    // but whatever that's many more state to the larpmata.
+                    // The hex and scientific notation can be confused, so this is checked.
+                    switch (result.variant)
+                    {
+                        case SJTypeVariant.None:
+                            switch (foundOn)
+                            {
+                                case SJTypeVariant.HexNumber:
+                                    result.variant = SJTypeVariant.HexNumber;
+                                    break;
+                                case SJTypeVariant.ScientificNumber:
+                                    if (result.start == s.current) goto case SJTypeVariant.HexNumber;
+                                    result.variant = SJTypeVariant.ScientificNumber;
+                                    break;
+
+                                default:
+                                    result.variant = foundOn;
+                                    break;
+                            }
+                            break;
+                        // If we are on a sci number, but we get hex data, it could be a number like E00F..
+                        // Just having 1EEEEEEEEEE will make it a scientific number, in reality it's a hex number
+                        // So repeated 'E' is not considered scientific notation.
+                        case SJTypeVariant.ScientificNumber:
+                            switch (foundOn)
+                            {
+                                case SJTypeVariant.ScientificNumber:
+                                case SJTypeVariant.HexNumber:
+                                    result.variant = SJTypeVariant.HexNumber;
+                                    break;
+                            }
+                            break;
+                    }
                 }
                 result.end = s.current;
 
@@ -1087,8 +1218,7 @@ namespace BX.SJ
         /// Iterate <see cref="SJType.Array"/> typed <paramref name="value"/>.
         /// </summary>
         /// <remarks>
-        /// <b>This skips <see cref="SJType.Comment"/> blocks (for compatibility) regardless 
-        /// of <see cref="captureComments"/>' value. If you want to capture comments 
+        /// <b>This skips <see cref="SJType.Comment"/> blocks. If you want to capture comments 
         /// while reading an object, use lower level method of
         /// <see cref="IterateArrayEntries(Value, out Value)"/> instead.</b>
         /// </remarks>
@@ -1142,7 +1272,7 @@ namespace BX.SJ
         /// Iterate <see cref="SJType.Object"/> typed <paramref name="object"/> value.
         /// </summary>
         /// <remarks>
-        /// <b>This skips <see cref="SJType.Comment"/> blocks regardless of <see cref="captureComments"/>' value.
+        /// <b>This skips <see cref="SJType.Comment"/> blocks regardless.
         /// If you want to capture comments while reading an object, use lower level method of
         /// <see cref="IterateObjectEntries(Value, out Value)"/> instead.</b>
         /// <br>Calling <see cref="IterateObject(Value, out Value, out Value)"/> with an existing key 
@@ -1269,6 +1399,14 @@ namespace BX.SJ
         {
             System.Array.Resize(ref _stateStack, size);
         }
+        /// <summary>
+        /// Pushes a loadable stacked state.
+        /// </summary>
+        /// <returns>
+        /// The index of the pushed state.
+        /// For any other SJReader with it's own state, this can be used to write it into it's own index like:
+        /// <br><c>result := <see cref="PushState"/>; myStack[result] = otherState;</c></br>
+        /// </returns>
         public virtual int PushState()
         {
             if (maxStateStack > 0 && _stateStackCount >= maxStateStack) return -1;
@@ -1288,6 +1426,14 @@ namespace BX.SJ
             S.CopyTo(ref next);
             return _stateStackCount++;
         }
+        /// <summary>
+        /// Loads a stacked state.
+        /// </summary>
+        /// <returns>
+        /// The index of the loaded state.
+        /// For any other SJReader with it's own state, this can be used to read from it's own index like:
+        /// <br><c>result := <see cref="PopState"/>; otherState = myStack[result];</c></br>
+        /// </returns>
         public virtual int PopState()
         {
             if (_stateStackCount <= 0) return -1;
@@ -1341,14 +1487,16 @@ namespace BX.SJ
             return true;
         }
         /// <summary>
-        /// Reset the read state.
+        /// Resets the reader to the default state. This also removes any stacked state if present.
         /// </summary>
         /// <remarks>
-        /// <br><b>This shouldn't discard data and only reset the state.</b>(should have called it flush award)</br>
+        /// <br><b>This shouldn't discard loaded data and only reset the state.</b>
+        /// (should have called it flush, but SJReader does not commit any data?)</br>
         /// </remarks>
         public virtual void Reset()
         {
             S.Reset();
+            _stateStackCount = 0;
         }
 
         public override string ToString()
