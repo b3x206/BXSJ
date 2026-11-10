@@ -2,7 +2,6 @@
 
 namespace BX.SJ.Tests;
 
-[TestClass]
 public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
 {
     /// <summary>
@@ -548,7 +547,6 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         }
     }
     [TestMethod]
-    [ExpectedException(typeof(SJWriter.WriteException))]
     [Timeout(TestTimeouts.Short)]
     public void TestMaxDepth()
     {
@@ -558,8 +556,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             writer.indentSize = 4;
             writer.ThrowOnError = true;
 
-            Assert.IsTrue(WriterTester.WriteMaxTestDepth(writer), "Depth test must fail"); // ← Must throw WriteException instead
-            Console.WriteLine($"fail : {writer}");
+            Assert.Throws<SJWriter.WriteException>(() => WriterTester.WriteMaxTestDepth(writer));
         }
         finally
         {
@@ -598,7 +595,6 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
         return result;
     }
     [TestMethod]
-    [ExpectedException(typeof(SJWriter.WriteException))]
     [Timeout(TestTimeouts.Short)]
     public void TestStack()
     {
@@ -608,8 +604,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             writer.indentSize = 3;
             writer.ThrowOnError = true;
 
-            Assert.IsTrue(TestStackWith(writer), "Stack test must fail");
-            Console.WriteLine($"fail : {writer}");
+            Assert.Throws<SJWriter.WriteException>(() => TestStackWith(writer));
         }
         finally
         {
@@ -638,7 +633,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(
-        nameof(TestData.StringDataProvider), typeof(TestData), DynamicDataSourceType.Property,
+        nameof(TestData.StringDataProvider), typeof(TestData),
         DynamicDataDisplayName = nameof(TestData.StringDataProviderName),
         DynamicDataDisplayNameDeclaringType = typeof(TestData)
     )]

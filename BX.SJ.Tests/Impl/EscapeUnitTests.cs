@@ -54,7 +54,7 @@ public sealed class EscapeUnitTests
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(
-        nameof(StringDataProvider), typeof(TestData), DynamicDataSourceType.Property,
+        nameof(StringDataProvider), typeof(TestData),
         DynamicDataDisplayName = nameof(StringDataProviderName),
         DynamicDataDisplayNameDeclaringType = typeof(TestData)
     )]
@@ -73,13 +73,12 @@ public sealed class EscapeUnitTests
     [TestMethod]
     [DataRow(EscapeInvalidUnescape)]
     [Timeout(TestTimeouts.Short)]
-    [ExpectedException(typeof(ArgumentException))]
-    public void TestInvalidUnescape(string data) => SJEscape.Unescape(data, allowInvalidEscapes: false);
+    public void TestInvalidUnescape(string data) => Assert.Throws<ArgumentException>(() => SJEscape.Unescape(data, allowInvalidEscapes: false));
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestInvalidUnescape()
     {
-        Assert.IsTrue(!SJEscape.Unescape(EscapeInvalidUnescape).Contains('\\'), "Behaviour : Should not contain '\\' token from invalid escapes (as it's removed and the invalid escape is written as-is)");
+        Assert.IsFalse(SJEscape.Unescape(EscapeInvalidUnescape).Contains('\\'), "Behaviour : Should not contain '\\' token from invalid escapes (as it's removed and the invalid escape is written as-is)");
     }
 }

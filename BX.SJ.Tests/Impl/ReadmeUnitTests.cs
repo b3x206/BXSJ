@@ -107,13 +107,13 @@ public sealed class ReadmeUnitTests
 
     // - Migration 1.x -> 2.x
     // 1: Change that the compiler will error out for anyways. This is just to validate the code changes as I use rename identifier.
-    [TestMethod("Migration 1.x -> 2.x | 1: Move from SJ to BX.SJ")]
+    [TestMethod(DisplayName = "Migration 1.x -> 2.x | 1: Move from SJ to BX.SJ")]
     public void Migration1xTo2x_1()
     {
         // Check if the BX.SJ assembly has anything in the SJ namespace
-        Assert.IsFalse(typeof(SJReader).Assembly.GetTypes().Any(v => v.Namespace?.StartsWith("SJ") ?? true), "Must not have any namespace start with SJ or have null/root namespace");
+        Assert.DoesNotContain(v => v.Namespace?.StartsWith("SJ") ?? true, typeof(SJReader).Assembly.GetTypes(), "Must not have any namespace start with SJ or have null/root namespace");
     }
-    [TestMethod("Migration 1.x -> 2.x | 2: Handle SJType.Key")]
+    [TestMethod(DisplayName = "Migration 1.x -> 2.x | 2: Handle SJType.Key")]
     public void Migration1xTo2x_2()
     {
         const string Data = @"{ ""a"": ""b"" }";
@@ -186,12 +186,14 @@ public sealed class ReadmeUnitTests
             {
                 if (!mustThrow)
                 {
+#pragma warning disable MSTEST0058 // Do not use asserts in catch blocks
                     Assert.Fail("Must not throw according to the migration");
+#pragma warning restore MSTEST0058 // Do not use asserts in catch blocks
                 }
             }
         }
     }
-    [TestMethod("Migration 1.x -> 2.x | 3: Handle SJType.Comment")]
+    [TestMethod(DisplayName = "Migration 1.x -> 2.x | 3: Handle SJType.Comment")]
     public void Migration1xTo2x_3()
     {
         static void Process(SJReader reader, SJReader.Value v)
@@ -225,16 +227,13 @@ public sealed class ReadmeUnitTests
             // default behaviour captures comments now
         };
 
-        Assert.ThrowsException<ArgumentException>(() =>
-        {
-            // And this deserialization code is not aware of the default capture comments behaviour
-            // ❌ : The Read will have SJType.Comment supplied into it!
-            var root = reader.Read();
-            Process(reader, root);
-        });
+        // And this deserialization code is not aware of the default capture comments behaviour
+        // ❌ : The Read will have SJType.Comment supplied into it!
+        var root = reader.Read();
+        Assert.Throws<ArgumentException>(() => Process(reader, root));
         reader.Reset();
         // ↓ Instead do this
-        for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
+        for (root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
             // ✅ : Discard comments when interacting with code that disallow or not expect it
             if (root.type == SJType.Comment) continue;

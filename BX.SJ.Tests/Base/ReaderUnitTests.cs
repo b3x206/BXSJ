@@ -146,9 +146,8 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     [Timeout(TestTimeouts.Short)]
     public void TestBasic() => ReadAndDispose(CreateFromString(JsonData1));
     [TestMethod]
-    [ExpectedException(typeof(SJReader.ReadException))]
     [Timeout(TestTimeouts.Short)]
-    public void TestBasicInvalid() => ReadAndDispose(CreateFromString(JsonDataInvalid));
+    public void TestBasicInvalid() => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(CreateFromString(JsonDataInvalid)));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestSlightlyComplicated() => ReadAndDispose(CreateFromString(JsonData2));
@@ -163,9 +162,9 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
         Assert.AreEqual(SJType.Object, root.type, $"Expected root to be object, it is instead this : {root}");
         while (reader.IterateObject(root, out SJReader.Value k, out SJReader.Value v))
         {
-            Assert.AreEqual(new string(k.Slice()), JsonDataSpamKey, "Keys must be equal");
+            Assert.AreEqual(JsonDataSpamKey, new string(k.Slice()), "Keys must be equal");
             Assert.AreEqual(SJType.Key, k.type);
-            Assert.AreEqual(new string(v.Slice()), JsonDataSpamValue, "Values must be equal");
+            Assert.AreEqual(JsonDataSpamValue, new string(v.Slice()), "Values must be equal");
             Assert.AreEqual(SJType.String, v.type);
         }
     }
@@ -195,8 +194,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     [DataRow(@"[""hello"" 1 2 3 4 5]")]
     [DataRow(@"{""hello"": 124 ""world!"": ""world: yo"" ""look"": ""no comma! waow bradar please JSON code make no mistakes""}")]
     [DataRow(@"{""hello"" 124, ""gurt"" ""yo"", ""yogurt"" ""yes""}")]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestCommaColonState(string data) => ReadAndDispose(CreateFromString(data));
+    public void TestCommaColonState(string data) => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(CreateFromString(data)));
 
     // Code Validation
     [TestMethod]
@@ -314,8 +312,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     public void TestDiscard() => TestDiscard(CreateFromString(JsonDataDiscard));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestDiscardInvalid() => TestDiscard(CreateFromString(JsonDataDiscardInvalid));
+    public void TestDiscardInvalid() => Assert.Throws<SJReader.ReadException>(() => TestDiscard(CreateFromString(JsonDataDiscardInvalid)));
 
     // Peek + Peek JSC
     [TestMethod]
@@ -513,8 +510,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     public void TestJSC() => ReadJSCAndDispose(CreateFromString(JsonDataComment));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestJSCInvalid() => ReadJSCAndDispose(CreateFromString(JsonDataCommentInvalid));
+    public void TestJSCInvalid() => Assert.Throws<SJReader.ReadException>(() => ReadJSCAndDispose(CreateFromString(JsonDataCommentInvalid)));
 
     // JSC with Capture
     [TestMethod]
@@ -553,34 +549,29 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
         Assert.AreEqual(data, ReadAndDispose(CreateFromString(data)).ToString());
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonTruncatedRootDataProcessors), DynamicDataSourceType.Method)]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestTruncatedRootLiterals(string data) => ReadAndDispose(CreateFromString(data));
+    [DynamicData(nameof(JsonTruncatedRootDataProcessors))]
+    public void TestTruncatedRootLiterals(string data) => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(CreateFromString(data)));
     [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     [Timeout(TestTimeouts.Short)]
-    [ExpectedException(typeof(SJReader.ReadException))]
     public void TestEmptyString(bool throwOnError)
     {
         var r = CreateFromString(DataEmpty);
         r.ThrowOnError = throwOnError; // The execution order may set Ended early, but this isn't the case anymore.
-        ReadAndDispose(r);
+        Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(r));
     }
 
     // Stack
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestStacking() => ReadAndDispose(CreateFromString(JsonDataStackingInvalid));
+    public void TestStacking() => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(CreateFromString(JsonDataStackingInvalid)));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestMaxArrayRecursion() => ReadAndDispose((CreateFromMaxRecursionString("[]", MaxRecursionDepth)));
+    public void TestMaxArrayRecursion() => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose((CreateFromMaxRecursionString("[]", MaxRecursionDepth))));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestMaxObjectRecursion() => ReadAndDispose(CreateFromMaxRecursionString("{}", MaxRecursionDepth));
+    public void TestMaxObjectRecursion() => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(CreateFromMaxRecursionString("{}", MaxRecursionDepth)));
 
     // File tests
     public virtual Encoding JsonFileEncoding => Encoding.UTF8;
@@ -604,6 +595,5 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     [DataRow(JsonFileInvalidBinary)]
     [DataRow(JsonFileInvalidNoColon)]
     [DataRow(JsonFileInvalidUnterminated)]
-    [ExpectedException(typeof(SJReader.ReadException))]
-    public void TestInvalidFile(string name) => ReadAndDispose(CreateFromStream(LoadAsmFile(name), JsonFileEncoding));
+    public void TestInvalidFile(string name) => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(CreateFromStream(LoadAsmFile(name), JsonFileEncoding)));
 }

@@ -1,6 +1,5 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace BX.SJ
@@ -421,7 +420,6 @@ namespace BX.SJ
             get => S._error;
             set
             {
-                Console.WriteLine($"Written error as {value}");
                 if (string.IsNullOrEmpty(value))
                 {
                     S._error = string.Empty;
@@ -642,17 +640,17 @@ namespace BX.SJ
         /// <summary>
         /// Read a range of type, starting from <see cref="State.current"/> for the reader data.
         /// </summary>
-        /// <param name="prefixSize">The prefix size starting from the returned <c>start</c>,
+        /// <param name="prefix">The prefix size starting from the returned <c>start</c>,
         /// left trimming the string according to <c>^\((?:\s*"|\s*[A-Za-z0-9_\-])</c></param>
         /// <param name="postfixSize">The postfix size starting from the returned <c>end</c>,
         /// right trimming the string according to <c>(?:"\s*|[A-Za-z0-9_\-]\s*)\)</c></param>
         /// <returns>Start and ending range. If the block doesn't start with '(', -1 is returned for start and end.</returns>
-        protected (int start, int end) GetTypeRange(out int prefixSize, out int postfixSize, out SJTypeVariant variant)
+        protected (int start, int end) GetTypeRange(out int prefix, out int postfixSize, out SJTypeVariant variant)
         {
             // Pilot's license? What for?
             ref var s = ref S;
             int start = s.current, end = s.current;
-            prefixSize = postfixSize = 0;
+            prefix = postfixSize = 0;
             variant = SJTypeVariant.None;
             if (end < 0 || end >= Length) return (-1, -1);
 
@@ -660,17 +658,19 @@ namespace BX.SJ
             if (ch == '(') { end = start; }
             else { return (-1, -1); }        // Not error, but not type literal.
 
+            prefix++;
             int current = end;
             bool capturedType = false;
             while (true)
             {
-                if (++current >= Length)
+                if (current >= Length)
                 {
                     Error = "Unclosed type container, expected ')'";
                     return (-1, -1);
                 }
 
-                ch = At(current);
+                // TODO : Off by one. Who could have guessed?
+                ch = At(current++);
                 if (!capturedType)
                 {
                     if (ch == '"')
@@ -680,7 +680,7 @@ namespace BX.SJ
                         capturedType = true;
                         while (true)
                         {
-                            if (++current >= Length)
+                            if (current >= Length)
                             {
                                 Error = "Unclosed type declaration string";
                                 return (-1, -1);
@@ -689,9 +689,12 @@ namespace BX.SJ
                             ch = At(current);
                             if (ch == '"' && end > 0 && (At(end - 1) != '\\'))
                             {
-                                end = current - 1; // current is '"', which will be skipped
+                                // current is '"', which should be skipped
+                                end = current - 1;
+                                current++;
                                 break;
                             }
+                            current++;
                         }
                     }
                     else if (IsTypeLiteralContinuation(ch))
@@ -701,7 +704,7 @@ namespace BX.SJ
                         capturedType = true;
                         while (true)
                         {
-                            if (++current >= Length)
+                            if (current >= Length)
                             {
                                 Error = "Unclosed type declaration";
                                 return (-1, -1);
@@ -710,9 +713,11 @@ namespace BX.SJ
                             ch = At(current);
                             if (!IsTypeLiteralContinuation(ch))
                             {
-                                end = --current; // current is anything, which shouldn't be skipped
+                                // current is anything, which shouldn't be skipped
+                                end = current - 1;
                                 break;
                             }
+                            current++;
                         }
                     }
                 }
@@ -730,8 +735,8 @@ namespace BX.SJ
                         return (-1, -1);
                     }
 
-                    prefixSize = start - current;
-                    postfixSize = end - current;
+                    prefix = start - prefix;  // prefixSize(actually the starting pos) <= start
+                    postfixSize = current - end;      // end <= current
                     return (start, end);
                 }
                 else
@@ -931,10 +936,9 @@ namespace BX.SJ
             else if (allowComments && ch == '/')
             {
                 result.type = SJType.Comment;
-                (result.start, result.end) = GetCommentRange(out int _, out int postfix, out var variant);
+                (result.start, result.end) = GetCommentRange(out int _, out int postfix, out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
-                    result.variant = variant;
                     s.current = result.end + postfix;
                     return result;
                 }
@@ -943,7 +947,7 @@ namespace BX.SJ
             // Parse: Type (literal or something else). Treated sort of like a comment.
             else if (allowTypes && ch == '(')
             {
-                if (!s.notExpectingType)
+                if (s.notExpectingType)
                 {
                     Error = "Was not expecting a duplicate type definition";
                     goto _Top;
@@ -953,8 +957,8 @@ namespace BX.SJ
                 (result.start, result.end) = GetTypeRange(out int _, out int postfix, out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
-                    s.current = result.end + postfix;
                     s.notExpectingType = true;
+                    s.current = result.end + postfix;
                     s.lastEntryType = result;
                     return result;
                 }
