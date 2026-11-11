@@ -58,6 +58,8 @@ namespace BX.SJ
     /// </example>
     public abstract class SJReader
     {
+        public const int DefaultStackSize = 8;
+
         /// <summary>
         /// Exception thrown on an error case while reading BXSJ.
         /// </summary>
@@ -191,7 +193,6 @@ namespace BX.SJ
                 disposed = true;
             }
         }
-        public const int DefaultStackSize = 8;
         [Flags]
         public enum Expect
         {
@@ -640,37 +641,34 @@ namespace BX.SJ
         /// <summary>
         /// Read a range of type, starting from <see cref="State.current"/> for the reader data.
         /// </summary>
-        /// <param name="prefix">The prefix size starting from the returned <c>start</c>,
-        /// left trimming the string according to <c>^\((?:\s*"|\s*[A-Za-z0-9_\-])</c></param>
-        /// <param name="postfixSize">The postfix size starting from the returned <c>end</c>,
-        /// right trimming the string according to <c>(?:"\s*|[A-Za-z0-9_\-]\s*)\)</c></param>
+        /// <param name="move">Amount to move the current pointer by.</param>
         /// <returns>Start and ending range. If the block doesn't start with '(', -1 is returned for start and end.</returns>
-        protected (int start, int end) GetTypeRange(out int prefix, out int postfixSize, out SJTypeVariant variant)
+        protected (int start, int end) GetTypeRange(out int move, out SJTypeVariant variant)
         {
             // Pilot's license? What for?
             ref var s = ref S;
             int start = s.current, end = s.current;
-            prefix = postfixSize = 0;
+            move = 0;
             variant = SJTypeVariant.None;
+
             if (end < 0 || end >= Length) return (-1, -1);
 
             char ch = At(start++);
-            if (ch == '(') { end = start; }
-            else { return (-1, -1); }        // Not error, but not type literal.
+            if (ch != '(') return (-1, -1); // Not error, but not type literal.
 
-            prefix++;
             int current = end;
             bool capturedType = false;
             while (true)
             {
-                if (current >= Length)
+                if (++current >= Length)
                 {
                     Error = "Unclosed type container, expected ')'";
                     return (-1, -1);
                 }
+                move++; // Current skips '('
 
                 // TODO : Off by one. Who could have guessed?
-                ch = At(current++);
+                ch = At(current);
                 if (!capturedType)
                 {
                     if (ch == '"')
@@ -678,9 +676,11 @@ namespace BX.SJ
                         variant = SJTypeVariant.TypeString;
                         start = current + 1; // Skip '"'
                         capturedType = true;
+
                         while (true)
                         {
-                            if (current >= Length)
+                            // Start (current) is '"', which should be skipped
+                            if (++current >= Length)
                             {
                                 Error = "Unclosed type declaration string";
                                 return (-1, -1);
@@ -691,10 +691,8 @@ namespace BX.SJ
                             {
                                 // current is '"', which should be skipped
                                 end = current - 1;
-                                current++;
                                 break;
                             }
-                            current++;
                         }
                     }
                     else if (IsTypeLiteralContinuation(ch))
@@ -702,6 +700,7 @@ namespace BX.SJ
                         variant = SJTypeVariant.TypeLiteral;
                         start = current;
                         capturedType = true;
+
                         while (true)
                         {
                             if (current >= Length)
@@ -727,7 +726,7 @@ namespace BX.SJ
                 }
                 else if (ch == ')')
                 {
-                    // something like (\s*), which is interpreted as empty.
+                    // Something like (\s*), which is interpreted as empty.
                     // let's not allow "empty literals", but require string to exist
                     if (start == end)
                     {
@@ -735,8 +734,6 @@ namespace BX.SJ
                         return (-1, -1);
                     }
 
-                    prefix = start - prefix;  // prefixSize(actually the starting pos) <= start
-                    postfixSize = current - end;      // end <= current
                     return (start, end);
                 }
                 else
@@ -954,11 +951,11 @@ namespace BX.SJ
                 }
 
                 result.type = SJType.Type;
-                (result.start, result.end) = GetTypeRange(out int _, out int postfix, out result.variant);
+                (result.start, result.end) = GetTypeRange(out int move,out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
                     s.notExpectingType = true;
-                    s.current = result.end + postfix;
+                    s.current += move;
                     s.lastEntryType = result;
                     return result;
                 }
@@ -1228,19 +1225,26 @@ namespace BX.SJ
             }
 
             DiscardUntil(value.objectDepth);
-            ref var current = ref S.Peek();
             result = Read();
             if (result.type == SJType.Comment)
             {
                 return true;
             }
 
-            current.valueCount++;
-            if (result.type != SJType.Error && result.type != SJType.End)
+            switch (result.type)
             {
-                return true;
+                case SJType.Error:
+                case SJType.End:
+                    result = Value.Error(this);
+                    return false;
+
+                case SJType.Type:
+                    S.lastEntryType = result;
+                    goto default;
+                default:
+                    S.Peek().valueCount++;
+                    return true;
             }
-            return false;
         }
         /// <summary>
         /// Iterate <see cref="SJType.Array"/> typed <paramref name="value"/>.
@@ -1283,22 +1287,23 @@ namespace BX.SJ
 
             DiscardUntil(value.objectDepth);
             result = Read();
-            if (result.type == SJType.Error || result.type == SJType.End)
+            switch (result.type)
             {
-                result = Value.Error(this);
-                return false;
-            }
-            if (result.type == SJType.Comment)
-            {
-                return true;
-            }
+                case SJType.Error:
+                case SJType.End:
+                    result = Value.Error(this);
+                    return false;
 
-            // SJType.Key is just promoted SJType.String
-            if (result.type == SJType.Key)
-            {
-                S.lastEntryKey = result;
+                case SJType.Type:
+                    S.lastEntryType = result;
+                    goto default;
+                case SJType.Key:
+                    S.lastEntryKey = result;
+                    goto default;
+                default:
+                    S.Peek().valueCount++;
+                    return true;
             }
-            return true;
         }
         /// <summary>
         /// Iterate <see cref="SJType.Object"/> typed <paramref name="object"/> value.
