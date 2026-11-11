@@ -11,7 +11,6 @@ namespace BX.SJ.Collections
     /// Rely on the BXUtility version instead.</br>
     /// <br>* This collection only grows until a given set limit <see cref="maxSize"/>.
     /// If the size limit does not exist, it grows infinitely.</br>
-    /// <br>* </br>
     /// </summary>
     /// <example>
     /// <![CDATA[
@@ -216,7 +215,10 @@ namespace BX.SJ.Collections
         }
         public readonly void CopyTo(Array array, int index)
         {
-            _stack.CopyTo(array, index);
+            if (array == null) throw new ArgumentNullException(nameof(array));
+            if (index < 0 || index > array.Length) throw new ArgumentOutOfRangeException(nameof(index), index, "Index out of range");
+            if (index + Count > array.Length) throw new ArgumentException("Array is too small to copy to index", nameof(array));
+            for (int i = 0; i < Count; i++) array.SetValue(this[i], index + i);
         }
         public override readonly int GetHashCode()
         {
