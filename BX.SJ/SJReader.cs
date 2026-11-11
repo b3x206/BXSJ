@@ -641,79 +641,76 @@ namespace BX.SJ
         /// <summary>
         /// Read a range of type, starting from <see cref="State.current"/> for the reader data.
         /// </summary>
-        /// <param name="move">Amount to move the current pointer by.</param>
+        /// <param name="i">Target position of the pointer.</param>
         /// <returns>Start and ending range. If the block doesn't start with '(', -1 is returned for start and end.</returns>
-        protected (int start, int end) GetTypeRange(out int move, out SJTypeVariant variant)
+        protected (int start, int end) GetTypeRange(out int i, out SJTypeVariant variant)
         {
-            // Pilot's license? What for?
-            ref var s = ref S;
-            int start = s.current, end = s.current;
-            move = 0;
+            int start; int end;
+            i = S.current;
             variant = SJTypeVariant.None;
 
-            if (end < 0 || end >= Length) return (-1, -1);
+            if (i >= Length || At(i) != '(') return (-1, -1);
+            i++;
 
-            char ch = At(start++);
-            if (ch != '(') return (-1, -1); // Not error, but not type literal.
+            // Skip whitespace
+            while (i < Length && char.IsWhiteSpace(At(i))) i++;
 
-            bool capturedType = false;
-            for (int current = start; current < Length; current++)
+            // Check for string literal starting with '"'
+            if (i < Length && At(i) == '"')
             {
-                ch = At(current);
-                if (!capturedType && ch == '"')
-                {
-                    variant = SJTypeVariant.TypeString;
-                    start = ++current; // Skip '"'
-                    capturedType = true;
+                i++; // skip opening quote
+                start = i;
+                bool escaped = false;
+                variant = SJTypeVariant.TypeString;
 
-                    for (; current < Length; current++)
-                    {
-                        ch = At(current);
-                        if (ch == '"' && end > 0 && (At(end - 1) != '\\'))
-                        {
-                            // current is '"', which should be skipped.
-                            end = current - 1;
-                            break;
-                        }
-                    }
-                }
-                else if (!capturedType && IsTypeLiteralContinuation(ch))
+                while (i < Length)
                 {
-                    variant = SJTypeVariant.TypeLiteral;
-                    start = current;
-                    capturedType = true;
+                    if (escaped)            escaped = false;
+                    else if (At(i) == '\\') escaped = true;
+                    else if (At(i) == '"')  break; 
+                    i++;
+                }
 
-                    for (; current < Length; current++)
-                    {
-                        ch = At(current);
-                        if (!IsTypeLiteralContinuation(ch))
-                        {
-                            // current is anything, which should be yielded.
-                            end = --current;
-                            break;
-                        }
-                    }
-                }
-                else if (char.IsWhiteSpace(ch)) continue;
-                else if (ch == ')')
+                if (i >= Length || At(i) != '"')
                 {
-                    move = (current - s.current) + 1;
-                    if (start == end && variant != SJTypeVariant.TypeString)
-                    {
-                        Error = "Empty type literal, to define as empty use (\"\") or omit the type literal.";
-                        return (-1, -1);
-                    }
-                    return (start, end);
-                }
-                else
-                {
-                    Error = $"Unexpected character in type literal '{Tk(ch)}'";
+                    Error = "Unclosed type literal string";
                     return (-1, -1);
                 }
+
+                end = i;
+                i++; // skip closing quote
+            }
+            else
+            {
+                start = i;
+                variant = SJTypeVariant.TypeLiteral;
+
+                while (i < Length)
+                {
+                    if (!IsTypeLiteralContinuation(At(i))) break;
+                    i++;
+                }
+
+                if (i == start)
+                {
+                    Error = "Empty type literal";
+                    return (-1, -1);
+                }
+                end = i;
             }
 
-            Error = "Unclosed type declaration, expected closing ')' or closing '\"' if string literal.";
-            return (-1, -1);
+            // Skip whitespace
+            while (i < Length && char.IsWhiteSpace(At(i))) i++;
+
+            // Must end with ')'
+            if (i >= Length || At(i) != ')')
+            {
+                Error = "Unclosed type literal";
+                return (-1, -1);
+            }
+            i++; // skip ')'
+
+            return (start, end);
         }
         /// <summary>
         /// Check remaining tokens after the document is finished. (depth == 0)
@@ -923,11 +920,10 @@ namespace BX.SJ
                 }
 
                 result.type = SJType.Type;
-                (result.start, result.end) = GetTypeRange(out int move, out result.variant);
+                (result.start, result.end) = GetTypeRange(out s.current, out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
                     s.notExpectingType = true;
-                    s.current += move;
                     s.lastEntryType = result;
                     return result;
                 }
