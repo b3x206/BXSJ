@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace BX.SJ.Collections
 {
@@ -92,13 +93,8 @@ namespace BX.SJ.Collections
             public static Handle Stub() => new Handle(null, -1, -1);
             public static Handle At(ValueStack<T> v, int index)
             {
+                if (index < 0 || index >= v.Count) return Stub();
                 var array = v._stack;
-                if (index < 0 || index >= array?.Length) return Stub();
-                return new Handle(array, index, array[index].version);
-            }
-            public static Handle At((T value, int version)[] array, int index)
-            {
-                if (index < 0 || index >= array?.Length) return Stub();
                 return new Handle(array, index, array[index].version);
             }
             internal static Handle AtUnchecked((T, int)[] array, int index, int version)
@@ -108,7 +104,7 @@ namespace BX.SJ.Collections
         }
 
         private (T value, int version)[] _stack;
-        private int _count;
+        private int _count, _maxReachedCount;
         public int maxSize;
         public readonly int Capacity => _stack.Length;
         public readonly int Count => _count;
@@ -136,7 +132,7 @@ namespace BX.SJ.Collections
         public ValueStack(int capacity = DefaultStackSize, int maxSize = DefaultMaxSize)
         {
             _stack = new (T, int)[maxSize > 0 && maxSize < capacity ? maxSize : capacity];
-            _count = 0;
+            _count = _maxReachedCount = 0;
             this.maxSize = maxSize;
         }
 
@@ -157,14 +153,18 @@ namespace BX.SJ.Collections
             }
 
             int pos = _count++;
-            _stack[pos].value = value;
-            return Handle.At(this, pos);
+            ref var vv = ref _stack[pos];
+            vv.value = value;
+            unchecked { vv.version++; }
+
+            _maxReachedCount = Math.Max(_maxReachedCount, _count);
+            return Handle.AtUnchecked(_stack, pos, vv.version);
         }
         /// <summary>
         /// Pushes a value of type <typeparamref name="T"/> and returns the resulting auto defaulted value.
         /// </summary>
-        /// <param name="clear">Clears the previously existing value and sets it <see langword="default"/>.</param>
-        public Handle Push(bool clear = true)
+        /// <param name="reset">Clears the previously existing value and sets it <see langword="default"/>.</param>
+        public Handle Push(bool reset = true)
         {
             if (maxSize > 0 && _count >= maxSize)
             {
@@ -179,10 +179,12 @@ namespace BX.SJ.Collections
             }
 
             int pos = _count++;
-            ref (T val, int ver) v = ref _stack[pos];
-            if (clear) v.val = default;
-            unchecked { v.ver++; }
-            return Handle.AtUnchecked(_stack, pos, v.ver);
+            ref var vv = ref _stack[pos];
+            if (reset) vv.value = default;
+            unchecked { vv.version++; }
+
+            _maxReachedCount = Math.Max(_maxReachedCount, _count);
+            return Handle.AtUnchecked(_stack, pos, vv.version);
         }
         /// <summary>
         /// Pops a value of type <typeparamref name="T"/>.
@@ -202,7 +204,27 @@ namespace BX.SJ.Collections
         public readonly Handle Peek()
         {
             if (_count <= 0) return Handle.Stub();
-            return Handle.At(this, _count - 1);
+            int p = _count - 1;
+            return Handle.AtUnchecked(_stack, p, _stack[p].version);
+        }
+        /// <summary>
+        /// Clears the contents.
+        /// </summary>
+        /// <param name="resetValues">Whether to reset the values to <see langword="default"/> of <typeparamref name="T"/>.</param>
+        public void Clear(bool resetValues = true)
+        {
+            if (resetValues)
+            {
+                int count = Math.Min(_stack.Length, _maxReachedCount);
+                for (int i = 0; i < count; i++)
+                {
+                    ref var vv = ref _stack[i];
+                    vv.value = default;
+                    unchecked { vv.version++; }
+                }
+            }
+
+            _maxReachedCount = _count = 0;
         }
 
         public readonly IEnumerator<T> GetEnumerator()
@@ -222,7 +244,7 @@ namespace BX.SJ.Collections
         }
         public override readonly int GetHashCode()
         {
-            return HashCode.Combine(_stack, _count);
+            return HashCode.Combine(_stack, _count, maxSize);
         }
     }
 }

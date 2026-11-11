@@ -656,84 +656,53 @@ namespace BX.SJ
             char ch = At(start++);
             if (ch != '(') return (-1, -1); // Not error, but not type literal.
 
-            int current = end;
             bool capturedType = false;
-            while (true)
+            for (int current = start; current < Length; current++)
             {
-                if (++current >= Length)
-                {
-                    Error = "Unclosed type container, expected ')'";
-                    return (-1, -1);
-                }
-                move++; // Current skips '('
-
-                // TODO : Off by one. Who could have guessed?
                 ch = At(current);
-                if (!capturedType)
+                if (!capturedType && ch == '"')
                 {
-                    if (ch == '"')
+                    variant = SJTypeVariant.TypeString;
+                    start = ++current; // Skip '"'
+                    capturedType = true;
+
+                    for (; current < Length; current++)
                     {
-                        variant = SJTypeVariant.TypeString;
-                        start = current + 1; // Skip '"'
-                        capturedType = true;
-
-                        while (true)
+                        ch = At(current);
+                        if (ch == '"' && end > 0 && (At(end - 1) != '\\'))
                         {
-                            // Start (current) is '"', which should be skipped
-                            if (++current >= Length)
-                            {
-                                Error = "Unclosed type declaration string";
-                                return (-1, -1);
-                            }
-
-                            ch = At(current);
-                            if (ch == '"' && end > 0 && (At(end - 1) != '\\'))
-                            {
-                                // current is '"', which should be skipped
-                                end = current - 1;
-                                break;
-                            }
-                        }
-                    }
-                    else if (IsTypeLiteralContinuation(ch))
-                    {
-                        variant = SJTypeVariant.TypeLiteral;
-                        start = current;
-                        capturedType = true;
-
-                        while (true)
-                        {
-                            if (current >= Length)
-                            {
-                                Error = "Unclosed type declaration";
-                                return (-1, -1);
-                            }
-
-                            ch = At(current);
-                            if (!IsTypeLiteralContinuation(ch))
-                            {
-                                // current is anything, which shouldn't be skipped
-                                end = current - 1;
-                                break;
-                            }
-                            current++;
+                            // current is '"', which should be skipped.
+                            end = current - 1;
+                            break;
                         }
                     }
                 }
-                else if (char.IsWhiteSpace(ch))
+                else if (!capturedType && IsTypeLiteralContinuation(ch))
                 {
-                    continue;
+                    variant = SJTypeVariant.TypeLiteral;
+                    start = current;
+                    capturedType = true;
+
+                    for (; current < Length; current++)
+                    {
+                        ch = At(current);
+                        if (!IsTypeLiteralContinuation(ch))
+                        {
+                            // current is anything, which should be yielded.
+                            end = --current;
+                            break;
+                        }
+                    }
                 }
+                else if (char.IsWhiteSpace(ch)) continue;
                 else if (ch == ')')
                 {
-                    // Something like (\s*), which is interpreted as empty.
-                    // let's not allow "empty literals", but require string to exist
-                    if (start == end)
+                    move = (current - s.current) + 1;
+                    if (start == end && variant != SJTypeVariant.TypeString)
                     {
                         Error = "Empty type literal, to define as empty use (\"\") or omit the type literal.";
                         return (-1, -1);
                     }
-
                     return (start, end);
                 }
                 else
@@ -742,6 +711,9 @@ namespace BX.SJ
                     return (-1, -1);
                 }
             }
+
+            Error = "Unclosed type declaration, expected closing ')' or closing '\"' if string literal.";
+            return (-1, -1);
         }
         /// <summary>
         /// Check remaining tokens after the document is finished. (depth == 0)
@@ -951,7 +923,7 @@ namespace BX.SJ
                 }
 
                 result.type = SJType.Type;
-                (result.start, result.end) = GetTypeRange(out int move,out result.variant);
+                (result.start, result.end) = GetTypeRange(out int move, out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
                     s.notExpectingType = true;

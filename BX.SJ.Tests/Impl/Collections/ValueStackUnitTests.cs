@@ -6,39 +6,42 @@ namespace BX.SJ.Tests.Impl.Collections;
 [TestClass]
 public sealed class ValueStackUnitTests
 {
+    static void HandleValueEquals(ValueStack<int>.Handle handle, int expected)
+    {
+        Assert.IsTrue(handle.IsValid);
+        Assert.IsFalse(handle.IsStub);
+        Assert.AreEqual(expected, handle.Value);
+    }
+    static void StubResultAfter(Func<ValueStack<int>.Handle> act)
+    {
+        var h = act();
+        Assert.IsFalse(h.IsValid);
+        Assert.IsTrue(h.IsStub);
+        Assert.AreEqual(default, h.Value);
+    }
+
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void Stack()
     {
+        const int Value = 1;
+
         var ints = ValueStack<int>.Create();
 
-        const int Value = 1;
         ints.Push(Value);
         Assert.AreEqual(1, ints.Count);
-        ValueStack<int>.Handle handle = ints.Peek();
-        Assert.IsTrue(handle.IsValid);
-        Assert.IsFalse(handle.IsStub);
-        Assert.AreEqual(Value, handle.Value);
+        HandleValueEquals(ints.Peek(), Value);
 
         ints.Push();
         Assert.AreEqual(2, ints.Count);
-        ValueStack<int>.Handle handle2 = ints.Peek();
-        Assert.IsTrue(handle2.IsValid);
-        Assert.IsFalse(handle2.IsStub);
-        Assert.AreEqual(default, handle2.Value);
+        HandleValueEquals(ints.Peek(), default);
 
         // Order is reversed
-        ValueStack<int>.Handle handle3 = ints.Pop();
+        HandleValueEquals(ints.Pop(), default);
         Assert.AreEqual(1, ints.Count);
-        Assert.IsTrue(handle3.IsValid);
-        Assert.IsFalse(handle3.IsStub);
-        Assert.AreEqual(default, handle3.Value);
 
-        ValueStack<int>.Handle handle4 = ints.Pop();
+        HandleValueEquals(ints.Pop(), Value);
         Assert.AreEqual(0, ints.Count);
-        Assert.IsTrue(handle4.IsValid);
-        Assert.IsFalse(handle4.IsStub);
-        Assert.AreEqual(Value, handle4.Value);
     }
 
     [TestMethod]
@@ -62,27 +65,58 @@ public sealed class ValueStackUnitTests
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
+    public void HandleDefaultConfig()
+    {
+        ValueStack<int> ints = default;
+
+        HandleValueEquals(ints.Push(0), 0);
+        HandleValueEquals(ints.Push(1), 1);
+        HandleValueEquals(ints.Push(2), 2);
+        HandleValueEquals(ints.Push(3), 3);
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(16)]
+    public void StackClear(int count)
+    {
+        static void LastValueEquals(ValueStack<int> vs, int count, int equals)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                vs.Push(reset: false);
+            }
+            Assert.AreEqual(equals, vs.Peek().Value);
+        }
+
+        var vs = ValueStack<int>.Create();
+        for (int i = 0; i < count; i++) vs.Push(i);
+        vs.Clear(resetValues: true);
+        LastValueEquals(vs, count, default);
+
+        // This could assume that Clear works properly, so recreate the vs instead of calling Clear.
+        vs = ValueStack<int>.Create();
+        for (int i = 0; i < count; i++) vs.Push(i);
+        vs.Clear(resetValues: false);
+        LastValueEquals(vs, count, count - 1);
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
     public void OutOfBoundsPopPushPeek()
     {
         const int Value = 1;
         var ints = new ValueStack<int>(maxSize: 1);
         Assert.AreEqual(1, ints.Capacity);
 
-        static void TestStubResult(Func<ValueStack<int>.Handle> act)
-        {
-            var h = act();
-            Assert.IsFalse(h.IsValid);
-            Assert.IsTrue(h.IsStub);
-        }
-
         ints.Push(Value);
-        TestStubResult(() => ints.Push());
+        StubResultAfter(() => ints.Push());
 
         ints.Pop();
-        TestStubResult(() => ints.Pop());
+        StubResultAfter(() => ints.Pop());
 
         // Peek into empty must return stub
-        TestStubResult(() => ints.Peek());
+        StubResultAfter(() => ints.Peek());
 
         // OOB reads must fail
         ints.Push(Value);
@@ -95,7 +129,7 @@ public sealed class ValueStackUnitTests
     [Timeout(TestTimeouts.Short)]
     [DataRow(0)]
     [DataRow(ValueStack<int>.DefaultStackSize * 2)]
-    public void PushGrow(int maxSize)
+    public void PushGrows(int maxSize)
     {
         var ints = new ValueStack<int>(capacity: ValueStack<int>.DefaultStackSize, maxSize: maxSize);
         
@@ -115,11 +149,14 @@ public sealed class ValueStackUnitTests
             default:
                 for (int i = 0; i <= maxSize; i++)
                 {
-                    var h = ints.Push();
                     if (i >= maxSize)
                     {
-                        Assert.IsFalse(h.IsValid);
-                        Assert.IsTrue(h.IsStub);
+                        StubResultAfter(() => ints.Push());
+                        StubResultAfter(() => ints.Push(1));
+                    }
+                    else
+                    {
+                        ints.Push();
                     }
                 }
                 break;
@@ -130,7 +167,7 @@ public sealed class ValueStackUnitTests
     [Timeout(TestTimeouts.Short)]
     [DataRow(1)]
     [DataRow(16)]
-    public void IEnumerableCorrect(int expectedCount)
+    public void StackIEnumerable(int expectedCount)
     {
         var ints = ValueStack<int>.Create();
         for (int i = 0; i < expectedCount; i++) ints.Push();
@@ -175,7 +212,7 @@ public sealed class ValueStackUnitTests
         }
 
         ints.Pop();
-        ints.Push(clear: false);
+        ints.Push(reset: false);
         Assert.AreEqual(Value, ints.Peek().Value);
     }
 
@@ -205,5 +242,19 @@ public sealed class ValueStackUnitTests
         Assert.ContainsAll(Enumerable.Repeat(Value, count), a.AsSpan(1).ToArray());
     }
 
-    // GetHashCode does not need coverage, HashSet<T> has different cases to handle.
+    [TestMethod]
+    public void StackHashCode()
+    {
+        var s1 = new ValueStack<int>();
+        s1.Push();
+
+        var s2 = new ValueStack<int>();
+        s2.Push(1);
+
+        var s3 = ValueStack<int>.Create();
+        
+        ValueStack<int> s4 = default;
+
+        Assert.AreAllDistinct([s1.GetHashCode(), s2.GetHashCode(), s3.GetHashCode(), s4.GetHashCode()]);
+    }
 }
