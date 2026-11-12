@@ -30,18 +30,22 @@ public sealed class ValueStackUnitTests
 
         ints.Push(Value);
         Assert.AreEqual(1, ints.Count);
+        Assert.IsTrue(ints.HasAny);
         HandleValueEquals(ints.Peek(), Value);
 
         ints.Push();
         Assert.AreEqual(2, ints.Count);
+        Assert.IsTrue(ints.HasAny);
         HandleValueEquals(ints.Peek(), default);
 
         // Order is reversed
         HandleValueEquals(ints.Pop(), default);
         Assert.AreEqual(1, ints.Count);
+        Assert.IsTrue(ints.HasAny);
 
         HandleValueEquals(ints.Pop(), Value);
         Assert.AreEqual(0, ints.Count);
+        Assert.IsFalse(ints.HasAny);
     }
 
     [TestMethod]

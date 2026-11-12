@@ -107,8 +107,13 @@ namespace BX.SJ.Collections
         private (T value, int version)[] _stack;
         private int _count, _maxReachedCount, _version;
         public int maxSize;
-        public readonly int Capacity => _stack.Length;
-        public readonly int Count => _count;
+        public readonly int Capacity => _stack?.Length ?? 0;
+        public int Count
+        {
+            readonly get => _count;
+            set => _count = Math.Clamp(value, 0, Capacity);
+        }
+        public readonly bool HasAny => Count > 0;
 
         readonly bool ICollection.IsSynchronized => _stack.IsSynchronized;
         readonly object ICollection.SyncRoot => _stack.SyncRoot;
@@ -140,9 +145,9 @@ namespace BX.SJ.Collections
             {
                 return (-1, -1);
             }
-            if (_count >= (_stack?.Length ?? 0))
+            if (_count >= Capacity)
             {
-                int size = Math.Max((_stack?.Length ?? 0) * 2, DefaultStackSize);
+                int size = Math.Max(Capacity * 2, DefaultStackSize);
                 if (maxSize > 0) size = Math.Min(maxSize, size);
                 Array.Resize(ref _stack, size);
             }
@@ -155,6 +160,37 @@ namespace BX.SJ.Collections
 
             _maxReachedCount = Math.Max(_maxReachedCount, _count);
             return (pos, vv.version);
+        }
+        /// <summary>
+        /// Pushes a value of type <typeparamref name="T"/> and pre assigns the reference to <paramref name="value"/>.
+        /// </summary>
+        public ref T PushValue(T value)
+        {
+            (int i, int _) = PushInternal(value);
+
+            if (i < 0)
+            {
+                _stub = default;
+                return ref _stub;
+            }
+            return ref _stack[i].value;
+        }
+        /// <summary>
+        /// Pushes a value of type <typeparamref name="T"/> and returns the resulting auto defaulted value.
+        /// </summary>
+        /// <param name="reset">Clears the previously existing value and sets it <see langword="default"/>.</param>
+        public ref T PushValue(bool reset = true)
+        {
+            T? pushValue = null;
+            if (reset) pushValue = default(T);
+            (int i, int v) = PushInternal(pushValue);
+
+            if (i < 0)
+            {
+                _stub = default;
+                return ref _stub;
+            }
+            return ref _stack[i].value;
         }
         /// <summary>
         /// Pushes a value of type <typeparamref name="T"/> and pre assigns the reference to <paramref name="value"/>.
@@ -179,28 +215,65 @@ namespace BX.SJ.Collections
             if (i < 0) return Handle.Stub();
             return Handle.AtUnchecked(_stack, i, v);
         }
-        /// <summary>
-        /// Pops a value of type <typeparamref name="T"/>.
-        /// Returned handle is "out of bounds" and can be overwritten - treat it as perishable.
-        /// </summary>
-        public Handle Pop()
+        private (int index, int version) PopInternal()
         {
-            if (_count <= 0) return Handle.Stub();
+            if (!HasAny) return (-1, -1);
 
             int pos = --_count;
             unchecked { _version++; }
 
             ref (T val, int ver) v = ref _stack[pos];
             unchecked { v.ver++; }
-            return Handle.AtUnchecked(_stack, pos, v.ver);
+            return (pos, v.ver);
+        }
+        /// <summary>
+        /// Returns the last popped value or stub, depending on having any value.
+        /// </summary>
+        public ref T PopValue()
+        {
+            (int i, int _) = PopInternal();
+            if (i < 0)
+            {
+                _stub = default;
+                return ref _stub;
+            }
+            return ref _stack[i].value;
+        }
+        /// <summary>
+        /// Pops a value of type <typeparamref name="T"/>.
+        /// Returned handle is "out of bounds" and can be overwritten - treat it as perishable.
+        /// </summary>
+        public Handle Pop()
+        {
+            (int i, int v) = PopInternal();
+            if (i < 0) return Handle.Stub();
+            return Handle.AtUnchecked(_stack, i, v);
+        }
+        private readonly int PeekInternal()
+        {
+            if (!HasAny) return -1;
+            return _count - 1;
+        }
+        /// <summary>
+        /// Returns the last pushed value.
+        /// </summary>
+        public readonly ref T PeekValue()
+        {
+            int p = PeekInternal();
+            if (p < 0)
+            {
+                _stub = default;
+                return ref _stub;
+            }
+            return ref _stack[p].value;
         }
         /// <summary>
         /// Returns a handle to the last pushed value.
         /// </summary>
         public readonly Handle Peek()
         {
-            if (_count <= 0) return Handle.Stub();
-            int p = _count - 1;
+            int p = PeekInternal();
+            if (p < 0) return Handle.Stub();
             return Handle.AtUnchecked(_stack, p, _stack[p].version);
         }
         /// <summary>

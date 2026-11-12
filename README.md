@@ -390,7 +390,7 @@ From 1.x, everything else is more or less the same, except the inner workings of
 ### - 3.0.0
 **▶ SJReader**
 * [X] Move all state to `ref State S`.
-  * [X] Stacked reader state is moved to `BX.SJ.SJReader+State+Stacked`.
+  * [X] Stacked reader state is moved to `BX.SJ.SJReader+State+Stacked` and is managed through `BX.SJ.Collections.ValueStack<T>`.
   * [X] `PushState`/`PopState` to save / load opaque `SJWriter` state.
   * [ ] Tests
 * [X] Allow `SJType.Key` values outside of `SJType.String`, that aren't recursive. The slices are provided as is, but requires some minor code changes. <br>
@@ -412,7 +412,7 @@ From 1.x, everything else is more or less the same, except the inner workings of
 **▶ SJWriter**
 * [X] Move all state to `ref State S`.
   * [X] Rename `finish` to `ended` for consistency with `SJReader`.
-  * [X] Stacked state is moved to `BX.SJ.SJWriter+State+Stacked`.
+  * [X] Stacked state is moved to `BX.SJ.SJWriter+State+Stacked` and is managed through `BX.SJ.Collections.ValueStack<T>`.
   * [X] `PushState`/`PopState` to save / load opaque `SJWriter` state.
   * [ ] Tests
 * [X] Better checks for non-standard JSON outputs (`WrittenCustomKey`, `WrittenCustomValue`, etc.)
@@ -429,6 +429,7 @@ From 1.x, everything else is more or less the same, except the inner workings of
 
 **▶ New**
 * [ ] Reached a higher percentage of test coverage (for `bx.sj.dll`)
+* `ValueStack<T>` to stack states on reader and writer.
 * `SJStreamReader` to read from a `System.IO.Stream` with encoding.
 * `SJStreamWriter` to write into a `System.IO.Stream` with encoding.
 * `SJLinearWriter` to write into a contiguous region of `char[]` <br>
