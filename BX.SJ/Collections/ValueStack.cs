@@ -54,14 +54,16 @@ namespace BX.SJ.Collections
             private readonly int version;
             /// <summary>
             /// Returns <see langword="true"/> if the handle to the stack is valid.
+            /// <br>Returns <see langword="false"/> for <see cref="IsStub"/>, but non-valid and non-stub values do exist as well.</br>
             /// </summary>
-            public readonly bool IsValid => index >= 0 && index < _ownerStack?.Length && _ownerStack[index].version == version;
+            public readonly bool IsValid => !IsStub && index < _ownerStack.Length && _ownerStack[index].version == version;
             /// <summary>
             /// Returns <see langword="true"/> for strictly stub values, not for invalid values.
             /// </summary>
             public readonly bool IsStub => index < 0 || _ownerStack == null;
 
             // A roslyn analyzer emitting a warning if the result of this is stored would be great here.
+            // Too bad it's out of scope for this project regardless.
             public ref T Value
             {
                 get
@@ -103,17 +105,73 @@ namespace BX.SJ.Collections
                 return new Handle(array, index, version);
             }
         }
-
+            
         private (T value, int version)[] _stack;
-        private int _count, _maxReachedCount, _version;
+        private int _count, _maxReachedCount;
         public int maxSize;
-        public readonly int Capacity => _stack?.Length ?? 0;
+        /// <summary>
+        /// Capacity of the stack. Can be shrunk only when not <see cref="HasAny"/> and can be grown.
+        /// </summary>
+        public int Capacity
+        {
+            readonly get => _stack?.Length ?? 0;
+            set
+            {
+                if (Capacity > value && HasAny)
+                {
+                    throw new InvalidOperationException("Cannot shrink stack that likely has borrowed values. Clear the list first and ensure no code uses a `ref` field to the stack.");
+                }
+
+                // Invalidate previous stack instance, because the one in the handle isn't a reference to this struct.
+                for (int i = 0; i < Capacity; i++) _stack[i].version++;
+                // Then resize
+                Array.Resize(ref _stack, Math.Clamp(value, 0, maxSize));
+            }
+        }
+        /// <summary>
+        /// Count pushed into the stack. Clamped between <see cref="Capacity"/>, to resize change capacity (stack can only grow).
+        /// <br>Can be directly set, however <b>does not release any existing <see cref="Handle"/>s</b> and keeps them valid.</br>
+        /// <br>Use <see cref="SetCount"/> with <c>invalidate</c> as <see langword="true"/> to invalidate existing handles. (iterates the array in the direction)</br>
+        /// </summary>
         public int Count
         {
             readonly get => _count;
             set => _count = Math.Clamp(value, 0, Capacity);
         }
         public readonly bool HasAny => Count > 0;
+        /// <summary>
+        /// Sets count pushed into the stack.
+        /// </summary>
+        /// <param name="count">Count value to set. Clamped between 0 and <see cref="Capacity"/>.</param>
+        /// <param name="invalidate">Invalidate handles existing outside (if growing) or inside (if shrinking).</param>
+        /// <param name="reset">Clear the value contained outside (if growing) or inside (if shrinking) as <see langword="default"/>.</param>
+        public void SetCount(int count, bool invalidate, bool reset)
+        {
+            count = Math.Clamp(count, 0, Capacity);
+
+            if (_count != count)
+            {
+                if (invalidate || reset)
+                {
+                    while (_count < count)
+                    {
+                        if (invalidate) { unchecked { _stack[_count].version++; } }
+                        if (reset) { _stack[_count].value = default; }
+                        _count++;
+                    }
+                    while (_count > count)
+                    {
+                        _count--;
+                        if (invalidate) { unchecked { _stack[_count].version++; } }
+                        if (reset) { _stack[_count].value = default; }
+                    }
+                }
+                else
+                {
+                    _count = count;
+                }
+            }
+        }
 
         readonly bool ICollection.IsSynchronized => _stack.IsSynchronized;
         readonly object ICollection.SyncRoot => _stack.SyncRoot;
@@ -132,10 +190,13 @@ namespace BX.SJ.Collections
         }
 
         public static ValueStack<T> Create() => new ValueStack<T>(DefaultStackSize, DefaultMaxSize);
+        public static ValueStack<T> CreateWithCapacity(int capacity) => new ValueStack<T>(capacity, DefaultMaxSize);
+        public static ValueStack<T> CreateWithMaxSize(int maxSize) => new ValueStack<T>(DefaultStackSize, maxSize);
+        public static ValueStack<T> Create(int capacity, int maxSize) => new ValueStack<T>(capacity, maxSize);
         public ValueStack(int capacity = DefaultStackSize, int maxSize = DefaultMaxSize)
         {
             _stack = new (T, int)[maxSize > 0 && maxSize < capacity ? maxSize : capacity];
-            _count = _maxReachedCount = _version = 0;
+            _count = _maxReachedCount = 0;
             this.maxSize = maxSize;
         }
 
@@ -152,7 +213,6 @@ namespace BX.SJ.Collections
                 Array.Resize(ref _stack, size);
             }
             int pos = _count++;
-            unchecked { _version++; }
 
             ref var vv = ref _stack[pos];
             if (value.HasValue) vv.value = value.Value;
@@ -220,7 +280,6 @@ namespace BX.SJ.Collections
             if (!HasAny) return (-1, -1);
 
             int pos = --_count;
-            unchecked { _version++; }
 
             ref (T val, int ver) v = ref _stack[pos];
             unchecked { v.ver++; }
@@ -293,16 +352,14 @@ namespace BX.SJ.Collections
                 }
             }
 
-            unchecked { _version++; }
             _maxReachedCount = _count = 0;
         }
 
         public readonly IEnumerator<T> GetEnumerator()
         {
-            int startVer = _version;
+            // Treat GetEnumerator as a snapshot (no version, count is constant, only _stack_ has bound checks.)
             for (int i = 0; i < _count; i++)
             {
-                if (startVer != _version) throw new InvalidOperationException("Collection was modified; enumeration operation may not execute.");
                 yield return _stack[i].value;
             }
         }

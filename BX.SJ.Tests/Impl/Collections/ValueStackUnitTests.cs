@@ -6,15 +6,18 @@ namespace BX.SJ.Tests.Impl.Collections;
 [TestClass]
 public sealed class ValueStackUnitTests
 {
-    static void HandleValueEquals(ValueStack<int>.Handle handle, int expected)
+    static void IsValidHandle(ValueStack<int>.Handle handle)
     {
         Assert.IsTrue(handle.IsValid);
         Assert.IsFalse(handle.IsStub);
+    }
+    static void HandleValueEquals(ValueStack<int>.Handle handle, int expected)
+    {
+        IsValidHandle(handle);
         Assert.AreEqual(expected, handle.Value);
     }
-    static void StubResultAfter(Func<ValueStack<int>.Handle> act)
+    static void IsStubHandle(ValueStack<int>.Handle h)
     {
-        var h = act();
         Assert.IsFalse(h.IsValid);
         Assert.IsTrue(h.IsStub);
         Assert.AreEqual(default, h.Value);
@@ -25,9 +28,10 @@ public sealed class ValueStackUnitTests
     public void Stack()
     {
         const int Value = 1;
-
         var ints = ValueStack<int>.Create();
 
+        // ----
+        // Handles
         ints.Push(Value);
         Assert.AreEqual(1, ints.Count);
         Assert.IsTrue(ints.HasAny);
@@ -44,6 +48,27 @@ public sealed class ValueStackUnitTests
         Assert.IsTrue(ints.HasAny);
 
         HandleValueEquals(ints.Pop(), Value);
+        Assert.AreEqual(0, ints.Count);
+        Assert.IsFalse(ints.HasAny);
+
+        // ----
+        // Raw ints
+        ints.PushValue(Value);
+        Assert.AreEqual(1, ints.Count);
+        Assert.IsTrue(ints.HasAny);
+        Assert.AreEqual(Value, ints.PeekValue());
+
+        ints.PushValue();
+        Assert.AreEqual(2, ints.Count);
+        Assert.IsTrue(ints.HasAny);
+        Assert.AreEqual(default, ints.PeekValue());
+
+        // Order is reversed
+        Assert.AreEqual(default, ints.PopValue());
+        Assert.AreEqual(1, ints.Count);
+        Assert.IsTrue(ints.HasAny);
+
+        Assert.AreEqual(Value, ints.PopValue());
         Assert.AreEqual(0, ints.Count);
         Assert.IsFalse(ints.HasAny);
     }
@@ -69,7 +94,27 @@ public sealed class ValueStackUnitTests
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void HandleDefaultConfig()
+    public void HandleCheckedAt()
+    {
+        const int Value = 1;
+        var ints = ValueStack<int>.CreateWithCapacity(1);
+
+        IsStubHandle(ValueStack<int>.Handle.At(ints, 0));
+        IsStubHandle(ValueStack<int>.Handle.Stub());
+        IsValidHandle(ints.Push(Value));
+        IsValidHandle(ValueStack<int>.Handle.At(ints, 0));
+
+        // Rare case where ints has been resized
+        var h = ints.Pop();
+        ints.Capacity = 0;
+        Assert.IsFalse(h.IsValid);
+        Assert.IsFalse(h.IsStub);
+        Assert.AreEqual(default, h.Value);
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void StackDefaultConfig()
     {
         ValueStack<int> ints = default;
 
@@ -77,6 +122,137 @@ public sealed class ValueStackUnitTests
         HandleValueEquals(ints.Push(1), 1);
         HandleValueEquals(ints.Push(2), 2);
         HandleValueEquals(ints.Push(3), 3);
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void StackSetCount()
+    {
+        ValueStack<int> ints = ValueStack<int>.CreateWithCapacity(8); // Capacity must be >= 2
+        const int Value = 1;
+
+        _ = ints.Push();
+
+        // ----
+        // Shrink
+        var h2 = ints.Push();
+        ref int h2Value = ref h2.Value;
+        h2Value = Value;
+
+        // Directly
+        ints.Count = 1;
+        IsValidHandle(h2);
+        ints.Count = 2;
+
+        ints.SetCount(1, invalidate: false, reset: false);
+        IsValidHandle(h2);
+        ints.SetCount(2, invalidate: false, reset: false);
+
+        // Invalidate version
+        ints.SetCount(1, invalidate: true, reset: false);
+        Assert.IsFalse(h2.IsValid);
+        Assert.AreEqual(Value, h2Value);
+        ints.Count = 2;
+
+        // Clear value
+        h2 = ints.Push(reset: false);
+        ints.SetCount(1, invalidate: false, reset: true);
+        IsValidHandle(h2);
+        Assert.AreEqual(default, h2Value);
+        ints.Count = 2;
+
+        // ----
+        // Grow
+        _ = ints.Push();
+        var h3 = ints.Pop();
+        ref int h3Value = ref h3.Value;
+        h3Value = Value;
+
+        // Directly
+        ints.Count = 3;
+        IsValidHandle(h3);
+        ints.Count = 2;
+
+        ints.SetCount(3, invalidate: false, reset: false);
+        IsValidHandle(h3);
+        ints.SetCount(2, invalidate: false, reset: false);
+
+        // Version
+        ints.SetCount(3, invalidate: true, reset: false);
+        Assert.IsFalse(h3.IsValid);
+        Assert.AreEqual(Value, h3Value);
+        ints.Count = 2;
+
+        // Clear
+        ints.SetCount(3, invalidate: false, reset: true);
+        Assert.AreEqual(default, h3Value);
+        ints.Count = 2;
+    }
+
+    // May be useful if I stop being stubborn
+    //[TestMethod]
+    //[Timeout(TestTimeouts.Short)]
+    //public void StackIEnumerableBreaksOnModify()
+    //{
+    //    // All methods modifying the collection (and thus must update version)
+    //    // !! : ValueStack's enumerator has a snapshot of size and what-not. It is best to check the version element-wise or just ignore the GetEnumerator's modifiability.
+    //    // * Set count
+    //    // * Push
+    //    // * Pop
+    //    // * Clear
+    //    // Technically modifying, but not needed to break
+    //    // * Set capacity (T is passed by copy in IEnumerable<out T>)
+
+    //    ValueStack<int> ints = ValueStack<int>.CreateWithCapacity(8);
+    //    ints.Push();
+    //    int startCount = ints.Count;
+
+    //    foreach (var v in ints) ints.Count = ints.Count;               // Setting the same count must not throw
+    //    ints.Count = startCount;
+    //    foreach (var v in ints) ints.SetCount(ints.Count, true, true); // Setting the same count must not throw
+    //    ints.Count = startCount;
+    //    Assert.Throws<InvalidOperationException>(() => { foreach (var v in ints) ints.SetCount(startCount + 1, true, true); });
+    //    ints.Count = startCount;
+    //    Assert.Throws<InvalidOperationException>(() => { foreach (var v in ints) ints.Count = startCount + 1; });
+    //    ints.Count = startCount;
+
+    //    Assert.Throws<InvalidOperationException>(() => { foreach (var v in ints) ints.Push(); });
+    //    ints.Count = startCount;
+    //    Assert.Throws<InvalidOperationException>(() => { foreach (var v in ints) ints.Pop(); });
+    //    ints.Count = startCount;
+    //    Assert.Throws<InvalidOperationException>(() => { foreach (var v in ints) ints.PushValue(); });
+    //    ints.Count = startCount;
+    //    Assert.Throws<InvalidOperationException>(() => { foreach (var v in ints) ints.PopValue(); });
+    //    ints.Count = startCount;
+
+    //    foreach (var v in ints) ints.Peek();        // Peeking is RO
+    //    foreach (var v in ints) ints.PeekValue();   // Peeking is RO
+
+    //    foreach (var v in ints) ints.Capacity *= 2; // Capacity does not throw
+    //}
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void StackCapacity()
+    {
+        const int MaxSize = 16;
+        ValueStack<int> ints = ValueStack<int>.Create(8, MaxSize);
+
+        // Capacity can shrink if no borrowed value exists.
+        ints.Capacity -= 1;
+
+        // Capacity can only grow if a borrowed value exists.
+        // Note : Handle is the only safe way to interact in this case.
+        ints.Push();
+        Assert.Throws<InvalidOperationException>(() => ints.Capacity -= 1);
+        ints.Capacity += 1;
+
+        // Capacity is clamped between 0 and maxSize
+        ints.Count = 0;
+        ints.Capacity = -1;
+        Assert.AreEqual(0, ints.Capacity);
+        ints.Capacity = MaxSize + 1;
+        Assert.AreEqual(MaxSize, ints.Capacity);
     }
 
     [TestMethod]
@@ -110,17 +286,28 @@ public sealed class ValueStackUnitTests
     public void OutOfBoundsPopPushPeek()
     {
         const int Value = 1;
-        var ints = new ValueStack<int>(maxSize: 1);
+        var ints = ValueStack<int>.CreateWithMaxSize(maxSize: 1);
         Assert.AreEqual(1, ints.Capacity);
-
         ints.Push(Value);
-        StubResultAfter(() => ints.Push());
+
+        IsStubHandle(ints.Push(Value));
+        IsStubHandle(ints.Push());
 
         ints.Pop();
-        StubResultAfter(() => ints.Pop());
+        IsStubHandle(ints.Pop());
 
         // Peek into empty must return stub
-        StubResultAfter(() => ints.Peek());
+        IsStubHandle(ints.Peek());
+
+        ints.PushValue(Value);
+        Assert.AreEqual(default, ints.PushValue(Value));
+        Assert.AreEqual(default, ints.PushValue());
+
+        ints.Pop();
+        Assert.AreEqual(default, ints.PopValue());
+
+        // Peek into empty must return stub
+        Assert.AreEqual(default, ints.PeekValue());
 
         // OOB reads must fail
         ints.Push(Value);
@@ -136,7 +323,7 @@ public sealed class ValueStackUnitTests
     public void PushGrows(int maxSize)
     {
         var ints = new ValueStack<int>(capacity: ValueStack<int>.DefaultStackSize, maxSize: maxSize);
-        
+
         switch (maxSize)
         {
             case <= 0:
@@ -155,8 +342,8 @@ public sealed class ValueStackUnitTests
                 {
                     if (i >= maxSize)
                     {
-                        StubResultAfter(() => ints.Push());
-                        StubResultAfter(() => ints.Push(1));
+                        IsStubHandle(ints.Push());
+                        IsStubHandle(ints.Push(1));
                     }
                     else
                     {
@@ -306,7 +493,7 @@ public sealed class ValueStackUnitTests
         s2.Push(1);
 
         var s3 = ValueStack<int>.Create();
-        
+
         ValueStack<int> s4 = default;
 
         Assert.AreAllDistinct([s1.GetHashCode(), s2.GetHashCode(), s3.GetHashCode(), s4.GetHashCode()]);

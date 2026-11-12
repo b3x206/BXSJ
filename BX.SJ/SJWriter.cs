@@ -1,4 +1,5 @@
-﻿using System;
+﻿using BX.SJ.Collections;
+using System;
 using System.Buffers;
 using System.ComponentModel;
 using System.Globalization;
@@ -58,7 +59,6 @@ namespace BX.SJ
                 disposed = true;
             }
         }
-        public const int DefaultStackSize = 8;
         [Flags]
         public enum Expect
         {
@@ -121,83 +121,41 @@ namespace BX.SJ
                 }
             }
 
-            /// <summary>
-            /// Error should be managed through <see cref="SJWriter"/>.
-            /// <br>It can be used to clear state, if needed..</br>
-            /// </summary>
             [EditorBrowsable(EditorBrowsableState.Never)]
             public string _error;
             public int count;
-            public int depth;
+            public int depth
+            {
+                readonly get => stack.Count;
+                internal set => stack.Count = value;
+            }
             public Expect expect;
             public FormatExpect fmtExpect; // Newline is done first, then indent. Is not needed to be stacked
+
             /// <summary>
             /// Whether if this writer has written a JSON document that is done.
             /// <br>Comments can be written (if <see cref="allowComments"/>) while this 
             /// is <see langword="true"/> as those can be placed anywhere.</br>
             /// </summary>
             public bool ended;
+
             public bool WrittenComment { get; private set; }
             public bool WrittenType { get; private set; }
             public bool WrittenCustomKey { get; private set; }
             public bool WrittenCustomValue { get; private set; }
             public bool WrittenTrailingComma { get; private set; }
-            public readonly bool HasStacked => depth > 0;
 
-            internal Stacked[] _stacked;
-            // This can be shared among writers
-            private static Stacked _stubState = Stacked.Invalid;
+            public ValueStack<Stacked> stack;
+            public readonly bool HasStackValue => depth > 0;
 
-            public int Push(Stacked s)
-            {
-                if ((_stacked?.Length - 1) < depth)
-                {
-                    System.Array.Resize(ref _stacked, _stacked.Length <= 0 ? DefaultStackSize : _stacked.Length * 2);
-                }
-                int pushIndex = depth++;
-                _stacked[pushIndex] = s;
-                return pushIndex;
-            }
-            public readonly ref Stacked Peek()
-            {
-                if (!HasStacked)
-                {
-                    _stubState = Stacked.Invalid;
-                    return ref _stubState;
-                }
-                return ref _stacked[depth - 1];
-            }
-            public ref Stacked Pop()
-            {
-                // Pop should throw as it mutates..
-                if (!HasStacked) throw new InvalidOperationException("Cannot peek state while there is no state.");
-                return ref _stacked[--depth];
-            }
-
-            public static State Create()
-            {
-                return new State()
-                {
-                    _stacked = new Stacked[DefaultStackSize]
-                };
-            }
-            public readonly State Copy()
-            {
-                var s = new State
-                {
-                    _stacked = new Stacked[_stacked.Length]
-                };
-                CopyTo(ref s);
-                return s;
-            }
             public readonly void CopyTo(ref State s)
             {
-                // Mutable references that are reused should be preserved
-                // (_error is not mutable)
-                Stacked[] stacked = s._stacked;
+                var prevStacked = s.stack;
                 s = this;
-                s._stacked = stacked;
-                _stacked.CopyTo((Span<Stacked>)s._stacked);
+                s.stack = prevStacked;
+
+                s.stack.Clear(false);
+                stack.CopyTo(ref s.stack);
             }
 
             public void MarkWrittenComment() => WrittenComment = true;
@@ -207,17 +165,19 @@ namespace BX.SJ
             public void MarkWrittenTrailingComma() => WrittenTrailingComma = true;
             public void Reset()
             {
-                WrittenComment = WrittenCustomKey = WrittenCustomValue = WrittenType = WrittenTrailingComma = false;
-                count = depth = 0;
+                count = 0;
+                stack.Clear(false);
+
                 expect = Expect.None;
                 fmtExpect = FormatExpect.None;
                 ended = false;
                 _error = null;
+                WrittenComment = WrittenCustomKey = WrittenCustomValue = WrittenType = WrittenTrailingComma = false;
             }
 
             public override readonly string ToString()
             {
-                return $"count={count}, depth={depth} top={{{Peek()}}}";
+                return $"count={count}, depth={depth} top={{{stack.PeekValue()}}}";
             }
         }
 
@@ -272,7 +232,11 @@ namespace BX.SJ
         /// <summary>
         /// Maximum state stacking.
         /// </summary>
-        public ushort maxStateStack = 128;
+        public int maxStateStack
+        {
+            get => _stateStack.maxSize;
+            set => _stateStack.maxSize = value;
+        }
         /// <summary>
         /// Limit for the built in writing buffer's.
         /// <br>Set to zero to always use <see cref="ArrayPool{T}"/>. Or less to disable limit for <see cref="_formatBuffer"/>.</br>
@@ -323,7 +287,7 @@ namespace BX.SJ
         }
 
         // state
-        private State _S = State.Create();
+        private State _S;
         /// <summary>
         /// Primary state contained in the writer.
         /// <br>This may not contain the other states that this writer may have.
@@ -483,7 +447,7 @@ namespace BX.SJ
                 return;
             }
 
-            ref var top = ref s.Peek();
+            ref var top = ref s.stack.PeekValue();
             if (top.Valid)
             {
                 if ((s.expect & Expect.Comma) == Expect.Comma && top.index > 0)
@@ -737,7 +701,7 @@ namespace BX.SJ
             PrepareValue();
             Append('{');
 
-            S.Push(SJType.Object);
+            s.stack.Push(SJType.Object);
 
             s.expect = Expect.Key;
             s.fmtExpect = FormatExpect.NewlineIndent;
@@ -752,7 +716,7 @@ namespace BX.SJ
                 Error = "Attempt to write into a finished JSONWriter";
                 return false;
             }
-            ref var top = ref s.Peek();
+            ref var top = ref s.stack.PeekValue();
             if (!top.Valid || top.type != SJType.Object)
             {
                 Error = $"Invalid EndObject for toplevel with type '{top.type}', expected Object";
@@ -785,8 +749,8 @@ namespace BX.SJ
             s.expect = Expect.None;
 
             int prevIndex = top.index;
-            s.Pop();
-            top = ref s.Peek();
+            s.stack.PopValue();
+            top = ref s.stack.PeekValue();
 
             if (s.depth <= 0)
             {
@@ -843,7 +807,7 @@ namespace BX.SJ
             s.expect = Expect.None;
             s.fmtExpect = FormatExpect.NewlineIndent;
 
-            s.Push(SJType.Array);
+            s.stack.Push(SJType.Array);
             return true;
         }
         public bool EndArray()
@@ -876,7 +840,7 @@ namespace BX.SJ
                     s.MarkWrittenTrailingComma();
                 }
             }
-            ref var top = ref S.Peek();
+            ref var top = ref S.stack.PeekValue();
             if (!top.Valid || top.type != SJType.Array)
             {
                 Error = $"Invalid EndObject for toplevel with type '{top.type}', expected Array";
@@ -886,8 +850,8 @@ namespace BX.SJ
             s.expect = Expect.None;
 
             int prevIndex = top.index;
-            s.Pop();
-            top = ref s.Peek();
+            s.stack.PopValue();
+            top = ref s.stack.PeekValue();
 
             if (s.depth <= 0)
             {
@@ -1051,7 +1015,7 @@ namespace BX.SJ
             }
             else
             {
-                var t = s.Peek().type;
+                var t = s.stack.PeekValue().type;
                 switch (t)
                 {
                     case SJType.Object:
@@ -1423,62 +1387,39 @@ namespace BX.SJ
         public override string ToString() => $"[{base.ToString()}] state=({S}) error={Error}";
 
         // Code execution only - can be readonly
-        protected State[] _stateStack = new State[DefaultStackSize];
-        protected int _stateStackCount = 0;
-        public int StackedStateCount => _stateStackCount;
-        protected virtual void ResizeStateStack(int size)
-        {
-            System.Array.Resize(ref _stateStack, size);
-        }
+        protected ValueStack<State> _stateStack = ValueStack<State>.CreateWithMaxSize(128);
+        public int StateCount => _stateStack.Count;
         /// <summary>
         /// Pushes a loadable stacked state.
         /// </summary>
         /// <returns>
         /// The index of the pushed state.
-        /// For any other SJWriter with it's own state, this can be used to write it into it's own index like:
+        /// For any other thing with it's own state, this can be used to write it into it's own index like:
         /// <br><c>result := <see cref="PushState"/>; myStack[result] = otherState;</c></br>
         /// </returns>
         public virtual int PushState()
         {
-            if (maxStateStack > 0 && _stateStackCount >= maxStateStack) return -1;
-            if (_stateStackCount >= _stateStack?.Length)
-            {
-                int size = Math.Max((_stateStack?.Length ?? 0) * 2, DefaultStackSize);
-                if (maxStateStack > 0) size = Math.Min(maxStateStack, size);
-                ResizeStateStack(size);
-            }
+            var handle = _stateStack.Push(false);
+            if (handle.IsStub) return -1;
+            ref var next = ref handle.Value;
 
             // Copy the data to the entry in stateStack
-            ref var next = ref _stateStack[_stateStackCount];
-            if ((next._stacked?.Length ?? -1) < S._stacked?.Length)
-            {
-                next._stacked = new State.Stacked[Math.Max(S._stacked?.Length ?? 0, DefaultStackSize)];
-            }
             S.CopyTo(ref next);
-            return _stateStackCount++;
+            return _stateStack.Count - 1;
         }
         /// <summary>
         /// Loads a stacked state.
         /// </summary>
         /// <returns>
         /// The index of the loaded state.
-        /// For any other SJWriter with it's own state, this can be used to read from it's own index like:
+        /// For any other thing with it's own state, this can be used to read from it's own index like:
         /// <br><c>result := <see cref="PopState"/>; otherState = myStack[result];</c></br>
         /// </returns>
         public virtual int PopState()
         {
-            if (_stateStackCount <= 0) return -1;
-
-            // Should set by value to copy it instead of setting the reference.
-            // No need to copy the existing array entries, it can be discarded.
-            // ↑ Although this will allocate garbage instead of reusing the memory, so just copy it..
-            ref var prev = ref _stateStack[--_stateStackCount];
-            if ((S._stacked?.Length ?? -1) < prev._stacked?.Length)
-            {
-                S._stacked = new State.Stacked[Math.Max(prev._stacked?.Length ?? 0, DefaultStackSize)];
-            }
-            prev.CopyTo(ref S);
-            return _stateStackCount;
+            if (_stateStack.Count <= 0) return -1;
+            _stateStack.PopValue().CopyTo(ref S);
+            return _stateStack.Count;
         }
         /// <summary>
         /// Starts a <see cref="SJWriter"/> transaction, which will reset if this state is disposed.
@@ -1497,7 +1438,7 @@ namespace BX.SJ
         public virtual void Reset()
         {
             S.Reset();
-            _stateStackCount = 0;
+            _stateStack.Clear(false);
         }
 #pragma warning restore IDE0057 // ***** does not support System.Range
     }

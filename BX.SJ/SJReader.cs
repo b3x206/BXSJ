@@ -60,8 +60,6 @@ namespace BX.SJ
     /// </example>
     public abstract class SJReader
     {
-        public const int DefaultStackSize = 8;
-
         /// <summary>
         /// Exception thrown on an error case while reading BXSJ.
         /// </summary>
@@ -145,24 +143,6 @@ namespace BX.SJ
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
                 return reader.Slice(this.start + start, length);
             }
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars)
-            {
-                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return chars.Slice(start, end - start);
-            }
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars, int start)
-            {
-                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return chars.Slice(this.start + start, Length - start);
-            }
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> SliceFrom(ReadOnlySpan<char> chars, int start, int length)
-            {
-                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return chars.Slice(this.start + start, length);
-            }
 
             public override readonly string ToString()
             {
@@ -244,8 +224,8 @@ namespace BX.SJ
             public string _error;
             public int depth
             {
-                readonly get => stacked.Count;
-                internal set => stacked.Count = value;
+                readonly get => stack.Count;
+                internal set => stack.Count = value;
             }
             public int current;
             public Value lastEntryKey;
@@ -254,40 +234,30 @@ namespace BX.SJ
             public bool notExpectingType;
             public bool ended;
 
-            // This can be shared among readers
-            public ValueStack<Stacked> stacked;
-            public readonly bool HasStacked => depth > 0;
+            public ValueStack<Stacked> stack;
+            public readonly bool HasStackValues => depth > 0;
 
-            public readonly State Copy()
-            {
-                var s = new State
-                {
-                    stacked = new ValueStack<Stacked>(stacked.Count)
-                };
-                CopyTo(ref s);
-                return s;
-            }
             public readonly void CopyTo(ref State s)
             {
-                var prevStacked = s.stacked;
+                var prevStacked = s.stack;
                 s = this;
-                s.stacked = prevStacked;
+                s.stack = prevStacked;
 
-                s.stacked.Clear(false);
-                stacked.CopyTo(ref s.stacked);
+                s.stack.Clear(false);
+                stack.CopyTo(ref s.stack);
             }
 
             public void Reset()
             {
                 current = 0;
-                stacked.Clear(false);
+                stack.Clear(false);
                 lastEntryKey = default;
                 ended = false;
                 _error = null;
             }
             public override readonly string ToString()
             {
-                return $"current={current}, depth={depth}, top={{{stacked.PeekValue()}}}";
+                return $"current={current}, depth={depth}, top={{{stack.PeekValue()}}}";
             }
         }
 
@@ -754,14 +724,14 @@ namespace BX.SJ
         /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
         protected bool UpdateLastState(ref Value v)
         {
-            bool hasStacked = S.HasStacked;
+            bool hasStacked = S.HasStackValues;
             S.notExpectingType = !hasStacked; // Expect only one type if not a stacked value entry.
             if (!hasStacked)
             {
                 return true;
             }
 
-            return UpdateState(ref S.stacked.PeekValue(), ref v);
+            return UpdateState(ref S.stack.PeekValue(), ref v);
         }
 
         /// <summary>
@@ -804,7 +774,7 @@ namespace BX.SJ
                 s.ended = true;
                 if (s.depth > 0)
                 {
-                    Error = s.stacked.PeekValue().type switch
+                    Error = s.stack.PeekValue().type switch
                     {
                         SJType.Object => "Unclosed object",
                         SJType.Array => "Unclosed array",
@@ -860,9 +830,9 @@ namespace BX.SJ
             // Validate : Object == KV Colon, Array == Comma
             else if (ch == ':' || ch == ',')
             {
-                if (s.HasStacked)
+                if (s.HasStackValues)
                 {
-                    ref var st = ref s.stacked.PeekValue();
+                    ref var st = ref s.stack.PeekValue();
                     if (ch == ':')
                     {
                         if (st.type != SJType.Object)
@@ -905,7 +875,7 @@ namespace BX.SJ
                 s.current++;
                 goto _Top;
             }
-            else if ((s.stacked.PeekValue().expect & Expect.Colon) == Expect.Colon)
+            else if ((s.stack.PeekValue().expect & Expect.Colon) == Expect.Colon)
             {
                 // Colons are strict, they are seperator for key/value
                 Error = $"Unexpected '{Tk(ch)}', expected ':'";
@@ -916,7 +886,7 @@ namespace BX.SJ
             {
                 result.type = SJType.End;
                 // Validate last state and update "topmost current state"
-                var st = s.stacked.PopValue();
+                var st = s.stack.PopValue();
                 if (s.depth < 0 || st.type != ((ch == '}') ? SJType.Object : SJType.Array))
                 {
                     Error = (ch == '}') ? "Stray '}'" : "Stray ']'";
@@ -940,7 +910,7 @@ namespace BX.SJ
                 }
             }
             // Validate: Commas
-            else if ((S.stacked.PeekValue().expect & Expect.Comma) == Expect.Comma)
+            else if ((S.stack.PeekValue().expect & Expect.Comma) == Expect.Comma)
             {
                 // Commas are more flexible and can be found anywhere else,
                 // however they are not required for object declarations,
@@ -952,8 +922,8 @@ namespace BX.SJ
             else if (ch == '{' || ch == '[')
             {
                 result.type = ch == '{' ? SJType.Object : SJType.Array;
-                ref var prev = ref s.stacked.PeekValue();
-                s.stacked.PushValue(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
+                ref var prev = ref s.stack.PeekValue();
+                s.stack.PushValue(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
 
                 result.objectDepth = (ushort)s.depth;
                 s.current++;
@@ -1113,7 +1083,7 @@ namespace BX.SJ
             }
 
             DiscardUntil(value.objectDepth);
-            ref var st = ref S.stacked.PeekValue(); // Must peek before Read()
+            ref var st = ref S.stack.PeekValue(); // Must peek before Read()
             result = Read();
             if (result.type == SJType.Comment)
             {
@@ -1177,7 +1147,7 @@ namespace BX.SJ
             }
 
             DiscardUntil(value.objectDepth);
-            ref var st = ref S.stacked.PeekValue(); // Must peek before Read()
+            ref var st = ref S.stack.PeekValue(); // Must peek before Read()
             result = Read();
             switch (result.type)
             {
@@ -1281,10 +1251,10 @@ namespace BX.SJ
             ref var s = ref S;
             int prevCurrent = s.current;
             int prevDepth = s.depth;
-            var prevState = s.stacked.PeekValue();
+            var prevState = s.stack.PeekValue();
 
             // get a ref to the current state, before starting
-            ref var currentState = ref s.stacked.PeekValue();
+            ref var currentState = ref s.stack.PeekValue();
 
             DiscardUntil(v.objectDepth);
             Value innerValue = Read();
@@ -1321,7 +1291,7 @@ namespace BX.SJ
             return result;
         }
 
-        protected ValueStack<State> _stateStack = ValueStack<State>.Create();
+        protected ValueStack<State> _stateStack = ValueStack<State>.CreateWithMaxSize(128);
         public int StateCount => _stateStack.Count;
         /// <summary>
         /// Pushes a loadable stacked state.
@@ -1339,7 +1309,7 @@ namespace BX.SJ
 
             // Copy the data to the entry in stateStack
             S.CopyTo(ref next);
-            return _stateStack.Count;
+            return _stateStack.Count - 1;
         }
         /// <summary>
         /// Loads a stacked state.

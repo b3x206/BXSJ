@@ -1,4 +1,5 @@
-﻿using System;
+﻿using BX.SJ.Collections;
+using System;
 using System.Text;
 
 namespace BX.SJ
@@ -34,23 +35,17 @@ namespace BX.SJ
         public override bool CanReadData => true;
         public override string ReadData() => sb.ToString();
 
-        private int[] _sbStates = new int[DefaultStackSize];
-
-        protected override void ResizeStateStack(int size)
-        {
-            base.ResizeStateStack(size);
-            System.Array.Resize(ref _sbStates, size);
-        }
+        private ValueStack<int> _states = ValueStack<int>.Create();
         public override int PushState()
         {
             int baseResult = base.PushState();
-            if (baseResult >= 0) _sbStates[baseResult] = sb.Length;
+            if (baseResult >= 0) _states.PushValue(sb.Length);
             return baseResult;
         }
         public override int PopState()
         {
             int baseResult = base.PopState();
-            if (baseResult >= 0) sb.Length = _sbStates[baseResult];
+            if (baseResult >= 0) sb.Length = _states.PopValue();
             return baseResult;
         }
 

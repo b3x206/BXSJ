@@ -1,4 +1,5 @@
-﻿using System;
+﻿using BX.SJ.Collections;
+using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -121,22 +122,17 @@ namespace BX.SJ
             });
         }
 
-        private int[] _currentStates = new int[DefaultStackSize];
-        protected override void ResizeStateStack(int size)
-        {
-            base.ResizeStateStack(size);
-            System.Array.Resize(ref _currentStates, size);
-        }
+        private ValueStack<int> _states = ValueStack<int>.Create();
         public override int PushState()
         {
             int baseResult = base.PushState();
-            if (baseResult >= 0) _currentStates[baseResult] = current;
+            if (baseResult >= 0) _states.PushValue(current);
             return baseResult;
         }
         public override int PopState()
         {
             int baseResult = base.PopState();
-            if (baseResult >= 0) current = _currentStates[baseResult];
+            if (baseResult >= 0) current = _states.PopValue();
             return baseResult;
         }
 

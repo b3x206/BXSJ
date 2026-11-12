@@ -85,11 +85,11 @@ public static class WriterTester
             throw new ArgumentException("Can't write test values to top level object.", nameof(writer));
         }
 
-        int startingIndex = writer.S.Peek().index;
-        void CheckWriterIndex() => Assert.AreEqual(++startingIndex, writer.S.Peek().index, "Expected write to increase top level element counter index");
+        int startingIndex = writer.S.stack.PeekValue().index;
+        void CheckWriterIndex() => Assert.AreEqual(++startingIndex, writer.S.stack.PeekValue().index, "Expected write to increase top level element counter index");
 
         bool success = string.IsNullOrEmpty(writer.Error);
-        switch (writer.S.Peek().type)
+        switch (writer.S.stack.PeekValue().type)
         {
             case SJType.Object:
                 {
@@ -199,7 +199,7 @@ public static class WriterTester
                     break;
                 }
             default:
-                throw new ArgumentException($"Unexpected top level type {writer.S.Peek().type}", nameof(writer));
+                throw new ArgumentException($"Unexpected top level type {writer.S.stack.PeekValue().type}", nameof(writer));
         }
 
         return success;
@@ -214,9 +214,9 @@ public static class WriterTester
         writer.allowComments = true;
         bool success = string.IsNullOrEmpty(writer.Error);
 
-        int startingIndex = writer.S.Peek().index;
+        int startingIndex = writer.S.stack.PeekValue().index;
         void CheckWriterIndex() => Assert.AreEqual(
-            ++startingIndex, writer.S.Peek().index, "Expected write to increase top level element counter index"
+            ++startingIndex, writer.S.stack.PeekValue().index, "Expected write to increase top level element counter index"
         );
         int commentCount = 0;
         void WriteCommentLine(bool expectValue = false) => success = success && writer.WriteCommentLine(
@@ -228,10 +228,10 @@ public static class WriterTester
 
         // My poor Writer.. My poor writer..
         WriteComment();
-        switch (writer.S.Peek().type)
+        switch (writer.S.stack.PeekValue().type)
         {
             default:
-                throw new ArgumentException($"Unexpected top level type {writer.S.Peek().type}", nameof(writer));
+                throw new ArgumentException($"Unexpected top level type {writer.S.stack.PeekValue().type}", nameof(writer));
 
             case SJType.Object:
                 {
@@ -397,10 +397,10 @@ public static class WriterTester
         void WriteComment(bool expectValue = false) => writer.WriteComment($"Comment {++commentCount} */ :)", hasNextValue: expectValue);
         void WriteCommentLine(bool expectValue = false) => writer.WriteCommentLine($"Comment {++commentCount} :) //", hasNextValue: expectValue);
 
-        switch (writer.S.Peek().type)
+        switch (writer.S.stack.PeekValue().type)
         {
             default:
-                throw new ArgumentException($"Unexpected top level type {writer.S.Peek().type}", nameof(writer));
+                throw new ArgumentException($"Unexpected top level type {writer.S.stack.PeekValue().type}", nameof(writer));
 
             case SJType.Object:
                 {

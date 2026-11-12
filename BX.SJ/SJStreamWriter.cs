@@ -1,4 +1,5 @@
-﻿using System;
+﻿using BX.SJ.Collections;
+using System;
 using System.Buffers;
 using System.IO;
 using System.Text;
@@ -245,12 +246,7 @@ namespace BX.SJ
                 stream.Position = sp;
             }
         }
-        private long[] _streamPositions = new long[DefaultStackSize];
-        protected override void ResizeStateStack(int size)
-        {
-            base.ResizeStateStack(size);
-            System.Array.Resize(ref _streamPositions, size);
-        }
+        private ValueStack<long> _positions = ValueStack<long>.Create();
         public override int PushState()
         {
             int baseResult = base.PushState();
@@ -261,7 +257,7 @@ namespace BX.SJ
                 // Technically, flushing the encoder is not needed as most rule-compliant
                 // strings are padded with ASCII characters which should prevent U+FEFF.
                 Flush(false, true, true);
-                _streamPositions[baseResult] = stream.Position;
+                _positions.PushValue(stream.Position);
             }
             return baseResult;
         }
@@ -274,7 +270,7 @@ namespace BX.SJ
                 streamCurrent = 0; // Discard the stream writing buffer
 
                 // This will flush or discard the stream buffer anyways
-                var pos = _streamPositions[baseResult];
+                var pos = _positions.PopValue();
                 stream.Position = pos;
                 stream.SetLength(pos);
             }
