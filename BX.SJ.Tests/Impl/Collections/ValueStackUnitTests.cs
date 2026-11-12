@@ -224,22 +224,72 @@ public sealed class ValueStackUnitTests
         if (count <= 0) throw new ArgumentException("Count must be larger than 0", nameof(count));
 
         const int Value = 3;
-        int[] a = new int[count];
-        var s = ValueStack<int>.Create();
-        for (int i = 0; i < count; i++) s.Push(Value);
+        foreach (var baseClass in new bool[] { true, false })
+        {
+            int[] a = new int[count];
+            var s = ValueStack<int>.Create();
+            for (int i = 0; i < count; i++) s.Push(Value);
 
-        s.CopyTo(a, 0);
-        Assert.ContainsAll(Enumerable.Repeat(Value, count), a);
-        Array.Fill(a, default);
+            if (!baseClass) s.CopyTo(a, 0);
+            else s.CopyTo((Array)a, 0);
+            Assert.ContainsAll(Enumerable.Repeat(Value, count), a);
+            Array.Fill(a, default);
 
-        Assert.Throws<ArgumentNullException>(() => s.CopyTo(null, 0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => s.CopyTo(a, -1));
-        Assert.Throws<ArgumentOutOfRangeException>(() => s.CopyTo(a, a.Length + 1));
-        Assert.Throws<ArgumentException>(() => s.CopyTo(a, 1));
+            if (!baseClass) Assert.Throws<ArgumentNullException>(() => s.CopyTo((int[]?)null, 0));
+            else Assert.Throws<ArgumentNullException>(() => s.CopyTo((Array?)null, 0));
+            if (!baseClass) Assert.Throws<ArgumentOutOfRangeException>(() => s.CopyTo(a, -1));
+            else Assert.Throws<ArgumentOutOfRangeException>(() => s.CopyTo((Array)a, -1));
+            if (!baseClass) Assert.Throws<ArgumentOutOfRangeException>(() => s.CopyTo(a, a.Length + 1));
+            else Assert.Throws<ArgumentOutOfRangeException>(() => s.CopyTo((Array)a, a.Length + 1));
+            if (!baseClass) Assert.Throws<ArgumentException>(() => s.CopyTo(a, 1));
+            else Assert.Throws<ArgumentException>(() => s.CopyTo((Array)a, 1));
 
-        a = new int[a.Length + 1];
-        s.CopyTo(a, 1);
-        Assert.ContainsAll(Enumerable.Repeat(Value, count), a.AsSpan(1).ToArray());
+            a = new int[a.Length + 1];
+            if (!baseClass) s.CopyTo(a, 1);
+            else s.CopyTo((Array)a, 1);
+            Assert.ContainsAll(Enumerable.Repeat(Value, count), a.AsSpan(1).ToArray());
+        }
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(16)]
+    public void StackCopyToOther(int count)
+    {
+        const int Value = -1;
+        foreach (bool containOne in new bool[] { true, false })
+        {
+            ValueStack<int> s = default;
+            ValueStack<int> s2 = default;
+            if (containOne) s2.Push(Value);
+
+            for (int i = 0; i < count; i++) s.Push(i);
+            s.CopyTo(ref s2);
+
+            if (containOne) Assert.AreSequenceEqual(Enumerable.Concat([Value], s), s2);
+            else Assert.AreSequenceEqual(s, s2);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(16)]
+    public void StackCopyToOtherWithAction(int count)
+    {
+        const int Value = -1;
+        foreach (bool containOne in new bool[] { true, false })
+        {
+            ValueStack<int> s = default;
+            ValueStack<int> s2 = default;
+            if (containOne) s2.Push(Value);
+
+            for (int i = 0; i < count; i++) s.Push(i);
+            s.CopyTo(ref s2, (from, ref target) => target = from + Value);
+            var sView = s.Select(from => from + Value);
+
+            if (containOne) Assert.AreSequenceEqual(Enumerable.Concat([Value], sView), s2);
+            else Assert.AreSequenceEqual(sView, s2);
+        }
     }
 
     [TestMethod]

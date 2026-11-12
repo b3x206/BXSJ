@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace BX.SJ.Collections
 {
@@ -28,12 +27,13 @@ namespace BX.SJ.Collections
     /// vs.Push(7);
     /// var otherInt = vs.Push(8);
     /// otherInt.Value = 512;
-    /// vs.Pop(); // Does not clear.
+    /// vs.Pop(); // Does not clear and returns 512.
     ///           // The "otherInt" handle cannot be reused, it will return a stub and silently ignore.
     ///           // You can retain a reference to the value address by doing `ref otherInt.Value`.
     ///           // It is faster but only safe if you know the value won't be popped.
     ///           // > C# probably keeps the array a bit longer if refs to members exist, but don't trust assumptions.
-    /// vs.Push(clear: false); // Retains 512, even though it should be 0.
+    /// // Retains 512, even though it should be 0. This is useful if you want to initialize the value with existing heap resources.
+    /// vs.Push(clear: false);
     /// 
     /// Console.WriteLine(string.Join(vs, ", ")); // 6, 42, 7, 42, 512
     /// ]]>
@@ -50,7 +50,8 @@ namespace BX.SJ.Collections
         public readonly ref struct Handle
         {
             private readonly (T value, int version)[] _ownerStack;
-            private readonly int index, version;
+            public readonly int index;
+            private readonly int version;
             /// <summary>
             /// Returns <see langword="true"/> if the handle to the stack is valid.
             /// </summary>
@@ -104,7 +105,7 @@ namespace BX.SJ.Collections
         }
 
         private (T value, int version)[] _stack;
-        private int _count, _maxReachedCount;
+        private int _count, _maxReachedCount, _version;
         public int maxSize;
         public readonly int Capacity => _stack.Length;
         public readonly int Count => _count;
@@ -125,25 +126,19 @@ namespace BX.SJ.Collections
             }
         }
 
-        public static ValueStack<T> Create()
-        {
-            return new ValueStack<T>(DefaultStackSize, DefaultMaxSize);
-        }
+        public static ValueStack<T> Create() => new ValueStack<T>(DefaultStackSize, DefaultMaxSize);
         public ValueStack(int capacity = DefaultStackSize, int maxSize = DefaultMaxSize)
         {
             _stack = new (T, int)[maxSize > 0 && maxSize < capacity ? maxSize : capacity];
-            _count = _maxReachedCount = 0;
+            _count = _maxReachedCount = _version = 0;
             this.maxSize = maxSize;
         }
 
-        /// <summary>
-        /// Pushes a value of type <typeparamref name="T"/> and pre assigns the reference to <paramref name="value"/>.
-        /// </summary>
-        public Handle Push(T value)
+        private (int index, int version) PushInternal(T? value)
         {
             if (maxSize > 0 && _count >= maxSize)
             {
-                return Handle.Stub();
+                return (-1, -1);
             }
             if (_count >= (_stack?.Length ?? 0))
             {
@@ -151,14 +146,25 @@ namespace BX.SJ.Collections
                 if (maxSize > 0) size = Math.Min(maxSize, size);
                 Array.Resize(ref _stack, size);
             }
-
             int pos = _count++;
+            unchecked { _version++; }
+
             ref var vv = ref _stack[pos];
-            vv.value = value;
+            if (value.HasValue) vv.value = value.Value;
             unchecked { vv.version++; }
 
             _maxReachedCount = Math.Max(_maxReachedCount, _count);
-            return Handle.AtUnchecked(_stack, pos, vv.version);
+            return (pos, vv.version);
+        }
+        /// <summary>
+        /// Pushes a value of type <typeparamref name="T"/> and pre assigns the reference to <paramref name="value"/>.
+        /// </summary>
+        public Handle Push(T value)
+        {
+            (int i, int v) = PushInternal(value);
+
+            if (i < 0) return Handle.Stub();
+            return Handle.AtUnchecked(_stack, i, v);
         }
         /// <summary>
         /// Pushes a value of type <typeparamref name="T"/> and returns the resulting auto defaulted value.
@@ -166,25 +172,12 @@ namespace BX.SJ.Collections
         /// <param name="reset">Clears the previously existing value and sets it <see langword="default"/>.</param>
         public Handle Push(bool reset = true)
         {
-            if (maxSize > 0 && _count >= maxSize)
-            {
-                _stub = default;
-                return Handle.Stub();
-            }
-            if (_count >= (_stack?.Length ?? 0))
-            {
-                int size = Math.Max((_stack?.Length ?? 0) * 2, DefaultStackSize);
-                if (maxSize > 0) size = Math.Min(maxSize, size);
-                Array.Resize(ref _stack, size);
-            }
+            T? pushValue = null;
+            if (reset) pushValue = default(T);
+            (int i, int v) = PushInternal(pushValue);
 
-            int pos = _count++;
-            ref var vv = ref _stack[pos];
-            if (reset) vv.value = default;
-            unchecked { vv.version++; }
-
-            _maxReachedCount = Math.Max(_maxReachedCount, _count);
-            return Handle.AtUnchecked(_stack, pos, vv.version);
+            if (i < 0) return Handle.Stub();
+            return Handle.AtUnchecked(_stack, i, v);
         }
         /// <summary>
         /// Pops a value of type <typeparamref name="T"/>.
@@ -193,7 +186,10 @@ namespace BX.SJ.Collections
         public Handle Pop()
         {
             if (_count <= 0) return Handle.Stub();
+
             int pos = --_count;
+            unchecked { _version++; }
+
             ref (T val, int ver) v = ref _stack[pos];
             unchecked { v.ver++; }
             return Handle.AtUnchecked(_stack, pos, v.ver);
@@ -224,12 +220,18 @@ namespace BX.SJ.Collections
                 }
             }
 
+            unchecked { _version++; }
             _maxReachedCount = _count = 0;
         }
 
         public readonly IEnumerator<T> GetEnumerator()
         {
-            for (int i = 0; i < _count; i++) yield return _stack[i].value;
+            int startVer = _version;
+            for (int i = 0; i < _count; i++)
+            {
+                if (startVer != _version) throw new InvalidOperationException("Collection was modified; enumeration operation may not execute.");
+                yield return _stack[i].value;
+            }
         }
         readonly IEnumerator IEnumerable.GetEnumerator()
         {
@@ -238,10 +240,27 @@ namespace BX.SJ.Collections
         public readonly void CopyTo(Array array, int index)
         {
             if (array == null) throw new ArgumentNullException(nameof(array));
-            if (index < 0 || index > array.Length) throw new ArgumentOutOfRangeException(nameof(index), index, "Index out of range");
-            if (index + Count > array.Length) throw new ArgumentException("Array is too small to copy to index", nameof(array));
+            if (index < 0 || index > array.Length) throw new ArgumentOutOfRangeException(nameof(index), index, "Index out of array range");
+            if ((index + Count) > array.Length) throw new ArgumentException("Array is too small to copy to index", nameof(array));
             for (int i = 0; i < Count; i++) array.SetValue(this[i], index + i);
         }
+        public readonly void CopyTo(T[] array, int index)
+        {
+            if (array == null) throw new ArgumentNullException(nameof(array));
+            if (index < 0 || index > array.Length) throw new ArgumentOutOfRangeException(nameof(index), index, "Index out of array range");
+            if ((index + Count) > array.Length) throw new ArgumentException("Array is too small to copy to index", nameof(array));
+            for (int i = 0; i < Count; i++) array[index + i] = this[i];
+        }
+        public delegate void CopyAction(T self, ref T to);
+        public readonly void CopyTo(ref ValueStack<T> vs, CopyAction action = null)
+        {
+            for (int i = 0; i < _count; i++)
+            {
+                if (action == null) { vs.PushInternal(this[i]); }
+                else { action(this[i], ref vs[vs.PushInternal(null).index]); }
+            }
+        }
+
         public override readonly int GetHashCode()
         {
             return HashCode.Combine(_stack, _count, maxSize);

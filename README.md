@@ -428,7 +428,7 @@ From 1.x, everything else is more or less the same, except the inner workings of
 * [X] Built-in format buffer that moves from `stackalloc -> char[] -> ArrayPool<char>.Shared` (reuse of writer is better)
 
 **▶ New**
-* [ ] Reached 99% of test coverage (for `sj.dll`)
+* [ ] Reached a higher percentage of test coverage (for `bx.sj.dll`)
 * `SJStreamReader` to read from a `System.IO.Stream` with encoding.
 * `SJStreamWriter` to write into a `System.IO.Stream` with encoding.
 * `SJLinearWriter` to write into a contiguous region of `char[]` <br>

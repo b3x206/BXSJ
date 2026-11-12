@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace BX.SJ
 {
@@ -514,139 +515,118 @@ namespace BX.SJ
 
         /// <summary>
         /// Read a range of comment, starting from <see cref="State.current"/> for the reader data.
-        /// <br>The returned range contains the content of the comment rather than the entire comment block 
-        /// to be consistent to the other typed ranges..</br>
-        /// <br>The comment range is trimmed, to capture the whole comment remove 
-        /// <paramref name="postfixSize"/> from start and add <paramref name="prefixSize"/> to end.</br>
         /// </summary>
-        /// <param name="prefixSize">Size of the comment prefix token. This is generally 2.</param>
-        /// <param name="postfixSize">Size of the comment postfix token. This is generally 1 or 2.</param>
-        /// <param name="variant">Variant of multi comment.</param>
+        /// <param name="variant">Variant of the comment type.</param>
         /// <returns>Start and ending range. If the block doesn't start with '/', 
         /// -1 is returned for start and end without setting error.</returns>
-        protected (int start, int end) GetCommentRange(out int prefixSize, out int postfixSize, out SJTypeVariant variant)
+        protected (int start, int end) GetCommentRange(ref int i, out SJTypeVariant variant)
         {
-            // Finite automata? What for?
-            ref var s = ref S;
-            int start = s.current, end = s.current;
-            prefixSize = postfixSize = 0;
+            int start, end;
             variant = SJTypeVariant.None;
-            if (start < Length)
+
+            // (/*|//)
+            if (i >= Length || At(i) != '/') return (-1, -1);
+            i++;
+
+            switch (At(i))
             {
-                char ch = At(end);
-                if (ch == '/') // Redundant on the only usage as it checks, but is fine.
-                {
-                    prefixSize++;
-                    end = ++start;
-                    char next = At(end);
-
-                    switch (next)
-                    {
-                        case '/':
-                            {
-                                variant = SJTypeVariant.SingleComment;
-                                prefixSize++;
-                                end = ++start;
-                                ch = At(end);
-
-                                bool word = false;
-                                int whitespace = 0;
-                                while (ch != '\n')
-                                {
-                                    if (end >= Length)
-                                    {
-                                        // Ended with // .... <EOF
-                                        return (start, end);
-                                    }
-
-                                    if (!word)
-                                    {
-                                        if (char.IsWhiteSpace(ch))
-                                        {
-                                            start++;
-                                            prefixSize++;
-                                        }
-                                        else word = true;
-                                    }
-                                    else
-                                    {
-                                        if (char.IsWhiteSpace(ch)) whitespace++;
-                                        else whitespace = 0;
-                                    }
-
-                                    ch = At(++end);
-                                }
-
-                                // exclude + include '\s*'. end stops in '\n'
-                                // CRLF is stripped implicitly by being a part of whitespace.
-                                end -= whitespace;
-                                postfixSize = 1 + whitespace;
-                                return (start, end);
-                            }
-                        case '*':
-                            {
-                                variant = SJTypeVariant.MultiComment;
-                                prefixSize++;
-                                end = ++start;
-                                ch = At(end);
-
-                                bool word = false;
-                                int whitespace = 0;
-                                while (!(ch == '*' && next == '/'))
-                                {
-                                    if (end >= Length)
-                                    {
-                                        Error = $"Expected */, got '{Tk(ch)}+{Tk(next)}'";
-                                        return (-1, -1);
-                                    }
-
-                                    if (!word)
-                                    {
-                                        if (char.IsWhiteSpace(ch))
-                                        {
-                                            start++;
-                                            prefixSize++;
-                                        }
-                                        else word = true;
-                                    }
-                                    else
-                                    {
-                                        if (char.IsWhiteSpace(ch)) whitespace++;
-                                        else whitespace = 0;
-                                    }
-
-                                    ch = At(++end);
-                                    next = At(end + 1);
-                                }
-
-                                // exclude + include '*/'. end stops in '*/'
-                                end -= whitespace;
-                                postfixSize = 2 + whitespace;
-                                return (start, end);
-                            }
-                        default:
-                            Error = $"Unexpected comment token '{Tk(next)}', expected '/ or *' to start a comment.";
-                            return (-1, -1);
-                    }
-                }
-                else
-                {
+                case '/':
+                    variant = SJTypeVariant.SingleComment;
+                    break;
+                case '*':
+                    variant = SJTypeVariant.MultiComment;
+                    break;
+                default:
+                    Error = $"Unexpected comment token '{Tk(At(i))}', expected '/ or *' to start a comment.";
                     return (-1, -1);
+            }
+            i++;
+
+            // \s*<string>\s*(*/|\n)
+            int firstNonWs = start = i;
+            int lastNonWs = i;
+            for (; i < Length; i++)
+            {
+                char c = At(i);
+                switch (variant)
+                {
+                    case SJTypeVariant.SingleComment:
+                        switch (c)
+                        {
+                            case '\n':
+                                i++; // Skip '\n'
+                                goto _BreakOuter;
+                            default:
+                                if (!char.IsWhiteSpace(c))
+                                {
+                                    if (firstNonWs == start) firstNonWs = i;
+                                    lastNonWs = i;
+                                }
+                                break;
+                        }
+                        break;
+                    case SJTypeVariant.MultiComment:
+                        switch (c)
+                        {
+                            case '*':
+                                if (++i < Length) goto _BreakOuter;
+                                c = At(i);
+                                switch (c)
+                                {
+                                    case '/': // */
+                                        goto _BreakOuter;
+                                    default:  // *[^]
+                                        if (!char.IsWhiteSpace(c))
+                                        {
+                                            if (firstNonWs == start) firstNonWs = i;
+                                            lastNonWs = i;      // *[^]
+                                        }
+                                        else
+                                        {
+                                            if (firstNonWs == start) firstNonWs = i - 1;
+                                            lastNonWs = i - 1;  // *\s
+                                        }
+                                        break;
+                                }
+                                break;
+                            default:
+                                if (!char.IsWhiteSpace(c))
+                                {
+                                    if (firstNonWs == start) firstNonWs = i;
+                                    lastNonWs = i;
+                                }
+                                break;
+                        }
+                        break;
+                    default:
+                        Error = $"Unknown comment variant {variant}";
+                        return (-1, -1);
                 }
             }
+        _BreakOuter:
+            start = firstNonWs;  // Start is already inclusive
+            end = lastNonWs + 1; // End has to be inclusive
+            switch (variant)
+            {
+                case SJTypeVariant.MultiComment:
+                    if (i++ >= Length) // Skip '/'
+                    {
+                        Error = "Unclosed multi line comment, expected '*/'";
+                        return (-1, -1);
+                    }
+                    break;
+            }
 
-            // Nothing to skip, but not an "error"
-            return (-1, -1);
+            return (start, end);
         }
         /// <summary>
         /// Read a range of type, starting from <see cref="State.current"/> for the reader data.
         /// </summary>
         /// <param name="i">Target position of the pointer.</param>
         /// <returns>Start and ending range. If the block doesn't start with '(', -1 is returned for start and end.</returns>
-        protected (int start, int end) GetTypeRange(out int i, out SJTypeVariant variant)
+        protected (int start, int end) GetTypeRange(ref int i, out SJTypeVariant variant)
         {
             int start; int end;
-            i = S.current;
             variant = SJTypeVariant.None;
 
             if (i >= Length || At(i) != '(') return (-1, -1);
@@ -665,9 +645,9 @@ namespace BX.SJ
 
                 while (i < Length)
                 {
-                    if (escaped)            escaped = false;
+                    if (escaped) escaped = false;
                     else if (At(i) == '\\') escaped = true;
-                    else if (At(i) == '"')  break; 
+                    else if (At(i) == '"') break;
                     i++;
                 }
 
@@ -902,10 +882,9 @@ namespace BX.SJ
             else if (allowComments && ch == '/')
             {
                 result.type = SJType.Comment;
-                (result.start, result.end) = GetCommentRange(out int _, out int postfix, out result.variant);
+                (result.start, result.end) = GetCommentRange(ref s.current, out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
-                    s.current = result.end + postfix;
                     return result;
                 }
                 goto _Top;
@@ -920,7 +899,7 @@ namespace BX.SJ
                 }
 
                 result.type = SJType.Type;
-                (result.start, result.end) = GetTypeRange(out s.current, out result.variant);
+                (result.start, result.end) = GetTypeRange(ref s.current, out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
                     s.notExpectingType = true;
@@ -996,18 +975,10 @@ namespace BX.SJ
                 }
                 if (st.valueCount > 0)
                 {
-                    if ((st.expect & Expect.Comma) != Expect.Comma)
+                    if ((st.expect & Expect.Comma) != Expect.Comma && !allowTrailingComma)
                     {
-                        if (!allowTrailingComma)
-                        {
-                            Error = "Trailing comma character for the last value before end";
-                            goto _Top;
-                        }
-                        else
-                        {
-                            // Set state to what is normal
-                            st.expect |= Expect.Comma;
-                        }
+                        Error = "Trailing comma character for the last value before end";
+                        goto _Top;
                     }
                 }
 
@@ -1168,7 +1139,7 @@ namespace BX.SJ
             return result;
         }
         /// <summary>
-        /// Moves <see cref="s.depth"/> and <see cref="s.current"/> until a depth.
+        /// Moves <see cref="State.depth"/> and <see cref="State.current"/> until a depth.
         /// </summary>
         protected void DiscardUntil(int depth)
         {
@@ -1193,6 +1164,7 @@ namespace BX.SJ
             }
 
             DiscardUntil(value.objectDepth);
+            ref var st = ref S.Peek(); // Must peek before Read()
             result = Read();
             if (result.type == SJType.Comment)
             {
@@ -1208,9 +1180,11 @@ namespace BX.SJ
 
                 case SJType.Type:
                     S.lastEntryType = result;
-                    goto default;
+                    return true;
+                case SJType.Comment:
+                    return true;
                 default:
-                    S.Peek().valueCount++;
+                    st.valueCount++;
                     return true;
             }
         }
@@ -1254,6 +1228,7 @@ namespace BX.SJ
             }
 
             DiscardUntil(value.objectDepth);
+            ref var st = ref S.Peek(); // Must peek before Read()
             result = Read();
             switch (result.type)
             {
@@ -1264,12 +1239,11 @@ namespace BX.SJ
 
                 case SJType.Type:
                     S.lastEntryType = result;
-                    goto default;
-                case SJType.Key:
-                    S.lastEntryKey = result;
-                    goto default;
+                    return true;
+                case SJType.Comment:
+                    return true;
                 default:
-                    S.Peek().valueCount++;
+                    st.valueCount++;
                     return true;
             }
         }
@@ -1353,7 +1327,7 @@ namespace BX.SJ
 
             keys = values = other = 0;
 
-            // For this instance since we aren't going to traverse towards inside explicitly and
+            // For this instance since we aren't going to traverse towards inside and
             // only change the current depth's state object, it should be safe to save / load state like this..
             ref var s = ref S;
             int prevCurrent = s.current;

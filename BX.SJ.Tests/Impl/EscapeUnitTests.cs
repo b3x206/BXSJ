@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Diagnostics;
+using System.Text;
 using static BX.SJ.Tests.TestData;
 
 namespace BX.SJ.Tests.Impl;
@@ -73,12 +74,14 @@ public sealed class EscapeUnitTests
     [TestMethod]
     [DataRow(EscapeInvalidUnescape)]
     [Timeout(TestTimeouts.Short)]
-    public void TestInvalidUnescape(string data) => Assert.Throws<ArgumentException>(() => SJEscape.Unescape(data, allowInvalidEscapes: false));
+    public void TestInvalidUnescape(string data)
+    {
+        Assert.IsFalse(SJEscape.Unescape(data).Contains('\\'), $"Behaviour : Should not contain '\\' from invalid escapes.\n{data}");
+    }
 
     [TestMethod]
+    [DataRow(EscapeInvalidUnescape)]
     [Timeout(TestTimeouts.Short)]
-    public void TestInvalidUnescape()
-    {
-        Assert.IsFalse(SJEscape.Unescape(EscapeInvalidUnescape).Contains('\\'), "Behaviour : Should not contain '\\' token from invalid escapes (as it's removed and the invalid escape is written as-is)");
-    }
+    public void TestInvalidUnescapeThrows(string data) => 
+        Assert.Throws<ArgumentException>(() => SJEscape.Unescape(data, allowInvalidEscapes: false));
 }

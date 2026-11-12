@@ -243,7 +243,7 @@ namespace BX.SJ
                                     // Go back to the previous character
                                     i--;
                                 }
-                                // otherwise escape \u as is
+                                // otherwise escape \u to u
                                 else
                                 {
                                     if (!allowInvalidEscapes)
@@ -253,7 +253,7 @@ namespace BX.SJ
 
                                     i = start;
 
-                                    appendAction(self, cur);
+                                    appendAction(self, 'u');
                                     count++;
                                 }
 
