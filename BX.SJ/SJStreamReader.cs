@@ -1,4 +1,5 @@
-﻿using System;
+﻿#if false
+using System;
 using System.Buffers;
 using System.IO;
 using System.Text;
@@ -270,3 +271,4 @@ namespace BX.SJ
         }
     }
 }
+#endif

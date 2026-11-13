@@ -58,7 +58,7 @@ namespace BX.SJ.Tests.Examples
 }
 // And to validate EOF, do this (it was implicit with the last Read() on the old behaviour) ↓
 ";
-            var reader = new SJStringReader(data)
+            var reader = new SJReader(new SJStringData(data))
             {
                 allowComments = true, // This is disabled by default, you must enable it to read comments.
             };

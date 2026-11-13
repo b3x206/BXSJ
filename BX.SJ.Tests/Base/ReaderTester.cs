@@ -143,25 +143,4 @@ public static class ReaderTester
         Read(reader, sb, throwError);
         return sb;
     }
-
-    public static void ReadJSC(SJReader reader, StringBuilder sb, bool throwError = true)
-    {
-        ArgumentNullException.ThrowIfNull(reader);
-
-        sb.Clear();
-        reader.allowComments = true;
-        reader.ThrowOnError = throwError;
-        for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
-        {
-            ReadInner(sb, reader, root, throwError);
-        }
-    }
-    public static StringBuilder ReadJSC(SJReader reader, bool throwError = true)
-    {
-        ArgumentNullException.ThrowIfNull(reader);
-
-        var sb = new StringBuilder(DefaultSbCapacity);
-        ReadJSC(reader, sb, throwError);
-        return sb;
-    }
 }

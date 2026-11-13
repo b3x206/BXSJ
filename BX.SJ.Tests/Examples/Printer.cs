@@ -14,8 +14,7 @@ namespace BX.SJ.Tests.Examples
                 default:
                 case SJType.Error:
                     {
-                        reader.Location(out int l, out int c);
-                        Console.WriteLine($"ReadInner: Error '{reader.Error}' at 'line={l}, column={c}'");
+                        Console.WriteLine($"ReadInner: Error '{reader.Error}' at '{reader.data.Position}'");
                         // ^ This will output multiple times, you can add a global flag if that is undesired.
                         // Or you can throw like : reader.ThrowError();
                         break;
@@ -89,9 +88,9 @@ namespace BX.SJ.Tests.Examples
 
         public static void TMain(string[] args)
         {
-            string data = args.Length > 1 ? args[1] : 
-                "{ \"foo\": [\"bar\", \"baz\"], \"idk\": 42, \"mango\": { \"6\": 7 } }";
-            var reader = new SJStringReader(data);
+            var data = new SJStringData(args.Length > 1 ? args[1] : 
+                "{ \"foo\": [\"bar\", \"baz\"], \"idk\": 42, \"mango\": { \"6\": 7 } }");
+            var reader = new SJReader(data);
 
             SJReader.Value root = reader.Read();
             var sb = new StringBuilder(512);

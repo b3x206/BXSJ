@@ -1,17 +1,18 @@
-﻿using System.Text;
+﻿#if false
+using System.Text;
 
 namespace BX.SJ.Tests.Impl;
 
 [TestClass]
 public sealed class StreamReaderUnitTests : ReaderUnitTests<SJStreamReader>
 {
-    public override SJStreamReader CreateFromStream(Stream data, Encoding? enc)
+    public override SJStreamReader DataReaderFromStream(Stream data, Encoding? enc)
     {
         var reader = new SJStreamReader();
         reader.LoadDataFrom(data, enc);
         return reader;
     }
-    public override SJStreamReader CreateFromString(string data)
+    public override SJStreamReader DataReaderFromString(string data)
     {
         var reader = new SJStreamReader();
         using var sr = new StringReader(data);
@@ -25,3 +26,4 @@ public sealed class StreamReaderUnitTests : ReaderUnitTests<SJStreamReader>
         base.TestDisposeTwice();
     }
 }
+#endif

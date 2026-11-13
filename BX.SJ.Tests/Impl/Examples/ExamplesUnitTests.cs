@@ -76,7 +76,7 @@ public sealed class ExamplesUnitTests
             return;
         }
 
-        var reader = new SJStringReader(data) { ThrowOnError = true };
+        var reader = new SJReader(new SJStringData(data)) { ThrowOnError = true };
         var tree = SJTree.FromJSON(reader);
 
         Console.WriteLine($"Parsed Tree : {tree}");
@@ -91,7 +91,7 @@ public sealed class ExamplesUnitTests
             return;
         }
 
-        var reader = new SJStringReader(data) { ThrowOnError = true };
+        var reader = new SJReader(new SJStringData(data)) { ThrowOnError = true };
         var tree = SJTree.FromJSON(reader);
 
         Console.WriteLine($"Tree as JSON : {SJTree.ToJSON(tree)}");

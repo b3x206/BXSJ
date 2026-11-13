@@ -3,10 +3,10 @@
 namespace BX.SJ.Tests.Impl;
 
 [TestClass]
-public sealed class StringReaderUnitTests : ReaderUnitTests<SJStringReader>
+public sealed class StringDataUnitTests : ReaderUnitTests<SJStringData>
 {
-    public override SJStringReader CreateFromString(string data) => new(data);
-    public override SJStringReader CreateFromStream(Stream data, Encoding? enc)
+    public override SJStringData DataReaderFromString(string data) => new(data);
+    public override SJStringData DataReaderFromStream(Stream data, Encoding? enc)
     {
         ArgumentNullException.ThrowIfNull(data);
         // This just reads the text using the STL.
@@ -16,10 +16,5 @@ public sealed class StringReaderUnitTests : ReaderUnitTests<SJStringReader>
         // Could write the preamble, but meh.
         using var sr = enc is not null ? new StreamReader(data, enc) : new StreamReader(data);
         return new(sr.ReadToEnd());
-    }
-
-    public override void TestDisposeTwice()
-    {
-        base.TestDisposeTwice();
     }
 }

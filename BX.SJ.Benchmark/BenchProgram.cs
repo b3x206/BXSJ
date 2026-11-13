@@ -9,26 +9,26 @@ using System.Text;
 namespace BX.SJ.Benchmark
 {
     [MemoryDiagnoser]
-    public class SJStringReaderBenchmark : ReaderBenchmark<SJStringReader>
+    public class SJStringReaderBenchmark : ReaderBenchmark<SJStringData>
     {
         public string smallText = string.Empty;
         public string largeText = string.Empty;
 
-        public Dictionary<string, SJStringReader> readerDict = [];
+        public Dictionary<string, SJStringData> readerDict = [];
         public SJStringReaderBenchmark() : base()
         {
             readerDict[JsonFileValidName] = CreateFromFile(JsonFileValidName);
             readerDict[JsonFileLargeName] = CreateFromFile(JsonFileLargeName);
         }
 
-        public override SJStringReader CreateFromStream(Stream stream)
+        public override SJStringData CreateFromStream(Stream stream)
         {
             ArgumentNullException.ThrowIfNull(stream);
             using var sr = new StreamReader(stream);
-            var reader = new SJStringReader(sr.ReadToEnd());
+            var reader = new SJStringData(sr.ReadToEnd());
             return reader;
         }
-        public override SJStringReader CreateFromFile(string fileName)
+        public override SJStringData CreateFromFile(string fileName)
         {
             if (readerDict.TryGetValue(fileName, out var v))
             {
@@ -38,7 +38,7 @@ namespace BX.SJ.Benchmark
 
             return base.CreateFromFile(fileName);
         }
-        public override bool DisposeReader(SJStringReader reader) => false;
+        public override bool DisposeReader(SJStringData reader) => false;
     }
     [MemoryDiagnoser]
     public class SJStringWriterBenchmark : WriterBenchmark<SJStringWriter>

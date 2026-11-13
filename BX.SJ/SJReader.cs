@@ -58,16 +58,14 @@ namespace BX.SJ
     /// <example>
     /// // Refer to file:///./SJStringReader.cs
     /// </example>
-    public abstract class SJReader
+    public sealed class SJReader : IDisposable
     {
         /// <summary>
         /// Exception thrown on an error case while reading BXSJ.
         /// </summary>
         public class ReadException : Exception
         {
-            public ReadException(SJReader reader) : base($"{reader.Error}{(reader.Location(out int line, out int col) ? $" | at line={line} col={col}" : "")}")
-            { }
-            public ReadException(string message, int line, int col) : base($"{message} | at line={line} col={col}")
+            public ReadException(SJReader reader) : base($"{reader.Error} at position {reader.data.Position}")
             { }
             public ReadException(string message) : base(message)
             { }
@@ -127,19 +125,19 @@ namespace BX.SJ
             public readonly ReadOnlySpan<char> Slice()
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.Data.Slice(start, end - start);
+                return reader.data.SliceU16(start, end - start);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice(int start)
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.Slice(this.start + start, Length - start);
+                return reader.data.SliceU16(this.start + start, Length - start);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice(int start, int length)
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.Slice(this.start + start, length);
+                return reader.data.SliceU16(this.start + start, length);
             }
 
             public override readonly string ToString()
@@ -221,7 +219,6 @@ namespace BX.SJ
                 readonly get => stack.Count;
                 internal set => stack.Count = value;
             }
-            public int current;
             public Value lastEntryKey;
             public Value lastEntryType;
 
@@ -243,7 +240,6 @@ namespace BX.SJ
 
             public void Reset()
             {
-                current = 0;
                 stack.Clear(false);
                 lastEntryKey = default;
                 ended = false;
@@ -251,16 +247,17 @@ namespace BX.SJ
             }
             public override readonly string ToString()
             {
-                return $"current={current}, depth={depth}, top={{{stack.PeekValue()}}}";
+                return $"depth={depth}, top={{{stack.PeekValue()}}}";
             }
         }
 
-        // config
+        // - config
+        public const int DefaultMaxDepth = 128;
         /// <summary>
         /// Maximum read depth as generally recursion is used to read.
         /// <br>Set to zero to disable any depth checks.</br>
         /// </summary>
-        public ushort maxDepth = 128;
+        public ushort maxDepth = DefaultMaxDepth;
         /// <summary>
         /// Maximum amount of stackable state.
         /// </summary>
@@ -303,7 +300,7 @@ namespace BX.SJ
         /// <br><c>(MyType){ "foo": 42, "bar": ["baz", 2, "fizz"] }</c></br>
         /// </summary>
         public bool allowTypes = false;
-        protected bool _ThrowOnError = false;
+        private bool _ThrowOnError = false;
         /// <summary>
         /// When an erroreneous case occurs (or <see cref="Error"/> is set to anything other 
         /// than null/<see cref="string.Empty"/>), setting the <see cref="Error"/> will throw.
@@ -324,7 +321,7 @@ namespace BX.SJ
             }
         }
 
-        // state
+        // - state
         private State _S;
         public ref State S => ref _S;
         /// <summary>
@@ -349,25 +346,14 @@ namespace BX.SJ
             }
         }
 
-        // sources
-        public ISJReaderData Data { get; set; }
-
-        ///// <summary>
-        ///// Length of the data to read.
-        ///// </summary>
-        //public abstract int Length { get; }
-        ///// <summary>
-        ///// Get a character at <paramref name="i"/>.
-        ///// <br><b>Note:</b> This can receive OOB reads, generally at <paramref name="i"/> == <see cref="Length"/></br>
-        ///// <br>In this case, it is necessary to handle that exact condition with '\0' / EOF character of your choice.</br>
-        ///// <br>If reading from a stream, this should maybe seek within the index buffer or go back to the "approximate position" or refer to the underlying "string buffer"</br>
-        ///// </summary>
-        //public abstract char At(int i);
-        ///// <summary>
-        ///// Create a literal "char" slice, starting from <paramref name="start"/> with <paramref name="length"/> on the data source.
-        ///// <br>Used for the lazy <see cref="Value"/>'s <see cref="Value.Slice"/>.</br>
-        ///// </summary>
-        //public abstract ReadOnlySpan<char> Slice(int start, int length);
+        // - sources
+        // (btw, Writer will be infinitely easier, just get ReadOnlySpan<char> and
+        // do conversions yourself or write in memory as UTF-16 LE/BE whatever)
+        // Smarter optimizations + less peeks can be done with this reader, I'm just directly porting it to 3.x
+        public readonly ISJDataReader data;
+        public int LastDataVersion { get; private set; }
+        // An interesting extensibility idea, but not really for SJ.
+        // public SortedList<ISJLexerHandler> Lexers { get; set; }
 
         /// <summary>
         /// <see cref="SJType.Number"/> continuation check, Note that this reader 
@@ -408,7 +394,6 @@ namespace BX.SJ
                     return false;
             }
         }
-
         /// <summary>
         /// <see cref="SJType.Type"/> as literal (not string) continuation check.
         /// <br>String continuation should be checked similarly to <see cref="SJType.String"/></br>
@@ -422,12 +407,26 @@ namespace BX.SJ
             '=' => true,
             _ => false
         };
+        public static bool StringEqualsToAscii(ReadOnlySpan<byte> bytes, string data)
+        {
+            if (bytes.Length != data.Length) return false;
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                if (bytes[i] != data[i]) return false;
+            }
+            return true;
+        }
         /// <summary>
         /// String inspector for token.
         /// <br>Outputs <paramref name="c"/> as <c>{c}/{(int)c}</c></br>
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        protected static string Tk(char c) => c == '\0' ? "\\0/0" : $"{c}/{(int)c}";
+        private static string Tk(char c) => c == 0xFF ? "Any" : (c == '\0' ? "\\0/0" : $"{c}/{(int)c}");
+
+        public SJReader(ISJDataReader data)
+        {
+            this.data = data ?? throw new ArgumentNullException(nameof(data));
+        }
 
         /// <summary>
         /// Read a range of comment, starting from <see cref="State.current"/> for the reader data.
@@ -435,16 +434,17 @@ namespace BX.SJ
         /// <param name="variant">Variant of the comment type.</param>
         /// <returns>Start and ending range. If the block doesn't start with '/', 
         /// -1 is returned for start and end without setting error.</returns>
-        protected (int start, int end) GetCommentRange(ref int i, out SJTypeVariant variant)
+        private (int start, int end) GetCommentRange(out SJTypeVariant variant)
         {
             int start, end;
             variant = SJTypeVariant.None;
 
             // (/*|//)
-            if (i >= Length || At(i) != '/') return (-1, -1);
-            i++;
+            if (data.Ended || data.Current != '/') return (-1, -1);
+            data.Next();
 
-            switch (At(i))
+            char ch = (char)data.Current;
+            switch (ch)
             {
                 case '/':
                     variant = SJTypeVariant.SingleComment;
@@ -453,63 +453,61 @@ namespace BX.SJ
                     variant = SJTypeVariant.MultiComment;
                     break;
                 default:
-                    Error = $"Unexpected comment token '{Tk(At(i))}', expected '/ or *' to start a comment.";
+                    Error = $"Unexpected comment token '{Tk(ch)}', expected '/ or *' to start a comment.";
                     return (-1, -1);
             }
-            i++;
+            data.Next();
 
             // \s*<string>\s*(*/|\n)
-            int firstNonWs = start = i;
-            int lastNonWs = i;
-            for (; i < Length; i++)
+            int firstNonWs = start = data.Index;
+            int lastNonWs = data.Index;
+            for (ch = (char)data.Current; !data.Ended; ch = (char)data.Next())
             {
-                char c = At(i);
                 switch (variant)
                 {
                     case SJTypeVariant.SingleComment:
-                        switch (c)
+                        switch (ch)
                         {
                             case '\n':
-                                i++; // Skip '\n'
+                                data.Next(); // Skip '\n'
                                 goto _BreakOuter;
                             default:
-                                if (!char.IsWhiteSpace(c))
+                                if (!char.IsWhiteSpace(ch))
                                 {
-                                    if (firstNonWs == start) firstNonWs = i;
-                                    lastNonWs = i;
+                                    if (firstNonWs == start) firstNonWs = data.Index;
+                                    lastNonWs = data.Index;
                                 }
                                 break;
                         }
                         break;
                     case SJTypeVariant.MultiComment:
-                        switch (c)
+                        switch (ch)
                         {
                             case '*':
-                                if (++i < Length) goto _BreakOuter;
-                                c = At(i);
-                                switch (c)
+                                ch = (char)data.Next();
+                                switch (ch)
                                 {
                                     case '/': // */
                                         goto _BreakOuter;
                                     default:  // *[^]
-                                        if (!char.IsWhiteSpace(c))
+                                        if (!char.IsWhiteSpace(ch))
                                         {
-                                            if (firstNonWs == start) firstNonWs = i;
-                                            lastNonWs = i;      // *[^]
+                                            if (firstNonWs == start) firstNonWs = data.Index;
+                                            lastNonWs = data.Index;      // *[^]
                                         }
                                         else
                                         {
-                                            if (firstNonWs == start) firstNonWs = i - 1;
-                                            lastNonWs = i - 1;  // *\s
+                                            if (firstNonWs == start) firstNonWs = data.Index - 1;
+                                            lastNonWs = data.Index - 1;  // *\s
                                         }
                                         break;
                                 }
                                 break;
                             default:
-                                if (!char.IsWhiteSpace(c))
+                                if (!char.IsWhiteSpace(ch))
                                 {
-                                    if (firstNonWs == start) firstNonWs = i;
-                                    lastNonWs = i;
+                                    if (firstNonWs == start) firstNonWs = data.Index;
+                                    lastNonWs = data.Index;
                                 }
                                 break;
                         }
@@ -525,11 +523,12 @@ namespace BX.SJ
             switch (variant)
             {
                 case SJTypeVariant.MultiComment:
-                    if (i++ >= Length) // Skip '/'
+                    if (data.Ended)
                     {
                         Error = "Unclosed multi line comment, expected '*/'";
                         return (-1, -1);
                     }
+                    data.Next(); // Skip '/'
                     break;
             }
 
@@ -540,71 +539,76 @@ namespace BX.SJ
         /// </summary>
         /// <param name="i">Target position of the pointer.</param>
         /// <returns>Start and ending range. If the block doesn't start with '(', -1 is returned for start and end.</returns>
-        protected (int start, int end) GetTypeRange(ref int i, out SJTypeVariant variant)
+        private (int start, int end) GetTypeRange(out SJTypeVariant variant)
         {
             int start; int end;
             variant = SJTypeVariant.None;
 
-            if (i >= Length || At(i) != '(') return (-1, -1);
-            i++;
+            if (data.Ended || data.Current != '(') return (-1, -1);
+            data.Next();
 
             // Skip whitespace
-            while (i < Length && char.IsWhiteSpace(At(i))) i++;
+            // Note : Whitespace is limited to non-unicode ones.
+            // .. Though there are probably multi byte whitespace.
+            // Eh. This isn't too important, we aren't iterating rune / code points.
+            data.SkipWhiteSpace();
 
             // Check for string literal starting with '"'
-            if (i < Length && At(i) == '"')
+            if (!data.Ended && data.Current == '"')
             {
-                i++; // skip opening quote
-                start = i;
+                data.Next(); // skip opening quote
+                start = data.Index;
                 bool escaped = false;
                 variant = SJTypeVariant.TypeString;
 
-                while (i < Length)
+                while (!data.Ended)
                 {
+                    byte c = data.Current;
                     if (escaped) escaped = false;
-                    else if (At(i) == '\\') escaped = true;
-                    else if (At(i) == '"') break;
-                    i++;
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') break;
+                    data.Next();
                 }
 
-                if (i >= Length || At(i) != '"')
+                if (data.Ended || data.Current != '"')
                 {
                     Error = "Unclosed type literal string";
                     return (-1, -1);
                 }
 
-                end = i;
-                i++; // skip closing quote
+                end = data.Index;
+                data.Next();
             }
             else
             {
-                start = i;
+                start = data.Index;
                 variant = SJTypeVariant.TypeLiteral;
 
-                while (i < Length)
+                while (!data.Ended)
                 {
-                    if (!IsTypeLiteralContinuation(At(i))) break;
-                    i++;
+                    byte c = data.Current;
+                    if (!IsTypeLiteralContinuation((char)c)) break;
+                    data.Next();
                 }
 
-                if (i == start)
+                if (data.Index == start)
                 {
                     Error = "Empty type literal";
                     return (-1, -1);
                 }
-                end = i;
+                end = data.Index;
             }
 
             // Skip whitespace
-            while (i < Length && char.IsWhiteSpace(At(i))) i++;
+            data.SkipWhiteSpace();
 
             // Must end with ')'
-            if (i >= Length || At(i) != ')')
+            if (data.Ended || data.Current != ')')
             {
                 Error = "Unclosed type literal";
                 return (-1, -1);
             }
-            i++; // skip ')'
+            data.Next();
 
             return (start, end);
         }
@@ -616,7 +620,7 @@ namespace BX.SJ
         /// <see langword="false"/> if the ending has invalid characters. <see langword="true"/> if the document 
         /// ending is valid <b>or the code must yield, if <see cref="captureComments"/>.</b>
         /// </returns>
-        protected bool UpdateEnding()
+        private bool UpdateEnding()
         {
             ref var s = ref S;
             if (s.depth < 0)
@@ -625,9 +629,9 @@ namespace BX.SJ
             }
 
             // assert EOF or only whitespace if depth is zero.
-            for (; s.depth == 0 && s.current < Length; s.current++)
+            for (; s.depth == 0 && !data.Ended; data.Next())
             {
-                char ch = At(s.current);
+                byte ch = data.Current;
 
                 if (allowComments && ch == '/')
                 {
@@ -635,9 +639,13 @@ namespace BX.SJ
                     // as it's "not EOF" and "more data available"
                     return true;
                 }
-                else if (!char.IsWhiteSpace(ch))
+                else if (char.IsWhiteSpace((char)ch))
                 {
-                    Error = $"Unexpected '{Tk(ch)}' after end of document";
+                    data.SkipWhiteSpace();
+                }
+                else
+                {
+                    Error = "Unexpected data after end of document";
                     return false;
                 }
             }
@@ -651,7 +659,7 @@ namespace BX.SJ
         /// <br>It also validates <paramref name="v"/> and can mutate that value as well</br>
         /// </summary>
         /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
-        protected virtual bool UpdateState(ref State.Stacked cs, ref Value v)
+        private bool UpdateState(ref State.Stacked cs, ref Value v)
         {
             if (cs.Invalid)
             {
@@ -719,7 +727,7 @@ namespace BX.SJ
         /// Returns <see langword="true"/> if no state exists, meaning there isn't any state to check.
         /// </remarks>
         /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
-        protected bool UpdateLastState(ref Value v)
+        private bool UpdateLastState(ref Value v)
         {
             bool hasStacked = S.HasStackValues;
             S.notExpectingType = !hasStacked; // Expect only one type if not a stacked value entry.
@@ -735,17 +743,31 @@ namespace BX.SJ
         /// Throws the currently stored error. It does not check whether if an error is available.
         /// </summary>
         /// <exception cref="ReadException"></exception>
-        public virtual void ThrowError()
+        public void ThrowError()
         {
             throw new ReadException(this);
+        }
+        private void CheckDisposed()
+        {
+            if (disposedValue) throw new InvalidOperationException("Attempt to read from a disposed SJReader.");
+        }
+        public void CheckVersion()
+        {
+            if (data.Version != LastDataVersion)
+            {
+                LastDataVersion = data.Version;
+                Reset();
+            }
         }
 
         // Base sj.h
         /// <summary>
         /// Top level reader for a single non-recursive lexable generic value.
         /// </summary>
-        public virtual Value Read()
+        public Value Read()
         {
+            CheckDisposed();
+            CheckVersion();
             ref var s = ref S;
             var result = new Value(this);
             s.ended = !string.IsNullOrEmpty(Error);
@@ -757,16 +779,16 @@ namespace BX.SJ
                 result.objectDepth = 0;
                 return result;
             }
-            if (Length <= 0)
+            if (data.Empty)
             {
                 Error = "Empty data";
                 goto _Top;
             }
-            if (s.current >= Length)
+            if (data.Ended)
             {
                 // Reaching end of document is no longer an error, but it should return an empty "error" value.
                 result.type = SJType.Error;
-                result.start = result.end = s.current;
+                result.start = result.end = data.Index;
                 result.objectDepth = 0;
                 s.ended = true;
                 if (s.depth > 0)
@@ -786,19 +808,25 @@ namespace BX.SJ
                 goto _Top;
             }
 
-            result.start = s.current;
-            char ch = At(s.current);
+            result.start = data.Index;
+            char ch = (char)data.Next();
             // Skip : White Space
             if (char.IsWhiteSpace(ch))
             {
-                s.current++;
+                data.SkipWhiteSpace();
                 goto _Top;
             }
             // Validate / Parse : Comments
-            else if (allowComments && ch == '/')
+            else if (ch == '/')
             {
+                if (!allowComments)
+                {
+                    Error = "Unexpected '/', enable comments through 'allowComments'";
+                    goto _Top;
+                }
+
                 result.type = SJType.Comment;
-                (result.start, result.end) = GetCommentRange(ref s.current, out result.variant);
+                (result.start, result.end) = GetCommentRange(out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
                     return result;
@@ -806,8 +834,13 @@ namespace BX.SJ
                 goto _Top;
             }
             // Parse: Type (literal or something else). Treated sort of like a comment.
-            else if (allowTypes && ch == '(')
+            else if (ch == '(')
             {
+                if (!allowTypes)
+                {
+                    Error = "Unexpected '(', enable types through 'allowTypes'";
+                    goto _Top;
+                }
                 if (s.notExpectingType)
                 {
                     Error = "Was not expecting a duplicate type definition";
@@ -815,7 +848,7 @@ namespace BX.SJ
                 }
 
                 result.type = SJType.Type;
-                (result.start, result.end) = GetTypeRange(ref s.current, out result.variant);
+                (result.start, result.end) = GetTypeRange(out result.variant);
                 if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
                 {
                     s.notExpectingType = true;
@@ -869,7 +902,6 @@ namespace BX.SJ
                     Error = "Unexpected ':' or ',' in top level nothing";
                 }
 
-                s.current++;
                 goto _Top;
             }
             else if ((s.stack.PeekValue().expect & Expect.Colon) == Expect.Colon)
@@ -898,7 +930,7 @@ namespace BX.SJ
                     }
                 }
 
-                result.end = ++s.current;
+                result.end = data.Index;
 
                 // UpdateState here is not needed because the upper state will be checked later
                 if (!UpdateEnding())
@@ -924,7 +956,6 @@ namespace BX.SJ
                 prevHandle = prevHandle.Renew(s.stack);
 
                 result.objectDepth = (ushort)s.depth;
-                s.current++;
                 s.notExpectingType = false; // Technically a value entry, just does not update last state.
 
                 if (!UpdateState(ref prevHandle.Value, ref result))
@@ -937,9 +968,9 @@ namespace BX.SJ
             {
                 // Finite automata? What "for"
                 result.type = SJType.Number;
-                for (ch = At(s.current);
-                    s.current < Length && IsNumberContinuation(ch, out var foundOn);
-                    s.current++, ch = At(s.current)
+                for (ch = (char)data.Current;
+                    !data.Ended && IsNumberContinuation(ch, out var foundOn);
+                    ch = (char)data.Next()
                 )
                 {
                     // Not super accurate, but will do.
@@ -955,7 +986,7 @@ namespace BX.SJ
                                     result.variant = SJTypeVariant.HexNumber;
                                     break;
                                 case SJTypeVariant.ScientificNumber:
-                                    if (result.start == s.current) goto case SJTypeVariant.HexNumber;
+                                    if (result.start == data.Index) goto case SJTypeVariant.HexNumber;
                                     result.variant = SJTypeVariant.ScientificNumber;
                                     break;
 
@@ -978,7 +1009,7 @@ namespace BX.SJ
                             break;
                     }
                 }
-                result.end = s.current;
+                result.end = data.Position;
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -988,69 +1019,89 @@ namespace BX.SJ
             // Parse : String
             else if (ch == '"')
             {
-                ch = At(++s.current);
+                ch = (char)data.Next();
                 result.type = SJType.String;
-                result.start = s.current;
+                result.start = data.Index;
 
+                bool escape = false;
                 while (true)
                 {
-                    if (s.current >= Length)
+                    if (data.Ended)
                     {
                         Error = "Unclosed string";
                         goto _Top;
                     }
-                    // Do have to handle the current escape here
-                    if (ch == '"' && (s.current > 0 && At(s.current - 1) != '\\'))
-                    {
-                        break;
-                    }
-
-                    if (ch == '\\' || s.current < Length)
-                    {
-                        ch = At(++s.current);
-                    }
+                    if (escape) escape = false;
+                    else if (ch == '\\') escape = true;
+                    else if (ch == '"') break;
+                    ch = (char)data.Next();
                 }
-                result.end = s.current++;
+                data.Next(); // Skip '"'
+                result.end = data.Index;
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
                     goto _Top;
                 }
             }
-            // Parse : null | true | false 
-            else if (ch == 'n' || ch == 't' || ch == 'f')
-            {
-                result.type = (ch == 'n') ? SJType.Null : SJType.Bool;
-                int remaining = Length - s.current;
-                if (Slice(s.current, Math.Min(remaining, 4)).Equals("null", StringComparison.Ordinal))
-                {
-                    s.current += 4;
-                }
-                else if (Slice(s.current, Math.Min(remaining, 4)).Equals("true", StringComparison.Ordinal))
-                {
-                    s.current += 4;
-                }
-                else if (Slice(s.current, Math.Min(remaining, 5)).Equals("false", StringComparison.Ordinal))
-                {
-                    s.current += 5;
-                }
-                else
-                {
-                    Error = $"Unknown token '{Tk(ch)}' or truncated literal";
-                    goto _Top;
-                }
-                result.end = s.current;
-
-                if (!UpdateLastState(ref result) || !UpdateEnding())
-                {
-                    goto _Top;
-                }
-            }
-            // Fail
+            // Parse : null | true | false | any supported literal
             else
             {
-                Error = $"Unknown token '{Tk(ch)}'";
-                goto _Top;
+                // what in the strcmp()
+                switch (ch)
+                {
+                    case 'n':
+                        {
+                            Span<byte> aData = stackalloc byte[4];
+                            aData = aData.Slice(0, 3);
+                            data.Next(aData);
+                            result.type = SJType.Null;
+
+                            if (!StringEqualsToAscii(aData, "ull"))
+                            {
+                                goto default;
+                            }
+                            break;
+                        }
+                    case 't':
+                        {
+                            Span<byte> aData = stackalloc byte[4];
+                            aData = aData.Slice(0, 3);
+                            data.Next(aData);
+                            result.type = SJType.Bool;
+
+                            if (!StringEqualsToAscii(aData, "rue"))
+                            {
+                                goto default;
+                            }
+                            break;
+                        }
+                    case 'f':
+                        {
+                            Span<byte> aData = stackalloc byte[4];
+                            data.Next(aData);
+                            result.type = SJType.Bool;
+
+                            if (!StringEqualsToAscii(aData, "alse"))
+                            {
+                                goto default;
+                            }
+
+                            break;
+                        }
+                    // Fail
+                    default:
+                        Error = $"Unknown token '{Tk(ch)}' or truncated literal";
+                        goto _Top;
+
+                }
+
+                result.end = data.Index; // Position points to anything
+
+                if (!UpdateLastState(ref result) || !UpdateEnding())
+                {
+                    goto _Top;
+                }
             }
 
             return result;
@@ -1058,8 +1109,9 @@ namespace BX.SJ
         /// <summary>
         /// Moves <see cref="State.depth"/> and <see cref="State.current"/> until a depth.
         /// </summary>
-        protected void DiscardUntil(int depth)
+        public void DiscardUntil(int depth)
         {
+            CheckVersion();
             ref var s = ref S;
             var value = Value.Null();
             while (!s.ended && s.depth != depth && value.type != SJType.Error)
@@ -1074,6 +1126,7 @@ namespace BX.SJ
         /// <returns>Whether if more data is available to read from <paramref name="value"/>.</returns>
         public bool IterateArrayEntries(Value value, out Value result)
         {
+            CheckVersion();
             if (value.type != SJType.Array)
             {
                 result = Value.Error(this);
@@ -1142,6 +1195,7 @@ namespace BX.SJ
         /// <returns>Whether if more data is available to read from <paramref name="value"/>.</returns>
         public bool IterateObjectEntries(Value value, out Value result)
         {
+            CheckVersion();
             if (value.type != SJType.Object)
             {
                 result = Value.Error(this);
@@ -1240,6 +1294,7 @@ namespace BX.SJ
         /// </returns>
         public bool PeekEntryCount(Value v, out int keys, out int values, out int other, int expectCount = -1)
         {
+            CheckVersion();
             switch (v.type)
             {
                 case SJType.Array:
@@ -1252,19 +1307,12 @@ namespace BX.SJ
 
             keys = values = other = 0;
 
-            // For this instance since we aren't going to traverse towards inside and
-            // only change the current depth's state object, it should be safe to save / load state like this..
-            ref var s = ref S;
-            int prevCurrent = s.current;
-            int prevDepth = s.depth;
-            var prevTop = s.stack.PeekValue(); // Copied so it's fine
-
-            // get a ref to the current state, before starting
-            var topHandle = s.stack.Peek();
+            // Stop PMO and start bankroll
+            PushState();
+            bool result = true;
 
             DiscardUntil(v.objectDepth);
             Value innerValue = Read();
-            bool result = true;
             for (; innerValue.type != SJType.End; DiscardUntil(v.objectDepth), innerValue = Read())
             {
                 switch (innerValue.type)
@@ -1291,16 +1339,14 @@ namespace BX.SJ
                 }
             }
 
-            s.current = prevCurrent;
-            s.depth = prevDepth;
-            // Above pops the stack at the last read, which breaks some assumptions about version being same.
-            // Just renew unsafely, it will be fine.
-            topHandle = topHandle.Renew(s.stack, false);
-            topHandle.Value = prevTop;
+            PopState();
+
             return result;
         }
 
-        protected ValueStack<State> _stateStack = ValueStack<State>.CreateWithMaxSize(128);
+        private ValueStack<State> _stateStack = ValueStack<State>.CreateWithMaxSize(DefaultMaxDepth);
+        private bool disposedValue;
+
         public int StateCount => _stateStack.Count;
         /// <summary>
         /// Pushes a loadable stacked state.
@@ -1310,15 +1356,20 @@ namespace BX.SJ
         /// For any other SJReader with it's own state, this can be used to write it into it's own index like:
         /// <br><c>result := <see cref="PushState"/>; myStack[result] = otherState;</c></br>
         /// </returns>
-        public virtual int PushState()
+        public int PushState()
         {
+            CheckVersion();
+            CheckDisposed();
             var handle = _stateStack.Push(false);
             if (handle.IsStub) return -1;
-            ref var next = ref handle.Value;
 
-            // Copy the data to the entry in stateStack
-            S.CopyTo(ref next);
-            return _stateStack.Count - 1;
+            int pos = _stateStack.Count - 1;
+            ref var next = ref handle.Value;
+            S.CopyTo(ref next); // Copy the data to the entry in stateStack
+
+            // Other values
+            data.PushState();
+            return pos;
         }
         /// <summary>
         /// Loads a stacked state.
@@ -1328,11 +1379,16 @@ namespace BX.SJ
         /// For any other SJReader with it's own state, this can be used to read from it's own index like:
         /// <br><c>result := <see cref="PopState"/>; otherState = myStack[result];</c></br>
         /// </returns>
-        public virtual int PopState()
+        public int PopState()
         {
+            CheckVersion();
+            CheckDisposed();
             if (_stateStack.Count <= 0) return -1;
             _stateStack.PopValue().CopyTo(ref S);
-            return _stateStack.Count;
+
+            int pos = _stateStack.Count;
+            data.PopState();
+            return pos;
         }
         /// <summary>
         /// Starts a <see cref="SJWriter"/> transaction, which will reset if this state is disposed.
@@ -1340,53 +1396,51 @@ namespace BX.SJ
         public StateScope UseState(bool popIfError = false) => new StateScope(this, popIfError);
 
         /// <summary>
-        /// Get the current readout location.
-        /// </summary>
-        public virtual bool Location(out int line, out int column)
-        {
-            if (Length <= 0)
-            {
-                line = column = 0;
-                return false;
-            }
-
-            int c = S.current;
-            line = column = 1;
-            for (int i = 0; i < c; i++)
-            {
-                char cur = At(i);
-                if (cur == '\n')
-                {
-                    if ((i + 1) < Length)
-                    {
-                        column = 1;
-                        line++;
-                    }
-                }
-                else
-                {
-                    column++;
-                }
-            }
-
-            return true;
-        }
-        /// <summary>
         /// Resets the reader to the default state. This also removes any stacked state if present.
         /// </summary>
         /// <remarks>
         /// <br><b>This shouldn't discard loaded data and only reset the state.</b>
         /// (should have called it flush, but SJReader does not commit any data?)</br>
         /// </remarks>
-        public virtual void Reset()
+        public void Reset()
         {
+            CheckDisposed();
             S.Reset();
+            data.Reset();
             _stateStack.Clear();
         }
 
         public override string ToString()
         {
             return $"[SJReader] state=({S}), error={Error}";
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    // dispose managed state (managed objects)
+                    if (data is IDisposable d) d.Dispose();
+                }
+
+                // Data = null;
+                S = default;
+                _stateStack = default;
+                disposedValue = true;
+            }
+        }
+        // ~SJReader()
+        // {
+        //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+        //     Dispose(disposing: false);
+        // }
+        public void Dispose()
+        {
+            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
         }
     }
 }

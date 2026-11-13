@@ -18,7 +18,8 @@ namespace BX.SJ.Tests.Examples
     {
         public static void TMain(string[] args)
         {
-            var reader = new SJStringReader
+            var data = new SJStringData();
+            var reader = new SJReader(data)
             {
                 // These extra options allow reading invalid json, but valid bxsj. All of these will be demoed in order.
                 allowComments = true,
@@ -45,7 +46,7 @@ namespace BX.SJ.Tests.Examples
     ""antiAliasing"": 4,
 }
 // End of video settings";
-            reader.Data = CommentData;
+            data.Data = CommentData;
             {
                 // "values" will become stale as soon as reader.Data changes due to how ValueOrList is implemented.
                 // This is why it is recommended to treat SJReader.Value as perishable rather than to store it forever. It is better to copy it.
@@ -100,7 +101,7 @@ namespace BX.SJ.Tests.Examples
     0xF00F: [0xF0, 0x0F],
     0b1001: false
 }";
-            reader.Data = OtherKeyTypesData;
+            data.Data = OtherKeyTypesData;
             {
                 for (var value = reader.Read(); !reader.S.ended; value = reader.Read())
                 {
@@ -125,7 +126,7 @@ namespace BX.SJ.Tests.Examples
         { ""&"": ""nested objects"", ""wow"": [true, false, 4, { ""maybe"": [0, 1, 0, 0,], },], },
     ],
 }";
-            reader.Data = TrailingCommaData;
+            data.Data = TrailingCommaData;
             {
                 // We know that the SJReader will validate everything within the value,
                 // even if we don't iterate the object. This must fail if it didn't allow trailing comma.
@@ -168,7 +169,7 @@ namespace BX.SJ.Tests.Examples
     (Number)1, (Number)2, (AreWeSure)3, (Number)""don't mind me"", (Number)4, (NotNumber)5
 ]";
             reader.ThrowOnError = true;
-            reader.Data = TypeData1;
+            data.Data = TypeData1;
             {
                 for (var value = reader.Read(); !reader.S.ended; value = reader.Read())
                 {
@@ -198,7 +199,7 @@ namespace BX.SJ.Tests.Examples
                     }
                 }
             }
-            reader.Data = TypeData2;
+            data.Data = TypeData2;
             {
                 for (var value = reader.Read(); !reader.S.ended; value = reader.Read())
                 {
