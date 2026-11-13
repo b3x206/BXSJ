@@ -124,12 +124,10 @@ namespace BX.SJ
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly char At(int i) => reader.At(start + i);
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice()
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.Slice(start, end - start);
+                return reader.Data.Slice(start, end - start);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice(int start)
@@ -187,19 +185,16 @@ namespace BX.SJ
         {
             public struct Stacked
             {
-                public SJType type;
+                public readonly SJType type;
                 public int valueCount;
                 public Expect expect;
-                public readonly bool invalid;
-                public static Stacked Invalid => new Stacked(true);
-
-                private Stacked(bool invalid)
+                public readonly bool Invalid => type switch
                 {
-                    type = SJType.Error;
-                    valueCount = 0;
-                    expect = Expect.None;
-                    this.invalid = invalid;
-                }
+                    SJType.Object => false,
+                    SJType.Array => false,
+                    _ => true
+                };
+
                 public Stacked(SJType type, Expect expect)
                 {
                     this.type = type switch
@@ -210,12 +205,11 @@ namespace BX.SJ
                     };
                     this.expect = expect;
                     valueCount = 0;
-                    invalid = false;
                 }
 
                 public override readonly string ToString()
                 {
-                    if (invalid) return "invalid";
+                    if (Invalid) return "invalid";
                     return $"type={type}, valueCount={valueCount}, expect={expect}";
                 }
             }
@@ -355,22 +349,25 @@ namespace BX.SJ
             }
         }
 
-        /// <summary>
-        /// Length of the data to read.
-        /// </summary>
-        public abstract int Length { get; }
-        /// <summary>
-        /// Get a character at <paramref name="i"/>.
-        /// <br><b>Note:</b> This can receive OOB reads, generally at <paramref name="i"/> == <see cref="Length"/></br>
-        /// <br>In this case, it is necessary to handle that exact condition with '\0' / EOF character of your choice.</br>
-        /// <br>If reading from a stream, this should maybe seek within the index buffer or go back to the "approximate position" or refer to the underlying "string buffer"</br>
-        /// </summary>
-        public abstract char At(int i);
-        /// <summary>
-        /// Create a literal "char" slice, starting from <paramref name="start"/> with <paramref name="length"/> on the data source.
-        /// <br>Used for the lazy <see cref="Value"/>'s <see cref="Value.Slice"/>.</br>
-        /// </summary>
-        public abstract ReadOnlySpan<char> Slice(int start, int length);
+        // sources
+        public ISJReaderData Data { get; set; }
+
+        ///// <summary>
+        ///// Length of the data to read.
+        ///// </summary>
+        //public abstract int Length { get; }
+        ///// <summary>
+        ///// Get a character at <paramref name="i"/>.
+        ///// <br><b>Note:</b> This can receive OOB reads, generally at <paramref name="i"/> == <see cref="Length"/></br>
+        ///// <br>In this case, it is necessary to handle that exact condition with '\0' / EOF character of your choice.</br>
+        ///// <br>If reading from a stream, this should maybe seek within the index buffer or go back to the "approximate position" or refer to the underlying "string buffer"</br>
+        ///// </summary>
+        //public abstract char At(int i);
+        ///// <summary>
+        ///// Create a literal "char" slice, starting from <paramref name="start"/> with <paramref name="length"/> on the data source.
+        ///// <br>Used for the lazy <see cref="Value"/>'s <see cref="Value.Slice"/>.</br>
+        ///// </summary>
+        //public abstract ReadOnlySpan<char> Slice(int start, int length);
 
         /// <summary>
         /// <see cref="SJType.Number"/> continuation check, Note that this reader 
@@ -656,7 +653,7 @@ namespace BX.SJ
         /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
         protected virtual bool UpdateState(ref State.Stacked cs, ref Value v)
         {
-            if (cs.invalid)
+            if (cs.Invalid)
             {
                 // Supplying "invalid" state means you probably put the stub state in.
                 // Which means there was no state to update..
@@ -922,14 +919,15 @@ namespace BX.SJ
             else if (ch == '{' || ch == '[')
             {
                 result.type = ch == '{' ? SJType.Object : SJType.Array;
-                ref var prev = ref s.stack.PeekValue();
+                var prevHandle = s.stack.Peek();
                 s.stack.PushValue(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
+                prevHandle = prevHandle.Renew(s.stack);
 
                 result.objectDepth = (ushort)s.depth;
                 s.current++;
                 s.notExpectingType = false; // Technically a value entry, just does not update last state.
 
-                if (!UpdateState(ref prev, ref result))
+                if (!UpdateState(ref prevHandle.Value, ref result))
                 {
                     goto _Top;
                 }
@@ -1083,8 +1081,12 @@ namespace BX.SJ
             }
 
             DiscardUntil(value.objectDepth);
-            ref var st = ref S.stack.PeekValue(); // Must peek before Read()
+            // * Must peek before Read()
+            // * Must retain a handle for handling resize cases
+            var stHandle = S.stack.Peek();
             result = Read();
+            stHandle = stHandle.Renew(S.stack);
+
             if (result.type == SJType.Comment)
             {
                 return true;
@@ -1103,7 +1105,7 @@ namespace BX.SJ
                 case SJType.Comment:
                     return true;
                 default:
-                    st.valueCount++;
+                    stHandle.Value.valueCount++;
                     return true;
             }
         }
@@ -1147,8 +1149,12 @@ namespace BX.SJ
             }
 
             DiscardUntil(value.objectDepth);
-            ref var st = ref S.stack.PeekValue(); // Must peek before Read()
+            // * Must peek before Read()
+            // * Must retain a handle for handling resize cases
+            var stHandle = S.stack.Peek();
             result = Read();
+            stHandle = stHandle.Renew(S.stack);
+
             switch (result.type)
             {
                 case SJType.Error:
@@ -1162,7 +1168,7 @@ namespace BX.SJ
                 case SJType.Comment:
                     return true;
                 default:
-                    st.valueCount++;
+                    stHandle.Value.valueCount++;
                     return true;
             }
         }
@@ -1251,10 +1257,10 @@ namespace BX.SJ
             ref var s = ref S;
             int prevCurrent = s.current;
             int prevDepth = s.depth;
-            var prevState = s.stack.PeekValue();
+            var prevTop = s.stack.PeekValue(); // Copied so it's fine
 
             // get a ref to the current state, before starting
-            ref var currentState = ref s.stack.PeekValue();
+            var topHandle = s.stack.Peek();
 
             DiscardUntil(v.objectDepth);
             Value innerValue = Read();
@@ -1287,7 +1293,10 @@ namespace BX.SJ
 
             s.current = prevCurrent;
             s.depth = prevDepth;
-            currentState = prevState;
+            // Above pops the stack at the last read, which breaks some assumptions about version being same.
+            // Just renew unsafely, it will be fine.
+            topHandle = topHandle.Renew(s.stack, false);
+            topHandle.Value = prevTop;
             return result;
         }
 

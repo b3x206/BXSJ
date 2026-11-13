@@ -29,7 +29,7 @@ public static class ReaderTester
                     // Something distinct to actual "end" is that the depth is set negative though.
                     if (reader.S.ended)
                     {
-                        Assert.IsTrue(root.objectDepth <= 0, "Depth must be zero if ended");
+                        Assert.IsLessThanOrEqualTo(0, root.objectDepth, "Depth must be zero if ended");
                     }
                     break;
                 }

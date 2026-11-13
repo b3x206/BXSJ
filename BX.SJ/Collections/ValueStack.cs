@@ -104,8 +104,20 @@ namespace BX.SJ.Collections
             {
                 return new Handle(array, index, version);
             }
+
+            /// <summary>
+            /// Renews handle if the previously pointed stack is known to be valid, but has wrong heap reference.
+            /// <br>This can happen if the stack resizes.</br>
+            /// </summary>
+            public readonly Handle Renew(ValueStack<T> v, bool withCurrentVersion = true)
+            {
+                // All ts because ref fields are not supported.
+                // I assume that a ref field likely pins the struct and the whole heap region that contains this struct,
+                // or adds to a tracker that allows moving when GC..
+                return withCurrentVersion ? AtUnchecked(v._stack, index, version) : At(v, index);
+            }
         }
-            
+
         private (T value, int version)[] _stack;
         private int _count, _maxReachedCount;
         public int maxSize;
@@ -122,10 +134,7 @@ namespace BX.SJ.Collections
                     throw new InvalidOperationException("Cannot shrink stack that likely has borrowed values. Clear the list first and ensure no code uses a `ref` field to the stack.");
                 }
 
-                // Invalidate previous stack instance, because the one in the handle isn't a reference to this struct.
-                for (int i = 0; i < Capacity; i++) _stack[i].version++;
-                // Then resize
-                Array.Resize(ref _stack, Math.Clamp(value, 0, maxSize));
+                ResizeInternal(value);
             }
         }
         /// <summary>
@@ -200,6 +209,18 @@ namespace BX.SJ.Collections
             this.maxSize = maxSize;
         }
 
+        private int ResizeInternal(int size)
+        {
+            size = Math.Max(0, size);
+            if (maxSize > 0) size = Math.Min(size, maxSize);
+
+            (T value, int version)[] prev = _stack;
+            Array.Resize(ref _stack, size);
+
+            // Invalidate previous stack instance after resizing, because the one in the handle isn't a reference to this struct.
+            for (int i = 0; i < Math.Min(prev?.Length ?? 0, _maxReachedCount); i++) prev[i].version++;
+            return size;
+        }
         private (int index, int version) PushInternal(T? value)
         {
             if (maxSize > 0 && _count >= maxSize)
@@ -208,9 +229,7 @@ namespace BX.SJ.Collections
             }
             if (_count >= Capacity)
             {
-                int size = Math.Max(Capacity * 2, DefaultStackSize);
-                if (maxSize > 0) size = Math.Min(maxSize, size);
-                Array.Resize(ref _stack, size);
+                ResizeInternal(Math.Max(Capacity * 2, DefaultStackSize));
             }
             int pos = _count++;
 
@@ -358,6 +377,8 @@ namespace BX.SJ.Collections
         public readonly IEnumerator<T> GetEnumerator()
         {
             // Treat GetEnumerator as a snapshot (no version, count is constant, only _stack_ has bound checks.)
+            // Captured locals aren't by-ref to this as the enumerator is essentially a 
+            // As an extra measure, could just use the indexer with a reference to the struct from a heap resource..
             for (int i = 0; i < _count; i++)
             {
                 yield return _stack[i].value;

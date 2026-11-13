@@ -1,6 +1,6 @@
 ﻿# BX.SJ
 
-JSON **compatible** parser + writer for C#.
+JSON **compatible** parser (lexer) + formatted writer for C#.
 
 Loosely based on [sj.h](https://github.com/rxi/sj.h).
 

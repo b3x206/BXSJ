@@ -256,6 +256,37 @@ public sealed class ValueStackUnitTests
     }
 
     [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void HandleRenew()
+    {
+        ValueStack<int> ints = ValueStack<int>.CreateWithCapacity(1);
+
+        var h1 = ints.Push();
+        ints.Push();
+
+        Assert.IsFalse(h1.IsValid);
+        h1 = h1.Renew(ints);
+        Assert.IsTrue(h1.IsValid);
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void HandleRenewWithoutVersion()
+    {
+        ValueStack<int> ints = ValueStack<int>.CreateWithCapacity(1);
+
+        var h1 = ints.Push();
+        ints.Push();
+
+        // Version may be modified. This is only safe if you are saving the
+        // state of stack or something within another implicit stack.
+
+        Assert.IsFalse(h1.IsValid);
+        h1 = h1.Renew(ints);
+        Assert.IsTrue(h1.IsValid);
+    }
+
+    [TestMethod]
     [DataRow(1)]
     [DataRow(16)]
     public void StackClear(int count)

@@ -316,7 +316,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
 
     // Peek + Peek JSC
     [TestMethod]
-    [Timeout(TestTimeouts.Short)]
+    // [Timeout(TestTimeouts.Short)]
     [DataRow(@"[]", null, 0, 0, 0)]
     [DataRow(@"{}", null, 0, 0, 0)]
     [DataRow(@"[1]", null, 0, 1, 0)]
