@@ -1,14 +1,14 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace BX.SJ.Collections
 {
     /// <summary>
     /// Heap allocated value based stack that returns local refs from it's array.
     /// <br>* Is not necessarily `ref struct` based.</br>
-    /// <br>* Used with SJ specific data to reuse heap resources that may potentially exist on <typeparamref name="T"/>.
-    /// Rely on the BXUtility version instead.</br>
+    /// <br>* Used with SJ specific data to reuse heap resources that may potentially exist on <typeparamref name="T"/>.</br>
     /// <br>* This collection only grows until a given set limit <see cref="maxSize"/>.
     /// If the size limit does not exist, it grows infinitely.</br>
     /// </summary>
@@ -42,6 +42,14 @@ namespace BX.SJ.Collections
     public struct ValueStack<T> : IEnumerable<T>, IEnumerable, IReadOnlyCollection<T>, ICollection
         where T : struct
     {
+        // What am i even doing atp..
+        // Could cheat the resizes by using a List<T> instead of a raw array,
+        // but that's 2 indirections (and on my wildly inefficient parser
+        // i can't have such things, i must have super cache locality).
+#if NET_7_0_OR_GREATER
+        [ThreadStatic]
+        private static ValueStack<T> _stubStack;
+#endif
         [ThreadStatic]
         private static T _stub;
         public const int DefaultStackSize = 8;
@@ -49,19 +57,31 @@ namespace BX.SJ.Collections
 
         public readonly ref struct Handle
         {
+#if NET7_0_OR_GREATER
+            private readonly ref ValueStack<T> _ownerStack;
+#else
             private readonly (T value, int version)[] _ownerStack;
+#endif
             public readonly int index;
             private readonly int version;
             /// <summary>
             /// Returns <see langword="true"/> if the handle to the stack is valid.
             /// <br>Returns <see langword="false"/> for <see cref="IsStub"/>, but non-valid and non-stub values do exist as well.</br>
             /// </summary>
-            public readonly bool IsValid => !IsStub && index < _ownerStack.Length && _ownerStack[index].version == version;
+            public readonly bool IsValid => !IsStub &&
+#if NET_7_0_OR_GREATER
+                index < _ownerStack._stack.Length && _ownerStack._stack[index].version == version;
+#else
+                index < _ownerStack.Length && _ownerStack[index].version == version;
+#endif
             /// <summary>
             /// Returns <see langword="true"/> for strictly stub values, not for invalid values.
             /// </summary>
+#if NET_7_0_OR_GREATER
+            public readonly bool IsStub => index < 0;
+#else
             public readonly bool IsStub => index < 0 || _ownerStack == null;
-
+#endif
             // A roslyn analyzer emitting a warning if the result of this is stored would be great here.
             // Too bad it's out of scope for this project regardless.
             public ref T Value
@@ -73,7 +93,11 @@ namespace BX.SJ.Collections
                         goto _Fail;
                     }
 
+#if NET_7_0_OR_GREATER
+                    ref (T value, int version) t = ref _ownerStack._stack[index];
+#else
                     ref (T value, int version) t = ref _ownerStack[index];
+#endif
                     if (version != t.version)
                     {
                         goto _Fail;
@@ -87,34 +111,75 @@ namespace BX.SJ.Collections
                 }
             }
 
+#if NET7_0_OR_GREATER
+            public Handle(ref ValueStack<T> ownerStack, int index, int version)
+            {
+                _ownerStack = ref ownerStack;
+                this.index = index;
+                this.version = version;
+            }
+#else
             public Handle((T, int)[] ownerStack, int index, int version)
             {
                 _ownerStack = ownerStack;
                 this.index = index;
                 this.version = version;
             }
-            public static Handle Stub() => new Handle(null, -1, -1);
-            public static Handle At(ValueStack<T> v, int index)
+#endif
+            public static Handle Stub()
+            {
+#if NET_7_0_OR_GREATER
+                return new Handle(ref _stubStack, -1, -1);
+#else
+                return new Handle(null, -1, -1);
+#endif
+        }
+            public static Handle At(ref ValueStack<T> v, int index)
             {
                 if (index < 0 || index >= v.Count) return Stub();
+#if NET_7_0_OR_GREATER
+                return new Handle(ref v, index, v._stack[index].version);
+#else
                 var array = v._stack;
                 return new Handle(array, index, array[index].version);
+#endif
             }
-            internal static Handle AtUnchecked((T, int)[] array, int index, int version)
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static Handle AtUnchecked(ref ValueStack<T> stack, int index, int version)
             {
-                return new Handle(array, index, version);
+#if NET_7_0_OR_GREATER
+                return new Handle(ref stack, index, version);
+#else
+                return new Handle(stack._stack, index, version);
+#endif
             }
 
             /// <summary>
             /// Renews handle if the previously pointed stack is known to be valid, but has wrong heap reference.
             /// <br>This can happen if the stack resizes.</br>
+            /// <br>On newer runtimes / cases where the <see langword="ref"/> fields are supported, 
+            /// this only renews / validates the version and is not strictly necessary.</br>
             /// </summary>
-            public readonly Handle Renew(ValueStack<T> v, bool withCurrentVersion = true)
+            // #if NET_7_0_OR_GREATER
+            // [Obsolete("No need to renew the stack reference within the ref handle in .NET 7+", false)]
+            // #endif
+            public readonly Handle Renew(in ValueStack<T> v, bool withCurrentVersion = true)
             {
+                int ver = version;
+                if (!withCurrentVersion)
+                {
+                    if (index >= 0 && index < v._stack.Length) ver = v._stack[index].version;
+                    if (ver != version) return Stub();
+                }
+
+#if NET_7_0_OR_GREATER
+                return new Handle(ref _ownerStack, index, ver);
+#else
                 // All ts because ref fields are not supported.
                 // I assume that a ref field likely pins the struct and the whole heap region that contains this struct,
                 // or adds to a tracker that allows moving when GC..
-                return withCurrentVersion ? AtUnchecked(v._stack, index, version) : At(v, index);
+                return new Handle(v._stack, index, ver);
+#endif
             }
         }
 
@@ -279,7 +344,7 @@ namespace BX.SJ.Collections
             (int i, int v) = PushInternal(value);
 
             if (i < 0) return Handle.Stub();
-            return Handle.AtUnchecked(_stack, i, v);
+            return Handle.AtUnchecked(ref this, i, v);
         }
         /// <summary>
         /// Pushes a value of type <typeparamref name="T"/> and returns the resulting auto defaulted value.
@@ -292,7 +357,7 @@ namespace BX.SJ.Collections
             (int i, int v) = PushInternal(pushValue);
 
             if (i < 0) return Handle.Stub();
-            return Handle.AtUnchecked(_stack, i, v);
+            return Handle.AtUnchecked(ref this, i, v);
         }
         private (int index, int version) PopInternal()
         {
@@ -325,7 +390,7 @@ namespace BX.SJ.Collections
         {
             (int i, int v) = PopInternal();
             if (i < 0) return Handle.Stub();
-            return Handle.AtUnchecked(_stack, i, v);
+            return Handle.AtUnchecked(ref this, i, v);
         }
         private readonly int PeekInternal()
         {
@@ -348,11 +413,11 @@ namespace BX.SJ.Collections
         /// <summary>
         /// Returns a handle to the last pushed value.
         /// </summary>
-        public readonly Handle Peek()
+        public Handle Peek()
         {
             int p = PeekInternal();
             if (p < 0) return Handle.Stub();
-            return Handle.AtUnchecked(_stack, p, _stack[p].version);
+            return Handle.AtUnchecked(ref this, p, _stack[p].version);
         }
         /// <summary>
         /// Clears the contents.

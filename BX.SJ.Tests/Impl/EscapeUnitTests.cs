@@ -43,7 +43,7 @@ public sealed class EscapeUnitTests
     }
 
     public static IEnumerable<string[]> DataProcessors => [[EscapeContent], [EscapeInvalidSurrogate], [EscapeContentAsciiSequence], [EscapeInvalidUnescape]];
-    public static IEnumerable<string[]> TruncatedDataProcessors => TestEx.CreateTruncatedDataProcessors(DataProcessors);
+    public static IEnumerable<string[]> TruncatedDataProcessors => TestEx.CreateTruncatedStringData(DataProcessors);
 
     [TestMethod]
     [DataRow("")]

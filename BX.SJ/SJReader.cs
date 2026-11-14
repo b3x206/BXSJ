@@ -58,14 +58,14 @@ namespace BX.SJ
     /// <example>
     /// // Refer to file:///./SJStringReader.cs
     /// </example>
-    public sealed class SJReader : IDisposable
+    public sealed class SJReader : IDisposable, ISJStateStackable
     {
         /// <summary>
         /// Exception thrown on an error case while reading BXSJ.
         /// </summary>
         public class ReadException : Exception
         {
-            public ReadException(SJReader reader) : base($"{reader.Error} at position {reader.data.Position}")
+            public ReadException(SJReader reader) : base($"{reader.Error} at position {reader.Data.Position}")
             { }
             public ReadException(string message) : base(message)
             { }
@@ -125,19 +125,19 @@ namespace BX.SJ
             public readonly ReadOnlySpan<char> Slice()
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.data.SliceU16(start, end - start);
+                return reader.Data.SliceU16(start, end - start);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice(int start)
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.data.SliceU16(this.start + start, Length - start);
+                return reader.Data.SliceU16(this.start + start, Length - start);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice(int start, int length)
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.data.SliceU16(this.start + start, length);
+                return reader.Data.SliceU16(this.start + start, length);
             }
 
             public override readonly string ToString()
@@ -261,7 +261,7 @@ namespace BX.SJ
         /// <summary>
         /// Maximum amount of stackable state.
         /// </summary>
-        public int maxStateStack
+        public int MaxStateCount
         {
             get => _stateStack.maxSize;
             set => _stateStack.maxSize = value;
@@ -346,11 +346,21 @@ namespace BX.SJ
             }
         }
 
+        private ISJDataReader _Data;
         // - sources
         // (btw, Writer will be infinitely easier, just get ReadOnlySpan<char> and
         // do conversions yourself or write in memory as UTF-16 LE/BE whatever)
         // Smarter optimizations + less peeks can be done with this reader, I'm just directly porting it to 3.x
-        public readonly ISJDataReader data;
+        public ISJDataReader Data
+        {
+            get => _Data;
+            set
+            {
+                _Data = value ?? throw new ArgumentNullException(nameof(value));
+                Reset();
+                LastDataVersion = _Data.Version;
+            }
+        }
         public int LastDataVersion { get; private set; }
         // An interesting extensibility idea, but not really for SJ.
         // public SortedList<ISJLexerHandler> Lexers { get; set; }
@@ -425,11 +435,12 @@ namespace BX.SJ
 
         public SJReader(ISJDataReader data)
         {
-            this.data = data ?? throw new ArgumentNullException(nameof(data));
+            Data = data;
         }
 
         /// <summary>
         /// Read a range of comment, starting from <see cref="State.current"/> for the reader data.
+        /// <br>* The data source is expected to be started before reading.</br>
         /// </summary>
         /// <param name="variant">Variant of the comment type.</param>
         /// <returns>Start and ending range. If the block doesn't start with '/', 
@@ -440,10 +451,10 @@ namespace BX.SJ
             variant = SJTypeVariant.None;
 
             // (/*|//)
-            if (data.Ended || data.Current != '/') return (-1, -1);
-            data.Next();
+            if (Data.Ended || Data.Current != '/') return (-1, -1);
+            Data.Next();
 
-            char ch = (char)data.Current;
+            char ch = (char)Data.Current;
             switch (ch)
             {
                 case '/':
@@ -456,12 +467,12 @@ namespace BX.SJ
                     Error = $"Unexpected comment token '{Tk(ch)}', expected '/ or *' to start a comment.";
                     return (-1, -1);
             }
-            data.Next();
+            Data.Next();
 
             // \s*<string>\s*(*/|\n)
-            int firstNonWs = start = data.Index;
-            int lastNonWs = data.Index;
-            for (ch = (char)data.Current; !data.Ended; ch = (char)data.Next())
+            int firstNonWs = start = Data.Index;
+            int lastNonWs = Data.Index;
+            for (ch = (char)Data.Current; !Data.Ended; ch = (char)Data.Next())
             {
                 switch (variant)
                 {
@@ -469,13 +480,13 @@ namespace BX.SJ
                         switch (ch)
                         {
                             case '\n':
-                                data.Next(); // Skip '\n'
+                                Data.Next(); // Skip '\n'
                                 goto _BreakOuter;
                             default:
                                 if (!char.IsWhiteSpace(ch))
                                 {
-                                    if (firstNonWs == start) firstNonWs = data.Index;
-                                    lastNonWs = data.Index;
+                                    if (firstNonWs == start) firstNonWs = Data.Index;
+                                    lastNonWs = Data.Index;
                                 }
                                 break;
                         }
@@ -484,7 +495,7 @@ namespace BX.SJ
                         switch (ch)
                         {
                             case '*':
-                                ch = (char)data.Next();
+                                ch = (char)Data.Next();
                                 switch (ch)
                                 {
                                     case '/': // */
@@ -492,13 +503,13 @@ namespace BX.SJ
                                     default:  // *[^]
                                         if (!char.IsWhiteSpace(ch))
                                         {
-                                            if (firstNonWs == start) firstNonWs = data.Index;
-                                            lastNonWs = data.Index;      // *[^]
+                                            if (firstNonWs == start) firstNonWs = Data.Index;
+                                            lastNonWs = Data.Index;      // *[^]
                                         }
                                         else
                                         {
-                                            if (firstNonWs == start) firstNonWs = data.Index - 1;
-                                            lastNonWs = data.Index - 1;  // *\s
+                                            if (firstNonWs == start) firstNonWs = Data.Index - 1;
+                                            lastNonWs = Data.Index - 1;  // *\s
                                         }
                                         break;
                                 }
@@ -506,8 +517,8 @@ namespace BX.SJ
                             default:
                                 if (!char.IsWhiteSpace(ch))
                                 {
-                                    if (firstNonWs == start) firstNonWs = data.Index;
-                                    lastNonWs = data.Index;
+                                    if (firstNonWs == start) firstNonWs = Data.Index;
+                                    lastNonWs = Data.Index;
                                 }
                                 break;
                         }
@@ -523,12 +534,12 @@ namespace BX.SJ
             switch (variant)
             {
                 case SJTypeVariant.MultiComment:
-                    if (data.Ended)
+                    if (Data.Ended)
                     {
                         Error = "Unclosed multi line comment, expected '*/'";
                         return (-1, -1);
                     }
-                    data.Next(); // Skip '/'
+                    Data.Next(); // Skip '/'
                     break;
             }
 
@@ -536,6 +547,7 @@ namespace BX.SJ
         }
         /// <summary>
         /// Read a range of type, starting from <see cref="State.current"/> for the reader data.
+        /// <br>* The data source is expected to be started before reading.</br>
         /// </summary>
         /// <param name="i">Target position of the pointer.</param>
         /// <returns>Start and ending range. If the block doesn't start with '(', -1 is returned for start and end.</returns>
@@ -544,71 +556,71 @@ namespace BX.SJ
             int start; int end;
             variant = SJTypeVariant.None;
 
-            if (data.Ended || data.Current != '(') return (-1, -1);
-            data.Next();
+            if (Data.Ended || Data.Current != '(') return (-1, -1);
+            Data.Next();
 
             // Skip whitespace
             // Note : Whitespace is limited to non-unicode ones.
             // .. Though there are probably multi byte whitespace.
             // Eh. This isn't too important, we aren't iterating rune / code points.
-            data.SkipWhiteSpace();
+            Data.SkipWhiteSpace();
 
             // Check for string literal starting with '"'
-            if (!data.Ended && data.Current == '"')
+            if (!Data.Ended && Data.Current == '"')
             {
-                data.Next(); // skip opening quote
-                start = data.Index;
+                Data.Next(); // skip opening quote
+                start = Data.Index;
                 bool escaped = false;
                 variant = SJTypeVariant.TypeString;
 
-                while (!data.Ended)
+                while (!Data.Ended)
                 {
-                    byte c = data.Current;
+                    byte c = Data.Current;
                     if (escaped) escaped = false;
                     else if (c == '\\') escaped = true;
                     else if (c == '"') break;
-                    data.Next();
+                    Data.Next();
                 }
 
-                if (data.Ended || data.Current != '"')
+                if (Data.Ended || Data.Current != '"')
                 {
                     Error = "Unclosed type literal string";
                     return (-1, -1);
                 }
 
-                end = data.Index;
-                data.Next();
+                end = Data.Index;
+                Data.Next();
             }
             else
             {
-                start = data.Index;
+                start = Data.Index;
                 variant = SJTypeVariant.TypeLiteral;
 
-                while (!data.Ended)
+                while (!Data.Ended)
                 {
-                    byte c = data.Current;
+                    byte c = Data.Current;
                     if (!IsTypeLiteralContinuation((char)c)) break;
-                    data.Next();
+                    Data.Next();
                 }
 
-                if (data.Index == start)
+                if (Data.Index == start)
                 {
                     Error = "Empty type literal";
                     return (-1, -1);
                 }
-                end = data.Index;
+                end = Data.Index;
             }
 
             // Skip whitespace
-            data.SkipWhiteSpace();
+            Data.SkipWhiteSpace();
 
             // Must end with ')'
-            if (data.Ended || data.Current != ')')
+            if (Data.Ended || Data.Current != ')')
             {
                 Error = "Unclosed type literal";
                 return (-1, -1);
             }
-            data.Next();
+            Data.Next();
 
             return (start, end);
         }
@@ -629,9 +641,9 @@ namespace BX.SJ
             }
 
             // assert EOF or only whitespace if depth is zero.
-            for (; s.depth == 0 && !data.Ended; data.Next())
+            for (; s.depth == 0 && Data.MoveNext();)
             {
-                byte ch = data.Current;
+                byte ch = Data.Current;
 
                 if (allowComments && ch == '/')
                 {
@@ -641,7 +653,7 @@ namespace BX.SJ
                 }
                 else if (char.IsWhiteSpace((char)ch))
                 {
-                    data.SkipWhiteSpace();
+                    Data.SkipWhiteSpace();
                 }
                 else
                 {
@@ -753,9 +765,9 @@ namespace BX.SJ
         }
         public void CheckVersion()
         {
-            if (data.Version != LastDataVersion)
+            if (Data.Version != LastDataVersion)
             {
-                LastDataVersion = data.Version;
+                LastDataVersion = Data.Version;
                 Reset();
             }
         }
@@ -779,16 +791,16 @@ namespace BX.SJ
                 result.objectDepth = 0;
                 return result;
             }
-            if (data.Empty)
+            if (Data.Empty)
             {
                 Error = "Empty data";
                 goto _Top;
             }
-            if (data.Ended)
+            if (Data.Ended)
             {
                 // Reaching end of document is no longer an error, but it should return an empty "error" value.
                 result.type = SJType.Error;
-                result.start = result.end = data.Index;
+                result.start = result.end = Data.Index;
                 result.objectDepth = 0;
                 s.ended = true;
                 if (s.depth > 0)
@@ -808,12 +820,12 @@ namespace BX.SJ
                 goto _Top;
             }
 
-            result.start = data.Index;
-            char ch = (char)data.Next();
+            char ch = (char)Data.Next();
+            result.start = Data.Index;
             // Skip : White Space
             if (char.IsWhiteSpace(ch))
             {
-                data.SkipWhiteSpace();
+                Data.SkipWhiteSpace();
                 goto _Top;
             }
             // Validate / Parse : Comments
@@ -930,7 +942,7 @@ namespace BX.SJ
                     }
                 }
 
-                result.end = data.Index;
+                result.end = Data.Index;
 
                 // UpdateState here is not needed because the upper state will be checked later
                 if (!UpdateEnding())
@@ -953,7 +965,9 @@ namespace BX.SJ
                 result.type = ch == '{' ? SJType.Object : SJType.Array;
                 var prevHandle = s.stack.Peek();
                 s.stack.PushValue(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
+#if !NET_7_0_OR_GREATER
                 prevHandle = prevHandle.Renew(s.stack);
+#endif
 
                 result.objectDepth = (ushort)s.depth;
                 s.notExpectingType = false; // Technically a value entry, just does not update last state.
@@ -968,11 +982,14 @@ namespace BX.SJ
             {
                 // Finite automata? What "for"
                 result.type = SJType.Number;
-                for (ch = (char)data.Current;
-                    !data.Ended && IsNumberContinuation(ch, out var foundOn);
-                    ch = (char)data.Next()
-                )
+                while (Data.MoveNext())
                 {
+                    ch = (char)Data.Current;
+                    if (!IsNumberContinuation(ch, out var foundOn))
+                    {
+                        break;
+                    }
+
                     // Not super accurate, but will do.
                     // Theoretically we can check number literal validity this way,
                     // but whatever that's many more state to the larpmata.
@@ -986,7 +1003,7 @@ namespace BX.SJ
                                     result.variant = SJTypeVariant.HexNumber;
                                     break;
                                 case SJTypeVariant.ScientificNumber:
-                                    if (result.start == data.Index) goto case SJTypeVariant.HexNumber;
+                                    if (result.start == Data.Index) goto case SJTypeVariant.HexNumber;
                                     result.variant = SJTypeVariant.ScientificNumber;
                                     break;
 
@@ -1009,7 +1026,7 @@ namespace BX.SJ
                             break;
                     }
                 }
-                result.end = data.Position;
+                result.end = Data.Index;
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -1019,14 +1036,14 @@ namespace BX.SJ
             // Parse : String
             else if (ch == '"')
             {
-                ch = (char)data.Next();
+                ch = (char)Data.Next();
                 result.type = SJType.String;
-                result.start = data.Index;
+                result.start = Data.Index;
 
                 bool escape = false;
                 while (true)
                 {
-                    if (data.Ended)
+                    if (Data.Ended)
                     {
                         Error = "Unclosed string";
                         goto _Top;
@@ -1034,10 +1051,10 @@ namespace BX.SJ
                     if (escape) escape = false;
                     else if (ch == '\\') escape = true;
                     else if (ch == '"') break;
-                    ch = (char)data.Next();
+                    ch = (char)Data.Next();
                 }
-                data.Next(); // Skip '"'
-                result.end = data.Index;
+                result.end = Data.Index;
+                Data.Next(); // Skip '"'
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -1054,7 +1071,7 @@ namespace BX.SJ
                         {
                             Span<byte> aData = stackalloc byte[4];
                             aData = aData.Slice(0, 3);
-                            data.Next(aData);
+                            Data.Next(aData);
                             result.type = SJType.Null;
 
                             if (!StringEqualsToAscii(aData, "ull"))
@@ -1067,7 +1084,7 @@ namespace BX.SJ
                         {
                             Span<byte> aData = stackalloc byte[4];
                             aData = aData.Slice(0, 3);
-                            data.Next(aData);
+                            Data.Next(aData);
                             result.type = SJType.Bool;
 
                             if (!StringEqualsToAscii(aData, "rue"))
@@ -1079,14 +1096,13 @@ namespace BX.SJ
                     case 'f':
                         {
                             Span<byte> aData = stackalloc byte[4];
-                            data.Next(aData);
+                            Data.Next(aData);
                             result.type = SJType.Bool;
 
                             if (!StringEqualsToAscii(aData, "alse"))
                             {
                                 goto default;
                             }
-
                             break;
                         }
                     // Fail
@@ -1096,7 +1112,7 @@ namespace BX.SJ
 
                 }
 
-                result.end = data.Index; // Position points to anything
+                result.end = Data.Index; // Position points to anything or it ended
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -1138,7 +1154,9 @@ namespace BX.SJ
             // * Must retain a handle for handling resize cases
             var stHandle = S.stack.Peek();
             result = Read();
+#if !NET_7_0_OR_GREATER
             stHandle = stHandle.Renew(S.stack);
+#endif
 
             if (result.type == SJType.Comment)
             {
@@ -1207,7 +1225,9 @@ namespace BX.SJ
             // * Must retain a handle for handling resize cases
             var stHandle = S.stack.Peek();
             result = Read();
+#if !NET_7_0_OR_GREATER
             stHandle = stHandle.Renew(S.stack);
+#endif
 
             switch (result.type)
             {
@@ -1368,7 +1388,7 @@ namespace BX.SJ
             S.CopyTo(ref next); // Copy the data to the entry in stateStack
 
             // Other values
-            data.PushState();
+            Data.PushState();
             return pos;
         }
         /// <summary>
@@ -1387,7 +1407,7 @@ namespace BX.SJ
             _stateStack.PopValue().CopyTo(ref S);
 
             int pos = _stateStack.Count;
-            data.PopState();
+            Data.PopState();
             return pos;
         }
         /// <summary>
@@ -1406,7 +1426,7 @@ namespace BX.SJ
         {
             CheckDisposed();
             S.Reset();
-            data.Reset();
+            Data.Reset();
             _stateStack.Clear();
         }
 
@@ -1422,7 +1442,7 @@ namespace BX.SJ
                 if (disposing)
                 {
                     // dispose managed state (managed objects)
-                    if (data is IDisposable d) d.Dispose();
+                    Data.Dispose();
                 }
 
                 // Data = null;

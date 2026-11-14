@@ -72,14 +72,21 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         }
         return $"{info.Name}_{data0}";
     }
-    /// <summary>
-    /// Collection of root data (that are either empty or not)
-    /// </summary>
-    public static IEnumerable<string[]> JsonRootDataProcessors => [[JsonDataEmptyObject], [JsonDataEmptyArray], [JsonDataRootString], [JsonDataRootNumber], [JsonDataRootBoolFalse], [JsonDataRootBoolTrue], [JsonDataRootNull]];
-    public static IEnumerable<string[]> JsonTruncatedRootDataProcessors() => TestEx.CreateTruncatedDataProcessors(JsonRootDataProcessors.Where(v => v.Length > 0 && v[0] != JsonDataRootNumber));
 
     // Tests
-    // Basic tests: Read and Empty
+    // - Basic tests: Root, basic JSON files and empty
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(JsonRootData), typeof(TestData))]
+    public void TestRootLiterals(string data) =>
+        // Since the empty builder for the sample code is simple but matching, it must equal.
+        // Other, differenter captures will give "expectedCapture"..
+        Assert.AreEqual(data, ReadAndDispose(DataReaderFromString(data)).ToString());
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(JsonTruncatedRootData), typeof(TestData))]
+    public void TestTruncatedRootLiterals(string data) => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(DataReaderFromString(data)));
+
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestBasic() => ReadAndDispose(DataReaderFromString(JsonData1));
@@ -142,12 +149,12 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         // Validate whether if JsonData1 is loaded correctly.
         using SJReader reader = new(DataReaderFromString(JsonData1));
         ReaderTester.Read(reader);
-        Assert.AreEqual(JsonData1.Length, reader.data.Position);
+        Assert.AreEqual(JsonData1.Length, reader.Data.Position);
 
         // Read again with test
         reader.Reset();
         ReaderTester.Read(reader);
-        Assert.AreEqual(JsonData1.Length, reader.data.Position);
+        Assert.AreEqual(JsonData1.Length, reader.Data.Position);
     }
     // Dispose is no-op for most cases.
     //public virtual void TestDisposeTwice()
@@ -185,7 +192,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
 
         reader.Reset();
         Assert.That.IsNullOrEmpty(reader.Error, "Error state must reset on Reset");
-        Assert.AreEqual(0, reader.data.Position, "Reader position must be zero after reset");
+        Assert.AreEqual(0, reader.Data.Position, "Reader position must be zero after reset");
     }
 
     // Discarding
@@ -420,7 +427,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     // Do also read literals with no ignore JSC to test "Ended".
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonRootDataProcessors))]
+    [DynamicData(nameof(JsonRootData), typeof(TestData))]
     public void TestJSCRootLiteralsWithCapture(string data)
     {
         // Since 3.x, comments are now captured "content only", so this basic output is expected.
@@ -436,17 +443,6 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         Assert.AreEqual(printData, ReadJSCAndDispose(DataReaderFromString(readerData)).ToString());
     }
 
-    // Empty root
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonRootDataProcessors))]
-    public void TestRootLiterals(string data) =>
-        // Since the empty builder for the sample code is simple but somewhat matching, it should equal.
-        Assert.AreEqual(data, ReadAndDispose(DataReaderFromString(data)).ToString());
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonTruncatedRootDataProcessors))]
-    public void TestTruncatedRootLiterals(string data) => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(DataReaderFromString(data)));
     [TestMethod]
     //[DataRow(true)]
     //[DataRow(false)]

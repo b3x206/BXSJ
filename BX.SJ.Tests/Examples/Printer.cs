@@ -14,7 +14,7 @@ namespace BX.SJ.Tests.Examples
                 default:
                 case SJType.Error:
                     {
-                        Console.WriteLine($"ReadInner: Error '{reader.Error}' at '{reader.data.Position}'");
+                        Console.WriteLine($"ReadInner: Error '{reader.Error}' at '{reader.Data.Position}'");
                         // ^ This will output multiple times, you can add a global flag if that is undesired.
                         // Or you can throw like : reader.ThrowError();
                         break;

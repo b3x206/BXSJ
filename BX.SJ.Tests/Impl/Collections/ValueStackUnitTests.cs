@@ -99,10 +99,10 @@ public sealed class ValueStackUnitTests
         const int Value = 1;
         var ints = ValueStack<int>.CreateWithCapacity(1);
 
-        IsStubHandle(ValueStack<int>.Handle.At(ints, 0));
+        IsStubHandle(ValueStack<int>.Handle.At(ref ints, 0));
         IsStubHandle(ValueStack<int>.Handle.Stub());
         IsValidHandle(ints.Push(Value));
-        IsValidHandle(ValueStack<int>.Handle.At(ints, 0));
+        IsValidHandle(ValueStack<int>.Handle.At(ref ints, 0));
 
         // Rare case where ints has been resized
         var h = ints.Pop();
@@ -265,7 +265,7 @@ public sealed class ValueStackUnitTests
         ints.Push();
 
         Assert.IsFalse(h1.IsValid);
-        h1 = h1.Renew(ints);
+        h1 = h1.Renew(ref ints);
         Assert.IsTrue(h1.IsValid);
     }
 
@@ -282,7 +282,7 @@ public sealed class ValueStackUnitTests
         // state of stack or something within another implicit stack.
 
         Assert.IsFalse(h1.IsValid);
-        h1 = h1.Renew(ints);
+        h1 = h1.Renew(ref ints);
         Assert.IsTrue(h1.IsValid);
     }
 

@@ -9,9 +9,34 @@ public static class TestData
 {
     // JSON Data
     // - Root Data
-    public const string JsonDataEmptyObject = @"{}", JsonDataEmptyArray = @"[]", JsonDataRootString = @"""Hello world!""",
-        JsonDataRootNumber = @"42.42", JsonDataRootBoolFalse = @"false", JsonDataRootBoolTrue = @"true", JsonDataRootNull = @"null", DataEmpty = "";
+    public const string
+        // JSON compatible root data
+        JsonDataStringContent = "Hello world!",
+        JsonDataEmptyObject = @"{}", JsonDataEmptyArray = @"[]", JsonDataRootString = $@"""{JsonDataStringContent}""",
+        JsonDataRootNumber = @"42.42", JsonDataRootBoolFalse = @"false", JsonDataRootBoolTrue = @"true", JsonDataRootNull = @"null",
+        // Special BXSJ data
+        BXSJDataRootType = $@"(HelloWorld)", BXSJDataRootStringType = $@"(""{JsonDataStringContent} () \"""")",
+        BXSJDataSingleComment = $@"// {JsonDataStringContent}", BXSJDataNewlineSingleComment = $"// {JsonDataStringContent}\r\n",
+        BXSJDataMultiComment = $@"/* {JsonDataStringContent} */",
+        // Other
+        DataEmpty = "";
+    public static IEnumerable<string[]> JsonRootData => [
+        // Data, ExpectedCapture
+        [JsonDataEmptyObject], [JsonDataEmptyArray], [JsonDataRootString], [JsonDataRootNumber], [JsonDataRootBoolFalse], [JsonDataRootBoolTrue], [JsonDataRootNull]
+    ];
+    public static IEnumerable<string[]> JsonTruncatedRootData() => TestEx.CreateTruncatedStringData(JsonRootData.Where(v => v.Length > 0 && v[0] != JsonDataRootNumber));
 
+    // BXSJ root data assumes all tolerances are allowed.
+    public static IEnumerable<string[]> BXSJRootData => [
+        // Data, ExpectedCapture
+        [BXSJDataRootType, BXSJDataRootType.Trim('(', ')')], [BXSJDataRootStringType, BXSJDataRootStringType.Trim('(', ')', '"')],
+        [BXSJDataSingleComment, BXSJDataSingleComment.TrimStart('/').Trim()], [BXSJDataNewlineSingleComment, BXSJDataNewlineSingleComment.TrimStart('/').Trim()],
+        [BXSJDataMultiComment, BXSJDataMultiComment.Trim('/', '*', ' ')],
+    ];
+    public static IEnumerable<string[]> BXSJTruncatedRootData() => TestEx.CreateTruncatedStringData(JsonRootData.Where(v => v.Length > 0));
+
+    // ---
+    // Test refactor
     public const string JsonData1 = @"{
         ""foo"": [""bar"", ""baz""],
         ""idk"": 42,

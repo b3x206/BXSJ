@@ -26,7 +26,7 @@ _(all tests pass, benchmarks are consistent, slightly worse or slightly improved
 Use the [`SJStringReader`](./SJ/SJStringReader.cs) class to get started.
 
 ```cs
-// A basic object deserialization example. Non-recursive.
+// A basic object deserialization example, non-recursive.
 using BX.SJ;
 using System;
 using System.Numerics;
@@ -125,38 +125,6 @@ Console.WriteLine($"Saved Position : {data}, Read Position : {position}, Equals 
 * WriteLarge = Write ~500kb JSON (`{ "random_key": "random_value", ... 16384 entries }`) 32 times
 * Baseline = Do the same action, just without processing but read/write it.
 
-Classes used are [`SJStringReader`](./SJ/SJStringReader.cs) and [`SJStringWriter`](SJ/SJStringWriter.cs)
-
-```
-
-BenchmarkDotNet v0.15.8, Linux Debian GNU/Linux 13 (trixie)
-13th Gen Intel Core i7-13620H 2.92GHz, 1 CPU, 16 logical and 8 physical cores
-.NET SDK 8.0.421
-  [Host]     : .NET 8.0.27 (8.0.27, 8.0.2726.22922), X64 RyuJIT x86-64-v3
-  DefaultJob : .NET 8.0.27 (8.0.27, 8.0.2726.22922), X64 RyuJIT x86-64-v3
-
-```
-
-#### ReaderBenchmarks
-
-| Method             | Mean        | Error     | StdDev    | Ratio      | RatioSD  | Allocated | Alloc Ratio |
-|--------------------|------------:|----------:|----------:|-----------:|---------:|----------:|------------:|
-| ReadBaseline       |   0.0392 ms | 0.0001 ms | 0.0001 ms |       1.00 |     0.00 |         - |          NA |
-| Read               |  36.6612 ms | 0.2419 ms | 0.2263 ms |     935.90 |     6.17 |         - |          NA |
-|                    |             |           |           |            |          |           |             |
-| ReadLargeBaseline  |   3.5105 ms | 0.0200 ms | 0.0177 ms |       1.00 |     0.01 |         - |          NA |
-| ReadLarge          | 408.2533 ms | 1.4103 ms | 1.3192 ms |     116.30 |     0.67 |         - |          NA |
-
-#### WriterBenchmarks
-
-| Method             | Mean        | Error     | StdDev    | Ratio      | RatioSD  | Gen0   | Allocated | Alloc Ratio |
-|------------------- |------------:|----------:|----------:|-----------:|---------:|-------:|----------:|------------:|
-| WriteBaseline      |   0.0005 ms | 0.0000 ms | 0.0000 ms |       1.00 |     0.01 | 0.0134 |     168 B |        1.00 |
-| Write              |  11.0221 ms | 0.1107 ms | 0.1036 ms |  23,509.18 |   252.60 |      - |     168 B |        1.00 |
-|                    |             |           |           |            |          |        |           |             |
-| WriteLargeBaseline |   0.0001 ms | 0.0000 ms | 0.0000 ms |       1.00 |     0.00 | 0.0134 |     168 B |        1.00 |
-| WriteLarge         |  45.7750 ms | 0.1747 ms | 0.1548 ms | 575,208.09 | 2,453.84 |      - |     168 B |        1.00 |
-
 -->
 
 ---
@@ -164,16 +132,14 @@ BenchmarkDotNet v0.15.8, Linux Debian GNU/Linux 13 (trixie)
 More examples are in the [`./BX.SJ/Examples`](./BX.SJ/Examples) directory. <br>
 These files are not included for compiling, you can copy and paste it normally.
 
-You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of the tests are "convoluted", so it's better to use the examples.
+You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of the tests are "convoluted" (even though it should be simple), so it's better to use the examples.
 
 ---
 
 ## But why?
-* Because it's for older versions of Godot and other C# runtimes without good access to System.Text.Json or other JSON libraries.
+* Because it's for older versions of Godot and other C# runtimes without good access to System.Text.Json or other JSON libraries. (Although there is no .NET Framework support. This is because I still sometimes use mono for some reason)
 * Newtonsoft and other larger JSON libraries (incl. the System.Text.Json) are not really friendly to game engine runtimes (eg. AOT, Assembly load/unload friendliness, etc.). Source generators solve this but it's generally not a simple "plug and play" solution (meaning I don't need it or it's out of scope for this repository).
-* It's meant to be simple and stable but low level meaning it can be a pinned dependency. (Large updates will always increment versions and I will try my best to make first releases not need minor updates)
-* And why is all of the state public? <br>
-  \> I like not using reflection to access object's properties. Of course, it is "more dangerous" and prone to misuse, but it allows for better extensions and analysis (especially if you distribute it in a way hard to change the library like "dll" or "upm package").
+* It's meant to be ~~simple and~~ stable but ~~"low level"~~ meaning it can be a pinned dependency. (Large updates will always increment versions and I will try my best to make first releases not need minor updates)
 
 ## Changelog
 ### - 1.0.0
@@ -208,184 +174,9 @@ You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of th
 * Allow supplying of a custom class inheriting SJ classes
 * Improve writer benchmark
 
-The inner workings have been redone..
+The inner workings have been partially redone..
 
-<details>
-
-<summary>• Migration from 1.x -> 2.x </summary>
-
-1. **Everything has been moved from `SJ` to `BX.SJ` namespace.**
-```cs
-using SJ;    // ❌
-using BX.SJ; // ✅
-```
-
-2. **Object keys now return an explicit value of `SJType.Key`!** <br>
-   This is easy to migrate from, if your `switch` or `if` cases check for `SJType.String` as key, it can be simply interchanged to it such as:
-```cs
-static void Process(SJReader reader, SJReader.Value v)
-{
-    switch (v.type)
-    {
-        default:
-            throw new ArgumentException($"Invalid type {v.type}", nameof(v));
-
-        // ... cases for other SJTypes available in 1.x
-        // ❌ : Will fail on an event of SJType.Key!
-        case SJType.String:
-            Console.WriteLine(new string(v.Slice()));
-            break;
-    }
-}
-
-// ...
-while (reader.IterateObject(obj, out var k, out var v))
-{
-    // ↓ Will throw! However, if you do not care about the type of the key, 
-    //   this isn't a problem as it will behave exactly like SJType.String.
-    Process(reader, k);
-    Process(reader, v);
-}
-
-// ↓ Instead do this
-static void Process(SJReader reader, SJReader.Value v)
-{
-    switch (v.type)
-    {
-        default:
-            throw new ArgumentException($"Invalid type {v.type}", nameof(v));
-
-        // ... cases for other SJTypes available in 1.x
-        // ✅ : Will not fail on an event of SJType.Key
-        case SJType.Key:
-        case SJType.String:
-            Console.WriteLine(new string(v.Slice()));
-            break;
-    }
-}
-```
-3. **Only applicable if you have used `SJReader.allowComments = true`, even with that there are cases where the old implicit behaviour is used.** <br>
-   Because any `SJReader` may have it's `captureComments` set as `true`, (which may require explicit calls to `Read` while `!SJReader.ended`), 
-   in a case where a "comment" is encountered on the root level, it will be not automatically skipped and will be pushed into your main reader function as a value.
-   This may cause problems in such cases like:
-```cs
-static void Process(SJReader reader, SJReader.Value v)
-{
-    switch (v.type)
-    {
-        default:
-            throw new ArgumentException($"Invalid type {v.type}", nameof(v));
-
-        // ... cases for other SJTypes available in 1.x
-        // ❌ : Will fail on a case of SJType.Comment (and Key)!
-        case SJType.Number:
-            Console.WriteLine($"Number: {new string(v.Slice())}");
-            break;
-        case SJType.Array:
-            while (reader.IterateArray(v, out var av)) 
-            {
-                Process(reader, av);
-            }
-            break;
-    }
-}
-
-const string Data = @"// I decided to allow comments for some reason
-[1.0, 2.0]
-// Oh well..
-";
-var reader = new SJStringReader(Data)
-{
-    allowComments = true,
-    captureComments = true // Not knowing we are interacting with older code
-};
-
-// And this deserialization code is not aware of "captureComments"
-// ❌ : The Read will have SJType.Comment supplied into it!
-var root = reader.Read();
-Process(reader, root);
-
-// ↓ Instead do this
-for (var root = reader.Read(); !reader.ended; root = reader.Read())
-{
-    // ✅ : Discard comments when interacting with code that disallow or not expect it
-    if (root.type == SJType.Comment) continue;
-    Process(reader, root);
-}
-```
-
-4. The inner workings of custom `SJReader` and `SJWriter` has changed (generally the access modifiers):
-```cs
-// For SJReader:
-// (the behaviour isn't changed, only the access modifiers)
-protected override char At(int i); /* → */ public override char At(int i);
-protected override ReadOnlySpan<char> Slice(int start, int length); /* → */ public override ReadOnlySpan<char> Slice(int start, int length);
-
-// For SJWriter:
-// Add these two, change accordingly to your data source:
-public override bool CanReadData => true;
-public override string ReadData() => sb.ToString();
-
-// Clear written data on Reset()
-public override void Reset()
-{
-    base.Reset();
-    sb.Clear();
-}
-
-// ⚠️ : ToString() should no longer return the data written by the SJWriter, instead it should return state if relevant.
-// ❌ : public override string ToString() { return ReadData(); }
-```
-
-5. Writing comments with `SJWriter` is easier now, you no longer need to use hacky `SJWriter.WriteLiteralValue`:
-```cs
-// 1. Enable it
-writer.allowComments = true;
-// 2. Write it (if you don't enable it before it will throw)
-writer.WriteComment("This is a comment!");
-writer.WriteCommentLine("This is a comment that starts with //!");
-
-// Note : Writer tracks whether if a comment is written (through WrittenComment). If commented json is undesired you 
-// can "false assert" that. **However it won't capture any indirect way of writing comments, so be careful!**
-```
-
-6. Unit tests have been changed to support custom `SJReader` and `SJWriter` classes (for extensions in future), with more coverage and cases to test.
-```cs
-namespace MySJEx.Tests;
-
-// Reader
-[TestClass]
-public sealed class CustomReaderTests : ReaderUnitTests<SJCustomReader>
-{
-    public override SJCustomReader CreateFromString(string data) => new(new MemoryStream(Encoding.UTF8.GetBytes(data)), Encoding.UTF8);
-    public override SJCustomReader CreateFromStream(Stream data, Encoding? enc) => new(data, enc);
-    // Some other bootstrap functions can be changed via overriding
-
-    // Some optional tests are declared "virtual" so that you can apply [TestMethod]
-    [TestMethod]
-    public override void TestDisposeTwice()
-    {
-        base.TestDisposeTwice();
-    }
-}
-
-// Writer
-[TestClass]
-public sealed class CustomWriterTests : WriterUnitTests<SJCustomWriter>
-{
-    public override SJCustomWriter CreateWriter() => new();
-    // Some other bootstrap functions can be changed via overriding
-
-    // (similar optional tests exist on Writer)
-}
-```
-
-From 1.x, everything else is more or less the same, except the inner workings of the reader and writer. <br>
-**Note:** However in the future releases, implicit behaviour _could be_ removed. It is recommended to use the new way (with `for`) of iterating objects and arrays.
-
-</details>
-
-**Note** : There has been a supposed "3.x" release with, however it should be treated more as "2.x bugfix with breaking changes". You can use that if you would like to rollback to a version that is simpler with some of these changes. It will exist as an intermediate commit in `master`.
+**Note** : There has been a supposed "3.x" release with, however it should be treated more as "2.x bugfix with breaking changes". You can use that if you would like to rollback to a version that is simpler with some of these changes. It will exist as an intermediate commit in `master` for the time being. It could be turned into a "2.x compatible" system, although with `[ObsoleteAttribute]` that will still point to working things.
 
 ### - 3.0.0
 **▶ SJReader**
@@ -429,8 +220,9 @@ From 1.x, everything else is more or less the same, except the inner workings of
 * [X] Built-in format buffer that moves from `stackalloc -> char[] -> ArrayPool<char>.Shared` (reuse of writer is better)
 
 **▶ New**
-* [ ] Reached a higher percentage of test coverage (for `bx.sj.dll`)
-* `ValueStack<T>` to stack states on reader and writer.
+* Reached a higher percentage of test coverage (for `bx.sj.dll`)
+* Tooling for creating the workspace / worktrees. (This could be improved with bare repos + contained folder for SJ project files, but current state is fine for this project.)
+* `Collections.ValueStack<T>` to stack states on reader and writer. (Do not use that struct outside of SJ related code)
 * `SJStreamReader` to read from a `System.IO.Stream` with encoding.
 * `SJStreamWriter` to write into a `System.IO.Stream` with encoding.
 * `SJLinearWriter` to write into a contiguous region of `char[]` <br>
@@ -440,6 +232,8 @@ From 1.x, everything else is more or less the same, except the inner workings of
 <details>
 
 <summary>• Migration from 2.x -> 3.x </summary>
+
+3.x was just going to be a simple addition, but has turned out to be something much bigger, pointing out a fundamental design flaw in it's original design + many premature optimizations without profiling, turning SJ's internals into something complicated. This should be remedied in later 3.x releases.
 
 1. All state has been reworked and moved into `S` on both `SJReader` and `SJWriter`.
 ```cs
@@ -456,82 +250,35 @@ Console.WriteLine(writer.finish);  // ❌
 Console.WriteLine(writer.S.ended); // ✅
 ```
 
-<!--
-State management has been changed, transactional / stacked states are now allowed. You must change your code accordingly if there are any custom `SJReader`/`SJWriter` classes. For example:
+State can be pushed and popped in an opaque manner. The interface extensions / sources for the reader / writer also has corresponding methods on `ISJStackable`.
 
-```cs
-using BX.SJ;
+3. All classes are `sealed` in favor of interfaces.
+* This is one of the largest changes.
 
-public sealed class MyCustomWriterOrReader : SJReader | SJWriter
-{
-    // ...
+2. All data is now read / written through the `ISJDataReader` / `ISJDataWriter`. These are new interfaces that only care about the ascii codepoints. If you consider unicode codepoints (within the C# limit) as tokens, prefer using the 2.x version with additional fixes.
+* Data sources' are no longer immutable to the `SJReader`'s inheriting type. It can be changed on the fly within the same reader. This is rarely practical outside of reusability, generally a single type is preferred for reasonable approaches (that isn't churning out other libraries and is actually developing an application).
+* Both `SJReader` and `SJWriter` are `IDisposable` for their data reader / writer.
 
-    // For SJReader:
-    // If your source uses seeking + slices that are immediately 
-    // evaluated and are never stored (with address translation),
-    // you must revert it's pointer.
-    // This is the only case that I can think of for SJReader where such an override is needed.
-    // ---
-    // For SJWriter:
-    // Writer generally has a current pointer, which can be seeked if needed for reset.
-    // If seeking is unsupported, you can throw NotSupportedException.
-    private int[] _currentStates = new int[DefaultStackSize];
-    protected override void ResizeStateStack(int size)
-    {
-        base.ResizeStateStack(size);
-        System.Array.Resize(ref _currentStates, size);
-    }
-    public override int PushState()
-    {
-        int baseResult = base.PushState();
-        if (baseResult >= 0) _currentStates[baseResult] = current;
-        return baseResult;
-    }
-    public override int PopState()
-    {
-        int baseResult = base.PopState();
-        if (baseResult >= 0) current = _currentStates[baseResult];
-        return baseResult;
-    }
-    public override void Reset()
-    {
-        base.Reset();
-        current = startPosition;
-    }
-}
-```
+4. Seekless behaviour for reading / writing (reading all data of the writer still requires seeking), outside of slicing (as `SJReader.Value` is lazily evaluated. Can keep another buffer to create from, if it isn't desired to load all the file and create a slice) that is.
 
-2. `SJWriter.WriteKey(ReadOnlySpan<char>)` is no longer `virtual`, override `WriteLiteralKey(ReadOnlySpan<char>, bool)`
-```cs
-public sealed class MyCustomWriter : SJWriter
-{
-    public override bool WriteKey(ReadOnlySpan<char> name) { ... }                                // ❌
-    public override bool WriteLiteralKey(ReadOnlySpan<char> value, bool asString = false) { ... } // ✅ 
-}
-```
--->
+5. No more UPM Json files and other related engine metadatas. A specific branch will exist for a directly authorable version.
 
-3. BXSJ will no longer contain files generated by a _certain game engine_, this includes the removal of `package.json`, `SJ.asmdef` and the incompatible `.meta` files that it generates. This is to _✨ streamline ✨_ the development of BXSJ. If you would like to use it there, prefer directly incorporating within the working directory or as a submodule with custom commits.
-
-4. Updated MSTest to 4.x, which adds bunch of new things. Specifically,
+6. Updated MSTest to 4.x, which adds bunch of new things. Specifically,
   * `ExpectedExceptionAttribute` is no more, because I need to have more indirections apparently.
 
 </details>
 
 <details>
 
-<summary>• Plans for 4.x / TODO </summary>
+<summary>• TODO </summary>
 
 1. [ ] Port tests to xunit as mstest seems somewhat specific to visual studio and can't be ran headless trivially <br>
   This should also improve the tests and place most logic into one manageable place, instead of repeating redundant logic..
-2. [X] Rework `State` and other related things to allow saving / loading state.
-  * [ ] SJReader
-  * [X] SJWriter (idk why i did this one first)
-3. [ ] Use `ISJDataReader`/`ISJDataWriter` to write data (composition) instead of using inheritance.
+2. [~] Use `ISJDataReader`/`ISJDataWriter` to write data (composition) instead of using inheritance.
    (This is already possible with the current setup as nothing is truly `private` within BXSJ,
    but it should be the main design instead. For the time being though, I do not need such a feature so I will delay it until there..)
-4. [ ] Improve performance by reducing redundant branching/bounds checking and manage state slightly better.
-5. [ ] UTF-8 (byte) reading/writing (Perhaps I could use the 'char' version as a basic UTF-8 version as that only converts the relevant tokens. Though the problem here becomes the slice spans + the endianness of the UTF-16 if I make the internals of BXSJ byte based..)
+3. [ ] UTF-8 (byte) reading/writing (Perhaps I could use the 'char' version as a basic UTF-8 version as that only converts the relevant tokens. Though the problem here becomes the slice spans + the endianness of the UTF-16 if I make the internals of BXSJ byte based..)
+4. [ ] Improve readability and then improve performance. (Doing the first one will likely improve performance.)
 
 <sup>Should have used the `BinaryWriter` instead...</sup>
 

@@ -1,5 +1,6 @@
 using BX.SJ.Collections;
 using System;
+using System.Collections;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -30,9 +31,10 @@ namespace BX.SJ
         public int Version { get; private set; } = 0;
         public byte CharSize => 2;
         public int Position { get; private set; } = 0;
-        public bool Ended => Position >= Data.Length;
-        public bool Empty => Data?.Length <= 0; // Giga brain
-        public byte Current => Ended || Position <= 0 ? (byte)0 : (byte)Math.Min((char)0xFF, Data[Position - 1]);
+        public bool Ended => Position > Data.Length;
+        public bool Empty => string.IsNullOrEmpty(Data);
+        public byte Current { get; private set; }
+        object IEnumerator.Current => Current;
 
         public SJStringData()
         { }
@@ -41,57 +43,87 @@ namespace BX.SJ
             _Data = data;
         }
 
+        public bool MoveNext()
+        {
+            if (Position < Data?.Length)
+            {
+                Current = (byte)Math.Min(/* ÿ */(char)0xFF, Data[Position]);
+                Position++;
+                return true;
+            }
+            return MoveNextRare();
+        }
+        private bool MoveNextRare()
+        {
+            Position = (Data?.Length ?? 0) + 1;
+            Current = default;
+            return false;
+        }
         public byte Next()
         {
-            if (Ended) return 0;
+            if (MoveNext())
+            {
+                return Current;
+            }
 
-            char d = Data[Position++];
-            return (byte)Math.Min((char)0xFF /* ÿ */, d);
+            return default;
         }
         public int Next(in Span<byte> data)
         {
             int i;
-            for (i = 0; !Ended && i < data.Length; i++)
+            // MoveNext first, this is to skip the last character as it will be left as the "Current"
+            for (i = 0; MoveNext() && i < data.Length; i++)
             {
-                data[i] = (byte)Math.Min((char)0xFF /* ÿ */, Data[Position++]);
+                data[i] = Current;
             }
-            return i; // 'i' includes the Length
+
+            // 'i' includes the Length
+            return i;
         }
         public int SkipWhiteSpace()
         {
             int i;
-            for (i = 0; !Ended && char.IsWhiteSpace(Data[Position]); i++, Position++) ;
+            for (i = 0; char.IsWhiteSpace(Data[Position]) && MoveNext(); i++) ;
             return i;
         }
 
         public ReadOnlySpan<byte> SliceU8(int start, int length)
         {
-            if (Empty) throw new InvalidOperationException("Cannot slice empty data.");
+            if (Empty) return ReadOnlySpan<byte>.Empty;
             return Encoding.UTF8.GetBytes(Data.Substring(start, length));
         }
         public ReadOnlySpan<char> SliceU16(int start, int length)
         {
-            if (Empty) throw new InvalidOperationException("Cannot slice empty data.");
+            if (Empty) return ReadOnlySpan<char>.Empty;
+            Console.WriteLine($"start={start}, length={length}");
             return Data.AsSpan(start, length);
         }
 
-        private ValueStack<int> _positions = ValueStack<int>.Create();
-        public void PushState()
+
+        private ValueStack<int> _positions = ValueStack<int>.CreateWithMaxSize(SJReader.DefaultMaxDepth);
+        public int MaxStateCount { get => _positions.Capacity; set => _positions.Count = value; }
+        public int PushState()
         {
             _positions.PushValue(Position);
+            return _positions.Count - 1;
         }
-        public void PopState()
+        public int PopState()
         {
             var h = _positions.Pop();
-            if (h.IsStub) return;
+            if (h.IsStub) return -1;
             Position = h.Value;
+            Current = Position >= Data.Length ? (byte)0 : (byte)Math.Min((char)0xFF, Data[Position]);
+            return _positions.Count;
         }
 
         public void Reset()
         {
-            Position = 0;
+            Position = Current = 0;
             _positions.Clear(false);
         }
+
+        public void Dispose()
+        { }
     }
 }
 
