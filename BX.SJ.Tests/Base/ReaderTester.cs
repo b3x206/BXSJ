@@ -1,5 +1,4 @@
-﻿using System.Numerics;
-using System.Text;
+﻿using System.Text;
 
 namespace BX.SJ.Tests;
 
@@ -10,12 +9,12 @@ public static class ReaderTester
 {
     public const int DefaultSbCapacity = 512;
 
-    public static int RemoveCharactersFrom(ref Span<char> s, params string[] strs)
+    public static int RemoveStringsFrom(ref Span<char> s, params string[] strs)
     {
-        // This is utterly overkill. And likely buggy.
+        // This is utterly overkill. And likely buggy. But it works from the limited testing.
+        // > Mfw the testing suite needs tests
         int csSize = (strs.Length / 32) + 1;
-        Span<int> candidates     = csSize > 32 ? new int[csSize] : stackalloc int[csSize];
-        Span<int> fullCandidates = csSize > 32 ? new int[csSize] : stackalloc int[csSize];
+        Span<int> candidates = csSize > 32 ? new int[csSize] : stackalloc int[csSize];
         static int GetSlice(int i) => i / 32;
         static bool GetCandidate(Span<int> cs, int i)
         {
@@ -27,14 +26,13 @@ public static class ReaderTester
         {
             int index = GetSlice(i), bit = 1 << (i % 32);
             if (v) cs[index] |= bit;
-            else cs[index] &= ~bit;
+            else cs[index] ^= bit; // Bit is a single flag
         }
 
-        // Dawg wth are you doing
-        int candidateRead = 0;
+        int matchLen = 0, fullMatchLen = 0;
         int marked = 0;
         const char ReplaceMarker = '\0';
-        for (int i = 0, rfor = 0; i < s.Length; i++)
+        for (int i = 0, matching = 0, rfor = 0; i < s.Length; i++, matching = 0)
         {
             if (rfor > 0)
             {
@@ -44,66 +42,70 @@ public static class ReaderTester
                 continue;
             }
 
+            // Loop could be further optimized by
+            // * Creating a list of first chars for the first check (must be aware of the candidate positions)
+            // * When there is a potential candidate, shift by TrailingZeroCount + target slice to
+            //   jump to the candidate instead of checking the bits one by one
+            // * No
             for (int j = 0; j < strs.Length; j++)
             {
-                int matching = 0;
                 string str = strs[j];
-                switch (candidateRead)
+                if (string.IsNullOrEmpty(str)) continue;
+                switch (matchLen)
                 {
                     case 0:
-                        if (str[candidateRead] == s[i])
+                        // On the start, all is candidate and there is no need to check the allowed candidates.
+                        if (str[matchLen] == s[i])
                         {
-                            MarkCandidate(candidates, j, true);
-                            matching++;
-                        }
-                        switch (matching)
-                        {
-                            case 0:
-                                break;
-                            default:
-                                candidateRead++;
-                                break;
+                            if ((matchLen + 1) == str.Length) { fullMatchLen = matchLen + 1; }
+                            else { MarkCandidate(candidates, j, true); matching++; }
                         }
                         break;
                     default:
                         if (GetCandidate(candidates, j))
                         {
-                            // full matching could mean the fact that there wouldn't be any strings  
-                            if (candidateRead >= str.Length)
+                            if (matchLen < str.Length && str[matchLen] == s[i])
                             {
-                                MarkCandidate(fullCandidates, j, true);
-                                matching++;
-                            }
-                            else if (str[candidateRead] == s[i])
-                            {
-                                matching++;
+                                if ((matchLen + 1) == str.Length)
+                                {
+                                    fullMatchLen = matchLen + 1;
+                                    MarkCandidate(candidates, i, false);
+                                }
+                                else
+                                {
+                                    matching++;
+                                }
                             }
                             else
                             {
                                 MarkCandidate(candidates, j, false);
                             }
                         }
-                        switch (matching)
-                        {
-                            case 0:
-                                candidateRead = 0;
-                                break;
-                            case 1:
-                                // Get the candidate BitOperations.TrailingZeroCount()
-
-
-                                j--;
-                                rfor = 1;
-                                break;
-                            default:
-                                candidateRead++;
-                                break;
-                        }
                         break;
                 }
             }
+            switch (matching)
+            {
+                case 0:
+                    switch (fullMatchLen)
+                    {
+                        case 0:
+                            break;
+                        // Nothing was matching, but there was a full match candidate.
+                        default:
+                            i -= (matchLen + 1);
+                            rfor = fullMatchLen;
+                            break;
+                    }
+
+                    fullMatchLen = matchLen = 0;
+                    break;
+                default:
+                    matchLen++;
+                    break;
+            }
         }
-        
+
         if (marked <= 0) return 0;
         int w = 0;
         for (int i = 0; i < s.Length; i++)
@@ -114,8 +116,104 @@ public static class ReaderTester
 
         return marked;
     }
+    public static int AppendWithRemovedStrings<T>(T self, Action<T, ReadOnlySpan<char>> appendAction, ReadOnlySpan<char> s, params string[] strs)
+    {
+        // This is utterly overkill. And likely buggy. But it works from the limited testing.
+        // > Mfw the testing suite needs tests
+        int csSize = (strs.Length / 32) + 1;
+        Span<int> candidates = csSize > 32 ? new int[csSize] : stackalloc int[csSize];
+        static int GetSlice(int i) => i / 32;
+        static bool GetCandidate(Span<int> cs, int i)
+        {
+            int index = GetSlice(i), bit = 1 << (i % 32);
+            if (index < 0 || index >= cs.Length) return false;
+            return (cs[index] & bit) != 0;
+        }
+        static void MarkCandidate(Span<int> cs, int i, bool v)
+        {
+            int index = GetSlice(i), bit = 1 << (i % 32);
+            if (v) cs[index] |= bit;
+            else cs[index] ^= bit; // Bit is a single flag
+        }
 
+        // Oops! All integers. This is an inefficient Regex, but eh, at this point I'm having fun from suffering.
+        int matchLen = 0, fullMatchLen = 0;
+        int marked = 0, matching = 0;
+        int sliceStart = 0;
+        for (int i = 0; i < s.Length; i++, matching = 0)
+        {
+            // Loop could be further optimized by
+            // * Creating a list of first chars for the first check (must be aware of the candidate positions)
+            // * When there is a potential candidate, shift by TrailingZeroCount + target slice to
+            //   jump to the candidate instead of checking the bits one by one
+            // * No
+            for (int j = 0; j < strs.Length; j++)
+            {
+                string str = strs[j];
+                if (string.IsNullOrEmpty(str)) continue;
+                switch (matchLen)
+                {
+                    case 0:
+                        // On the start, all is candidate and there is no need to check the allowed candidates.
+                        if (str[matchLen] == s[i])
+                        {
+                            if ((matchLen + 1) == str.Length) { fullMatchLen = matchLen + 1; }
+                            else { MarkCandidate(candidates, j, true); matching++; }
+                        }
+                        break;
+                    default:
+                        if (GetCandidate(candidates, j))
+                        {
+                            if (matchLen < str.Length && str[matchLen] == s[i])
+                            {
+                                if ((matchLen + 1) == str.Length)
+                                {
+                                    fullMatchLen = matchLen + 1;
+                                    MarkCandidate(candidates, i, false);
+                                }
+                                else
+                                {
+                                    matching++;
+                                }
+                            }
+                            else
+                            {
+                                MarkCandidate(candidates, j, false);
+                            }
+                        }
+                        break;
+                }
+            }
+            switch (matching)
+            {
+                case 0:
+                    switch (fullMatchLen)
+                    {
+                        case 0:
+                            break;
+                        // Nothing was matching, but there was a full match candidate.
+                        default:
+                            int last = (i - (matchLen + 1)); // May be something >= sliceStart
+                            if (sliceStart < last) appendAction(self, s[sliceStart..last]);
+                            sliceStart = i + 1;              // Start is inclusive
+                            marked += fullMatchLen;
+                            break;
+                    }
+
+                    fullMatchLen = matchLen = 0;
+                    break;
+                default:
+                    matchLen++;
+                    break;
+            }
+        }
+        // Final append. Since sliceStart is inclusive, it is off by one if any matches exist to not include that character.
+        if (sliceStart < s.Length) appendAction(self, s[sliceStart..]);
+
+        return marked;
+    }
     // Top level read must be seperated into "while (!reader.Ended)" and pump SJReader.Value roots
+    [Obsolete("Use expected type literally within the string, instead of inferring it through tokens that may change which is an inaccurate representation.")]
     public static void ReadInner(StringBuilder sb, SJReader reader, SJReader.Value root, bool throwError = true)
     {
         switch (root.type)
@@ -144,12 +242,25 @@ public static class ReaderTester
 
             case SJType.Comment:
                 {
-                    // Reading comments require skipping (with explicit Read())
-                    // as they can be placed anywhere within the document.
+                    // We are restoring the old behaviour.
                     sb.Append(root.Slice());
                     break;
                 }
-
+            case SJType.Type:
+                {
+                    switch (root.variant)
+                    {
+                        case SJTypeVariant.TypeLiteral:
+                            sb.Append('(').Append(root.Slice()).Append(')');
+                            break;
+                        case SJTypeVariant.TypeString:
+                            sb.Append('(').Append('"').Append(root.Slice()).Append('"').Append(')');
+                            break;
+                        default:
+                            throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                    }
+                    break;
+                }
             case SJType.Array:
                 {
                     bool first = true;
@@ -233,9 +344,29 @@ public static class ReaderTester
     /// <summary>
     /// Only appends the captures of <see cref="SJReader.Value"/>, with seperator as '\n'.
     /// <br>Captures that may contain '\n' or '\r\n' are stripped.</br>
+    /// <br>Optionally, these can be enabled for data inspection:</br>
+    /// <br>* If <paramref name="indentCount"/> is set to be larger than -1, a single space indent will be done per depth.</br>
+    /// <br>* If <paramref name="prefixTypes"/> is set the <see cref="SJType"/> (and <see cref="SJTypeVariant"/> 
+    /// if it isn't none) will be prefixed like this: <c><see cref="SJType"/>+<see cref="SJTypeVariant"/></c> or <c><see cref="SJType"/></c></br>
     /// </summary>
-    public static void ReadInnerBasic(StringBuilder sb, SJReader reader, SJReader.Value root, bool throwError = true)
+    public static void ReadInnerBasic(
+        StringBuilder sb, SJReader reader, SJReader.Value root,
+        bool throwError = true, bool prefixTypes = false, int indentCount = -1
+    )
     {
+        static void PrefixType(StringBuilder sb, SJReader.Value v)
+        {
+            sb.Append(v.type.ToString());
+            switch (v.variant)
+            {
+                case SJTypeVariant.None:
+                    break;
+                default:
+                    sb.Append(v.variant.ToString());
+                    break;
+            }
+        }
+
         switch (root.type)
         {
             default:
@@ -253,6 +384,7 @@ public static class ReaderTester
                 {
                     // End is no longer an error, but it necessarily isn't the actual file ending.
                     // Something distinct to actual "end" is that the depth is set negative though.
+                    // This can happen if a comment is returned on the root object like "] // a" or "} // a"
                     if (reader.S.ended)
                     {
                         Assert.IsLessThanOrEqualTo(0, root.objectDepth, "Depth must be zero if ended");
@@ -260,35 +392,33 @@ public static class ReaderTester
                     break;
                 }
 
+            case SJType.Type:
+            case SJType.Key:
+            case SJType.String:
             case SJType.Comment:
+            case SJType.Number:
+            case SJType.Null:
+            case SJType.Bool:
                 {
-                    sb.Append(root.Slice());
+                    sb.Append(' ', Math.Max(0, indentCount));
+                    if (prefixTypes) PrefixType(sb, root);
+                    sb.Append('\n');
+
+                    AppendWithRemovedStrings(sb, static (self, cs) => self.Append(cs), root.Slice(), "\r", "\n");
                     break;
                 }
 
             case SJType.Array:
                 {
-                    bool first = true;
-                    sb.Append('[');
+                    sb.Append(' ', Math.Max(0, indentCount));
+                    if (prefixTypes) PrefixType(sb, root);
+                    sb.Append('\n');
+
                     while (reader.IterateArrayEntries(root, out var v))
                     {
-                        // Skipping comments on array is easier. Technically could also do
-                        // the "ObjectEntry type" sieve for array as well.
-                        if (v.type == SJType.Comment)
-                        {
-                            ReadInner(sb, reader, v, throwError);
-                            continue;
-                        }
-
-                        // Actual array entries
-                        if (!first)
-                            sb.Append(',');
-
-                        ReadInner(sb, reader, v, throwError);
-
-                        first = false;
+                        ReadInnerBasic(sb, reader, v, throwError, prefixTypes, indentCount < 0 ? -1 : indentCount + 1);
                     }
-                    sb.Append(']');
+
                     if (!string.IsNullOrEmpty(reader.Error))
                     {
                         goto case SJType.Error;
@@ -297,56 +427,25 @@ public static class ReaderTester
                 }
             case SJType.Object:
                 {
-                    bool first = true;
-                    sb.Append('{');
+                    sb.Append(' ', Math.Max(0, indentCount));
+                    if (prefixTypes) PrefixType(sb, root);
+                    sb.Append('\n');
 
-                    SJReader.Value k = SJReader.Value.Error();
                     while (reader.IterateObjectEntries(root, out var v))
                     {
-                        switch (v.type)
-                        {
-                            case SJType.Comment:
-                                ReadInner(sb, reader, v, throwError);
-                                continue;
-                            case SJType.Key:
-                                k = v;
-                                continue;
-                            default:
-                                if (!first)
-                                    sb.Append(',');
-
-                                // k must be valid.
-                                ReadInner(sb, reader, k, throwError);
-                                sb.Append(':');
-                                ReadInner(sb, reader, v, throwError);
-
-                                first = false;
-                                continue;
-                        }
+                        ReadInnerBasic(sb, reader, v, throwError, prefixTypes, indentCount < 0 ? -1 : indentCount + 1);
                     }
-                    sb.Append('}');
+
                     if (!string.IsNullOrEmpty(reader.Error))
                     {
                         goto case SJType.Error;
                     }
                     break;
                 }
-            case SJType.Key:
-            case SJType.String:
-                {
-                    sb.Append('"').Append(root.Slice()).Append('"');
-                    break;
-                }
-            case SJType.Number:
-            case SJType.Null:
-            case SJType.Bool:
-                {
-                    sb.Append(root.Slice());
-                    break;
-                }
         }
     }
 
+    [Obsolete("Use expected type literally within the string, instead of inferring it through tokens that may change which is an inaccurate representation.")]
     public static void Read(SJReader reader, StringBuilder sb, bool throwError = true)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -358,12 +457,33 @@ public static class ReaderTester
             ReadInner(sb, reader, root, throwError);
         }
     }
+    [Obsolete("Use expected type literally within the string, instead of inferring it through tokens that may change which is an inaccurate representation.")]
     public static StringBuilder Read(SJReader reader, bool throwError = true)
     {
         ArgumentNullException.ThrowIfNull(reader);
 
         var sb = new StringBuilder(DefaultSbCapacity);
         Read(reader, sb, throwError);
+        return sb;
+    }
+
+    public static void ReadBasic(SJReader reader, StringBuilder sb, bool throwError = true, bool doIndents = false, bool prefixTypes = false)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+
+        reader.ThrowOnError = throwError;
+        sb.Clear();
+        for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
+        {
+            ReadInnerBasic(sb, reader, root, throwError, prefixTypes, doIndents ? 0 : -1);
+        }
+    }
+    public static StringBuilder ReadBasic(SJReader reader, bool throwError = true)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+
+        var sb = new StringBuilder(DefaultSbCapacity);
+        ReadBasic(reader, sb, throwError);
         return sb;
     }
 }
