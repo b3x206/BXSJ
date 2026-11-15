@@ -8,6 +8,8 @@ namespace BX.SJ.Tests;
 public static class ReaderTester
 {
     public const int DefaultSbCapacity = 512;
+    public const char BasicTypeSep = ':';
+    public const char VariantTypeSep = '+';
 
     public static int RemoveStringsFrom(ref Span<char> s, params string[] strs)
     {
@@ -212,9 +214,17 @@ public static class ReaderTester
 
         return marked;
     }
-    // Top level read must be seperated into "while (!reader.Ended)" and pump SJReader.Value roots
-    [Obsolete("Use expected type literally within the string, instead of inferring it through tokens that may change which is an inaccurate representation.")]
-    public static void ReadInner(StringBuilder sb, SJReader reader, SJReader.Value root, bool throwError = true)
+
+    public static string GetTypePrefix(SJType type, SJTypeVariant v = SJTypeVariant.None)
+    {
+        return v switch
+        {
+            SJTypeVariant.None => type.ToString(),
+            _ => $"{type}{VariantTypeSep}{v}",
+        };
+    }
+
+    public static void ReadInnerTokens(StringBuilder sb, SJReader reader, SJReader.Value root, bool throwError = true)
     {
         switch (root.type)
         {
@@ -240,27 +250,6 @@ public static class ReaderTester
                     break;
                 }
 
-            case SJType.Comment:
-                {
-                    // We are restoring the old behaviour.
-                    sb.Append(root.Slice());
-                    break;
-                }
-            case SJType.Type:
-                {
-                    switch (root.variant)
-                    {
-                        case SJTypeVariant.TypeLiteral:
-                            sb.Append('(').Append(root.Slice()).Append(')');
-                            break;
-                        case SJTypeVariant.TypeString:
-                            sb.Append('(').Append('"').Append(root.Slice()).Append('"').Append(')');
-                            break;
-                        default:
-                            throw new ArgumentException($"Invalid type variant for type : {root.variant}");
-                    }
-                    break;
-                }
             case SJType.Array:
                 {
                     bool first = true;
@@ -271,7 +260,7 @@ public static class ReaderTester
                         // the "ObjectEntry type" sieve for array as well.
                         if (v.type == SJType.Comment)
                         {
-                            ReadInner(sb, reader, v, throwError);
+                            ReadInnerTokens(sb, reader, v, throwError);
                             continue;
                         }
 
@@ -279,7 +268,7 @@ public static class ReaderTester
                         if (!first)
                             sb.Append(',');
 
-                        ReadInner(sb, reader, v, throwError);
+                        ReadInnerTokens(sb, reader, v, throwError);
 
                         first = false;
                     }
@@ -301,7 +290,7 @@ public static class ReaderTester
                         switch (v.type)
                         {
                             case SJType.Comment:
-                                ReadInner(sb, reader, v, throwError);
+                                ReadInnerTokens(sb, reader, v, throwError);
                                 continue;
                             case SJType.Key:
                                 k = v;
@@ -311,9 +300,9 @@ public static class ReaderTester
                                     sb.Append(',');
 
                                 // k must be valid.
-                                ReadInner(sb, reader, k, throwError);
+                                ReadInnerTokens(sb, reader, k, throwError);
                                 sb.Append(':');
-                                ReadInner(sb, reader, v, throwError);
+                                ReadInnerTokens(sb, reader, v, throwError);
 
                                 first = false;
                                 continue;
@@ -323,6 +312,35 @@ public static class ReaderTester
                     if (!string.IsNullOrEmpty(reader.Error))
                     {
                         goto case SJType.Error;
+                    }
+                    break;
+                }
+            case SJType.Comment:
+                {
+                    // We are restoring the old behaviour.
+                    switch (root.variant)
+                    {
+                        case SJTypeVariant.SingleComment:
+                            sb.Append("// ").Append(root.Slice());
+                            break;
+                        case SJTypeVariant.MultiComment:
+                            sb.Append("/* ").Append(root.Slice()).Append(" */");
+                            break;
+                    }
+                    break;
+                }
+            case SJType.Type:
+                {
+                    switch (root.variant)
+                    {
+                        case SJTypeVariant.TypeLiteral:
+                            sb.Append('(').Append(root.Slice()).Append(')');
+                            break;
+                        case SJTypeVariant.TypeString:
+                            sb.Append('(').Append('"').Append(root.Slice()).Append('"').Append(')');
+                            break;
+                        default:
+                            throw new ArgumentException($"Invalid type variant for type : {root.variant}");
                     }
                     break;
                 }
@@ -354,19 +372,6 @@ public static class ReaderTester
         bool throwError = true, bool prefixTypes = false, int indentCount = -1
     )
     {
-        static void PrefixType(StringBuilder sb, SJReader.Value v)
-        {
-            sb.Append(v.type.ToString());
-            switch (v.variant)
-            {
-                case SJTypeVariant.None:
-                    break;
-                default:
-                    sb.Append(v.variant.ToString());
-                    break;
-            }
-        }
-
         switch (root.type)
         {
             default:
@@ -401,8 +406,7 @@ public static class ReaderTester
             case SJType.Bool:
                 {
                     sb.Append(' ', Math.Max(0, indentCount));
-                    if (prefixTypes) PrefixType(sb, root);
-                    sb.Append('\n');
+                    if (prefixTypes) sb.Append(GetTypePrefix(root.type, root.variant));
 
                     AppendWithRemovedStrings(sb, static (self, cs) => self.Append(cs), root.Slice(), "\r", "\n");
                     break;
@@ -411,12 +415,18 @@ public static class ReaderTester
             case SJType.Array:
                 {
                     sb.Append(' ', Math.Max(0, indentCount));
-                    if (prefixTypes) PrefixType(sb, root);
-                    sb.Append('\n');
+                    if (prefixTypes) sb.Append(GetTypePrefix(root.type, root.variant));
+                    bool first = false;
 
                     while (reader.IterateArrayEntries(root, out var v))
                     {
+                        if (first)
+                        {
+                            sb.Append('\n');
+                            first = true;
+                        }
                         ReadInnerBasic(sb, reader, v, throwError, prefixTypes, indentCount < 0 ? -1 : indentCount + 1);
+                        sb.Append('\n');
                     }
 
                     if (!string.IsNullOrEmpty(reader.Error))
@@ -428,12 +438,18 @@ public static class ReaderTester
             case SJType.Object:
                 {
                     sb.Append(' ', Math.Max(0, indentCount));
-                    if (prefixTypes) PrefixType(sb, root);
-                    sb.Append('\n');
+                    if (prefixTypes) sb.Append(GetTypePrefix(root.type, root.variant));
+                    bool first = false;
 
                     while (reader.IterateObjectEntries(root, out var v))
                     {
+                        if (first)
+                        {
+                            sb.Append('\n');
+                            first = true;
+                        }
                         ReadInnerBasic(sb, reader, v, throwError, prefixTypes, indentCount < 0 ? -1 : indentCount + 1);
+                        sb.Append('\n');
                     }
 
                     if (!string.IsNullOrEmpty(reader.Error))
@@ -445,8 +461,7 @@ public static class ReaderTester
         }
     }
 
-    [Obsolete("Use expected type literally within the string, instead of inferring it through tokens that may change which is an inaccurate representation.")]
-    public static void Read(SJReader reader, StringBuilder sb, bool throwError = true)
+    public static void ReadWithTokens(SJReader reader, StringBuilder sb, bool throwError = true)
     {
         ArgumentNullException.ThrowIfNull(reader);
 
@@ -454,20 +469,19 @@ public static class ReaderTester
         sb.Clear();
         for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
-            ReadInner(sb, reader, root, throwError);
+            ReadInnerTokens(sb, reader, root, throwError);
         }
     }
-    [Obsolete("Use expected type literally within the string, instead of inferring it through tokens that may change which is an inaccurate representation.")]
-    public static StringBuilder Read(SJReader reader, bool throwError = true)
+    public static StringBuilder ReadWithTokens(SJReader reader, bool throwError = true)
     {
         ArgumentNullException.ThrowIfNull(reader);
 
         var sb = new StringBuilder(DefaultSbCapacity);
-        Read(reader, sb, throwError);
+        ReadWithTokens(reader, sb, throwError);
         return sb;
     }
 
-    public static void ReadBasic(SJReader reader, StringBuilder sb, bool throwError = true, bool doIndents = false, bool prefixTypes = false)
+    public static void Read(SJReader reader, StringBuilder sb, bool throwError = true, bool indents = false, bool typePrefix = false)
     {
         ArgumentNullException.ThrowIfNull(reader);
 
@@ -475,15 +489,15 @@ public static class ReaderTester
         sb.Clear();
         for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
-            ReadInnerBasic(sb, reader, root, throwError, prefixTypes, doIndents ? 0 : -1);
+            ReadInnerBasic(sb, reader, root, throwError, typePrefix, indents ? 0 : -1);
         }
     }
-    public static StringBuilder ReadBasic(SJReader reader, bool throwError = true)
+    public static StringBuilder Read(SJReader reader, bool throwError = true, bool indents = false, bool typePrefix = false)
     {
         ArgumentNullException.ThrowIfNull(reader);
 
         var sb = new StringBuilder(DefaultSbCapacity);
-        ReadBasic(reader, sb, throwError);
+        Read(reader, sb, throwError, indents, typePrefix);
         return sb;
     }
 }

@@ -155,9 +155,8 @@ namespace BX.SJ
             {
                 this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
 
-                disposed = false;
                 this.popIfError = popIfError;
-                reader.PushState();
+                disposed = reader.PushState() < 0;
             }
 
             public void Dispose()
@@ -346,7 +345,11 @@ namespace BX.SJ
             }
         }
 
-        private ISJDataReader _Data;
+        private ISJDataReader _Data = null;
+        private ISJStateStackable _StData = null;
+        private ISJSliceAware _SlaData = null;
+        public bool IsSliceAware => _SlaData != null;
+        public bool IsStackable => _StData != null;
         // - sources
         // (btw, Writer will be infinitely easier, just get ReadOnlySpan<char> and
         // do conversions yourself or write in memory as UTF-16 LE/BE whatever)
@@ -356,7 +359,12 @@ namespace BX.SJ
             get => _Data;
             set
             {
+                if (ReferenceEquals(_Data, value)) return;
+
                 _Data = value ?? throw new ArgumentNullException(nameof(value));
+                _StData = _Data as ISJStateStackable;
+                _SlaData = _Data as ISJSliceAware;
+
                 Reset();
                 LastDataVersion = _Data.Version;
             }
@@ -485,7 +493,11 @@ namespace BX.SJ
                             default:
                                 if (!char.IsWhiteSpace(ch))
                                 {
-                                    if (firstNonWs == start) firstNonWs = Data.Index;
+                                    if (firstNonWs == start)
+                                    {
+                                        firstNonWs = Data.Index;
+                                        _SlaData?.BeginSliceableRegion();
+                                    }
                                     lastNonWs = Data.Index;
                                 }
                                 break;
@@ -503,12 +515,20 @@ namespace BX.SJ
                                     default:  // *[^]
                                         if (!char.IsWhiteSpace(ch))
                                         {
-                                            if (firstNonWs == start) firstNonWs = Data.Index;
+                                            if (firstNonWs == start)
+                                            {
+                                                firstNonWs = Data.Index;
+                                                _SlaData?.BeginSliceableRegion();
+                                            }
                                             lastNonWs = Data.Index;      // *[^]
                                         }
                                         else
                                         {
-                                            if (firstNonWs == start) firstNonWs = Data.Index - 1;
+                                            if (firstNonWs == start)
+                                            {
+                                                firstNonWs = Data.Index - 1;
+                                                _SlaData?.BeginSliceableRegion();
+                                            }
                                             lastNonWs = Data.Index - 1;  // *\s
                                         }
                                         break;
@@ -517,7 +537,11 @@ namespace BX.SJ
                             default:
                                 if (!char.IsWhiteSpace(ch))
                                 {
-                                    if (firstNonWs == start) firstNonWs = Data.Index;
+                                    if (firstNonWs == start)
+                                    {
+                                        firstNonWs = Data.Index;
+                                        _SlaData?.BeginSliceableRegion();
+                                    }
                                     lastNonWs = Data.Index;
                                 }
                                 break;
@@ -529,6 +553,7 @@ namespace BX.SJ
                 }
             }
         _BreakOuter:
+            _SlaData?.EndSliceableRegion();
             start = firstNonWs;  // Start is already inclusive
             end = lastNonWs + 1; // End has to be inclusive
             switch (variant)
@@ -569,6 +594,7 @@ namespace BX.SJ
             if (!Data.Ended && Data.Current == '"')
             {
                 Data.Next(); // skip opening quote
+                _SlaData?.BeginSliceableRegion();
                 start = Data.Index;
                 bool escaped = false;
                 variant = SJTypeVariant.TypeString;
@@ -589,10 +615,12 @@ namespace BX.SJ
                 }
 
                 end = Data.Index;
+                _SlaData?.EndSliceableRegion();
                 Data.Next();
             }
             else
             {
+                _SlaData?.BeginSliceableRegion();
                 start = Data.Index;
                 variant = SJTypeVariant.TypeLiteral;
 
@@ -609,6 +637,7 @@ namespace BX.SJ
                     return (-1, -1);
                 }
                 end = Data.Index;
+                _SlaData?.EndSliceableRegion();
             }
 
             // Skip whitespace
@@ -980,7 +1009,8 @@ namespace BX.SJ
             // Parse : Number (technically, hex and binary is supported if prefixed with 0x)
             else if (char.IsDigit(ch) || ch == '-')
             {
-                // Finite automata? What "for"
+                _SlaData?.BeginSliceableRegion();
+                // Finite automata? What "for"! heh
                 result.type = SJType.Number;
                 while (Data.MoveNext())
                 {
@@ -1027,6 +1057,7 @@ namespace BX.SJ
                     }
                 }
                 result.end = Data.Index;
+                _SlaData?.EndSliceableRegion();
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -1036,6 +1067,7 @@ namespace BX.SJ
             // Parse : String
             else if (ch == '"')
             {
+                _SlaData?.BeginSliceableRegion();
                 ch = (char)Data.Next();
                 result.type = SJType.String;
                 result.start = Data.Index;
@@ -1054,6 +1086,7 @@ namespace BX.SJ
                     ch = (char)Data.Next();
                 }
                 result.end = Data.Index;
+                _SlaData?.EndSliceableRegion();
                 Data.Next(); // Skip '"'
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
@@ -1069,10 +1102,15 @@ namespace BX.SJ
                 {
                     case 'n':
                         {
+                            // ok c# jit, compiler, whatever:
+                            // just compile a variant of Read() without these, pretty please
+                            // thanks.
+                            _SlaData?.BeginSliceableRegion();
                             Span<byte> aData = stackalloc byte[4];
                             aData = aData.Slice(0, 3);
                             Data.Next(aData);
                             result.type = SJType.Null;
+                            _SlaData?.EndSliceableRegion();
 
                             if (!StringEqualsToAscii(aData, "ull"))
                             {
@@ -1082,10 +1120,12 @@ namespace BX.SJ
                         }
                     case 't':
                         {
+                            _SlaData?.BeginSliceableRegion();
                             Span<byte> aData = stackalloc byte[4];
                             aData = aData.Slice(0, 3);
                             Data.Next(aData);
                             result.type = SJType.Bool;
+                            _SlaData?.EndSliceableRegion();
 
                             if (!StringEqualsToAscii(aData, "rue"))
                             {
@@ -1095,9 +1135,11 @@ namespace BX.SJ
                         }
                     case 'f':
                         {
+                            _SlaData?.BeginSliceableRegion();
                             Span<byte> aData = stackalloc byte[4];
                             Data.Next(aData);
                             result.type = SJType.Bool;
+                            _SlaData?.EndSliceableRegion();
 
                             if (!StringEqualsToAscii(aData, "alse"))
                             {
@@ -1378,6 +1420,12 @@ namespace BX.SJ
         /// </returns>
         public int PushState()
         {
+            if (_StData == null)
+            {
+                Error = "Data source does not support stacking, it must implement stackability interface.";
+                return -1;
+            }
+
             CheckVersion();
             CheckDisposed();
             var handle = _stateStack.Push(false);
@@ -1388,7 +1436,7 @@ namespace BX.SJ
             S.CopyTo(ref next); // Copy the data to the entry in stateStack
 
             // Other values
-            Data.PushState();
+            _StData.PushState();
             return pos;
         }
         /// <summary>
@@ -1401,13 +1449,19 @@ namespace BX.SJ
         /// </returns>
         public int PopState()
         {
+            if (_StData == null)
+            {
+                Error = "Data source does not support stacking, it must implement stackability interface.";
+                return -1;
+            }
+
             CheckVersion();
             CheckDisposed();
             if (_stateStack.Count <= 0) return -1;
             _stateStack.PopValue().CopyTo(ref S);
 
             int pos = _stateStack.Count;
-            Data.PopState();
+            _StData.PopState();
             return pos;
         }
         /// <summary>

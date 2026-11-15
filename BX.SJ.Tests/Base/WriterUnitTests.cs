@@ -211,7 +211,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
                 // Validate
                 Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
                 var r = new SJReader(new SJStringData(data)) { allowComments = false };
-                ReaderTester.Read(r);
+                ReaderTester.ReadWithTokens(r);
                 // And show
                 Console.WriteLine(data);
             }
@@ -425,7 +425,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
                 // Validate
                 Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
                 var r = new SJReader(new SJStringData(data)) { allowComments = true };
-                ReaderTester.Read(r);
+                ReaderTester.ReadWithTokens(r);
                 // And show
                 Console.WriteLine(data);
             }
@@ -468,7 +468,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
                 string? data = writer.ReadData();
                 Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
                 var r = new SJReader(new SJStringData(data)) { allowComments = true };
-                ReaderTester.Read(r);
+                ReaderTester.ReadWithTokens(r);
                 Console.WriteLine(data);
             }
             else

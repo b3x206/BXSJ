@@ -12,7 +12,7 @@ namespace BX.SJ
     /// you can downcast the character if reading from a unicode resource.
     /// BXSJ wraps unicode around ASCII delimiters.</br>
     /// </remarks>
-    public interface ISJDataReader : IEnumerator<byte>, ISJStateStackable
+    public interface ISJDataReader : IEnumerator<byte>
     {
         int Version { get; }
         byte CharSize { get; }
@@ -21,6 +21,10 @@ namespace BX.SJ
         int Index => Position - 1;
 
         bool Ended { get; }
+        // This is here, because we could technically MoveNext
+        // once and check Ended and then Reset, but it is easier and less dirty.
+        // Also, for the case of most readers, Reset may reset
+        // other states (such as stacked ones).
         bool Empty { get; }
 
         byte Next();

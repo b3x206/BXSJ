@@ -9,7 +9,7 @@ namespace BX.SJ
     /// <summary>
     /// Uses <see cref="string"/> as JSON read resource.
     /// </summary>
-    public sealed class SJStringData : ISJDataReader
+    public sealed class SJStringData : ISJDataReader, ISJStateStackable
     {
         private string _Data;
         public string Data
@@ -43,6 +43,7 @@ namespace BX.SJ
             _Data = data;
         }
 
+        // Love being off by one.
         public bool MoveNext()
         {
             if (Position < Data?.Length)
@@ -70,6 +71,7 @@ namespace BX.SJ
         }
         public int Next(in Span<byte> data)
         {
+            if (data == null || data.Length <= 0) return 0;
             int i;
             // MoveNext first, this is to skip the last character as it will be left as the "Current"
             for (i = 0; MoveNext() && i < data.Length; i++)
@@ -83,7 +85,7 @@ namespace BX.SJ
         public int SkipWhiteSpace()
         {
             int i;
-            for (i = 0; char.IsWhiteSpace(Data[Position]) && MoveNext(); i++) ;
+            for (i = 0; (Position <= 0 || char.IsWhiteSpace((char)Current)) && MoveNext(); i++) ;
             return i;
         }
 
@@ -98,7 +100,6 @@ namespace BX.SJ
             Console.WriteLine($"start={start}, length={length}");
             return Data.AsSpan(start, length);
         }
-
 
         private ValueStack<int> _positions = ValueStack<int>.CreateWithMaxSize(SJReader.DefaultMaxDepth);
         public int MaxStateCount { get => _positions.Capacity; set => _positions.Count = value; }

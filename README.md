@@ -15,9 +15,7 @@ This branch (`devel`) is where development is done, before getting packed into "
 2.  "Stable" SJ releases are the ones that are tagged with semver. You will generally see major releases as I generally refactor things and don't backport bugfixes (if there are bugfixes). <br>
 _(all tests pass, benchmarks are consistent, slightly worse or slightly improved and it doesn't regress too much)_ <br>
 
-3. Contrary to it's base or name, it is _not simple_ and is OOP, but whatever, it got like this because of my arbitrary requirements.
-
-4. Should have used antlr or re2c (or some other lexer tool to process the logical units), but those are also very large. Enjoy the handwritten slow lexer (it _works_ so _it's a good_).
+3. It isn't very simple and has incompatible extensions.
 
 ## Examples
 
@@ -139,7 +137,7 @@ You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of th
 ## But why?
 * Because it's for older versions of Godot and other C# runtimes without good access to System.Text.Json or other JSON libraries. (Although there is no .NET Framework support. This is because I still sometimes use mono for some reason)
 * Newtonsoft and other larger JSON libraries (incl. the System.Text.Json) are not really friendly to game engine runtimes (eg. AOT, Assembly load/unload friendliness, etc.). Source generators solve this but it's generally not a simple "plug and play" solution (meaning I don't need it or it's out of scope for this repository).
-* It's meant to be ~~simple and~~ stable but ~~"low level"~~ meaning it can be a pinned dependency. (Large updates will always increment versions and I will try my best to make first releases not need minor updates)
+* It's meant to be ~~simple and~~ stable ~~but "low level"~~ meaning it can be a pinned dependency. (Large updates will always increment versions and I will try my best to make first releases not need minor updates)
 
 ## Changelog
 ### - 1.0.0
@@ -221,9 +219,11 @@ The inner workings have been partially redone..
 
 **▶ New**
 * Reached a higher percentage of test coverage (for `bx.sj.dll`)
-* Tooling for creating the workspace / worktrees. (This could be improved with bare repos + contained folder for SJ project files, but current state is fine for this project.)
-* `Collections.ValueStack<T>` to stack states on reader and writer. (Do not use that struct outside of SJ related code)
-* `SJStreamReader` to read from a `System.IO.Stream` with encoding.
+* Simplified and more focused tests that use minimal data. (This _is_ my first time writing unit tests, so there were _[and still are]_ things to fix)
+* Tooling for creating the workspace / worktrees. <br>
+  (This could be improved with bare repos + contained folder for SJ project files, but the current state is fine for this project.)
+* `Collections.ValueStack<T>` to stack states on reader and writer. (It isn't recommended to use that struct outside of SJ related code due to the odd behaviour it has [because it's a non-ref value type]. For more information on that, check the tests it has.)
+* `SJStreamReader` to read from a `System.IO.Stream` with encoding. If the file encoding is unsupported, it can be converted or be just interpreted as ANSI. It has a temporary buffer to convert the slice into a UTF-16 one.
 * `SJStreamWriter` to write into a `System.IO.Stream` with encoding.
 * `SJLinearWriter` to write into a contiguous region of `char[]` <br>
   (`StringBuilder` uses chunks, `SJStringReader` is almost matching to this although it does not use a typed `System.Array`).
@@ -265,6 +265,14 @@ State can be pushed and popped in an opaque manner. The interface extensions / s
 
 6. Updated MSTest to 4.x, which adds bunch of new things. Specifically,
   * `ExpectedExceptionAttribute` is no more, because I need to have more indirections apparently.
+
+<!-- Filter for powershell script to postprocess README.md : /<!--\s*NO_RELEASE[\s\S]*END_NO_RELEASE\s*-->/gm -->
+<!-- NO_RELEASE -->
+
+7. Tests have been changed a lot.
+* The generic type is now the data source, and future releases may add extra data sources.. I will design / plan this a little better so that mixed configurations could be better, but 3.0 release will just leave it similar to this..
+
+<!-- END_NO_RELEASE -->
 
 </details>
 
