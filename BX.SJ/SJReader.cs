@@ -370,8 +370,11 @@ namespace BX.SJ
             }
         }
         public int LastDataVersion { get; private set; }
-        // An interesting extensibility idea, but not really for SJ.
-        // public SortedList<ISJLexerHandler> Lexers { get; set; }
+
+        public SJReader(ISJDataReader data)
+        {
+            Data = data;
+        }
 
         /// <summary>
         /// <see cref="SJType.Number"/> continuation check, Note that this reader 
@@ -425,15 +428,6 @@ namespace BX.SJ
             '=' => true,
             _ => false
         };
-        public static bool StringEqualsToAscii(ReadOnlySpan<byte> bytes, string data)
-        {
-            if (bytes.Length != data.Length) return false;
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                if (bytes[i] != data[i]) return false;
-            }
-            return true;
-        }
         /// <summary>
         /// String inspector for token.
         /// <br>Outputs <paramref name="c"/> as <c>{c}/{(int)c}</c></br>
@@ -441,9 +435,111 @@ namespace BX.SJ
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static string Tk(char c) => c == 0xFF ? "Any" : (c == '\0' ? "\\0/0" : $"{c}/{(int)c}");
 
-        public SJReader(ISJDataReader data)
+        public const int TrueLiteral = 0;
+        public const int FalseLiteral = 1;
+        public const int NullLiteral = 2;
+        public static readonly string[] readerLiterals = new string[]
         {
-            Data = data;
+            /* TrueLiteral  */ "true",
+            /* FalseLiteral */ "false",
+            /* NullLiteral  */ "null"
+        };
+        /// <summary>
+        /// * If a literal is a valid substring of other, the larger string will be attempted to be captured
+        /// <br>* An exact match to any value within <paramref name="readerLiterals"/> is expected.</br>
+        /// </summary>
+        private int GetLiteralType()
+        {
+            // __arglist is possible, but whatever. SJ literals are stored somewhere else.
+            int csSize = (readerLiterals.Length / (sizeof(byte) * 8)) + 1;
+            Span<byte> candidates = csSize > 64 ? new byte[csSize] : stackalloc byte[csSize];
+            static int GetSlice(int i) => i / (sizeof(byte) * 8);
+            static bool GetCandidate(Span<byte> cs, int i)
+            {
+                int index = GetSlice(i), bit = 1 << (i % (sizeof(byte) * 8));
+                if (index < 0 || index >= cs.Length) return false;
+                return (cs[index] & bit) != 0;
+            }
+            static void MarkCandidate(Span<byte> cs, int i, bool v)
+            {
+                int index = GetSlice(i), bit = 1 << (i % (sizeof(byte) * 8));
+                if (v) cs[index] = (byte)(cs[index] | bit);
+                else cs[index] = (byte)(cs[index] ^ bit);  // Bit is a single flag
+            }
+
+            int ml = 0, fullMatchIndex = -1;
+            for (int matching = 0; !Data.Ended; matching = 0, Data.Next())
+            {
+                char c = (char)Data.Current;
+                for (int j = 0; j < readerLiterals.Length; j++)
+                {
+                    string str = readerLiterals[j];
+                    if (string.IsNullOrEmpty(str)) continue;
+                    switch (ml)
+                    {
+                        case 0:
+                            // On the start, all is candidate and there is no need to check the allowed candidates.
+                            if (str[ml] == c)
+                            {
+                                if ((ml + 1) == str.Length)
+                                {
+                                    fullMatchIndex = j;
+                                    // This should capture "Current..Current+1" for a matching value
+                                    _SlaData?.BeginSliceableRegion();
+                                    _SlaData?.EndSliceableRegion();
+                                }
+                                else
+                                {
+                                    MarkCandidate(candidates, j, true); matching++;
+                                    _SlaData?.BeginSliceableRegion();
+                                }
+                            }
+                            break;
+                        default:
+                            if (GetCandidate(candidates, j))
+                            {
+                                if (ml < str.Length && str[ml] == c)
+                                {
+                                    if ((ml + 1) == str.Length)
+                                    {
+                                        fullMatchIndex = j;
+                                        MarkCandidate(candidates, j, false);
+                                    }
+                                    else
+                                    {
+                                        matching++;
+                                    }
+                                }
+                                else
+                                {
+                                    MarkCandidate(candidates, j, false);
+                                }
+                            }
+                            break;
+                    }
+                }
+                switch (matching)
+                {
+                    case 0:
+                        switch (fullMatchIndex)
+                        {
+                            case -1:
+                                break;
+                            // Nothing was matching, but there was a full match candidate.
+                            default:
+                                _SlaData?.EndSliceableRegion();
+                                return fullMatchIndex;
+                        }
+
+                        fullMatchIndex = -1;
+                        ml = 0;
+                        break;
+                    default:
+                        ml++;
+                        break;
+                }
+            }
+            return -1;
         }
 
         /// <summary>
@@ -488,7 +584,7 @@ namespace BX.SJ
                         switch (ch)
                         {
                             case '\n':
-                                Data.Next(); // Skip '\n'
+                                //Data.Next(); // Skip '\n'
                                 goto _BreakOuter;
                             default:
                                 if (!char.IsWhiteSpace(ch))
@@ -564,7 +660,7 @@ namespace BX.SJ
                         Error = "Unclosed multi line comment, expected '*/'";
                         return (-1, -1);
                     }
-                    Data.Next(); // Skip '/'
+                    //Data.Next(); // Skip '/'
                     break;
             }
 
@@ -649,7 +745,6 @@ namespace BX.SJ
                 Error = "Unclosed type literal";
                 return (-1, -1);
             }
-            Data.Next();
 
             return (start, end);
         }
@@ -691,7 +786,7 @@ namespace BX.SJ
                 }
             }
 
-            // more data available.
+            // more data available, or yield existing if it ended.
             return true;
         }
 
@@ -850,15 +945,18 @@ namespace BX.SJ
             }
 
             char ch = (char)Data.Next();
-            result.start = Data.Index;
+            Console.WriteLine($"Pos: {Data.Position} Char: {ch}");
             // Skip : White Space
             if (char.IsWhiteSpace(ch))
             {
                 Data.SkipWhiteSpace();
-                goto _Top;
+                ch = (char)Data.Current;
+                Console.WriteLine($"Skip to {Data.Position} Char: {ch}");
             }
+            result.start = Data.Index;
+
             // Validate / Parse : Comments
-            else if (ch == '/')
+            if (ch == '/')
             {
                 if (!allowComments)
                 {
@@ -970,8 +1068,8 @@ namespace BX.SJ
                         goto _Top;
                     }
                 }
-
                 result.end = Data.Index;
+                Console.WriteLine($"End {result.type}");
 
                 // UpdateState here is not needed because the upper state will be checked later
                 if (!UpdateEnding())
@@ -1012,9 +1110,9 @@ namespace BX.SJ
                 _SlaData?.BeginSliceableRegion();
                 // Finite automata? What "for"! heh
                 result.type = SJType.Number;
-                while (Data.MoveNext())
+                do
                 {
-                    ch = (char)Data.Current;
+                    ch = (char)Data.Peek();
                     if (!IsNumberContinuation(ch, out var foundOn))
                     {
                         break;
@@ -1056,8 +1154,10 @@ namespace BX.SJ
                             break;
                     }
                 }
-                result.end = Data.Index;
+                while (Data.MoveNext());
+                result.end = Data.Position;
                 _SlaData?.EndSliceableRegion();
+                Console.WriteLine($"result: {result}, pos: {Data.Position}");
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -1087,7 +1187,6 @@ namespace BX.SJ
                 }
                 result.end = Data.Index;
                 _SlaData?.EndSliceableRegion();
-                Data.Next(); // Skip '"'
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -1098,63 +1197,24 @@ namespace BX.SJ
             else
             {
                 // what in the strcmp()
-                switch (ch)
+                switch (GetLiteralType())
                 {
-                    case 'n':
-                        {
-                            // ok c# jit, compiler, whatever:
-                            // just compile a variant of Read() without these, pretty please
-                            // thanks.
-                            _SlaData?.BeginSliceableRegion();
-                            Span<byte> aData = stackalloc byte[4];
-                            aData = aData.Slice(0, 3);
-                            Data.Next(aData);
-                            result.type = SJType.Null;
-                            _SlaData?.EndSliceableRegion();
+                    case TrueLiteral:
+                    case FalseLiteral:
+                        result.type = SJType.Bool;
+                        break;
+                    case NullLiteral:
+                        result.type = SJType.Null;
+                        break;
 
-                            if (!StringEqualsToAscii(aData, "ull"))
-                            {
-                                goto default;
-                            }
-                            break;
-                        }
-                    case 't':
-                        {
-                            _SlaData?.BeginSliceableRegion();
-                            Span<byte> aData = stackalloc byte[4];
-                            aData = aData.Slice(0, 3);
-                            Data.Next(aData);
-                            result.type = SJType.Bool;
-                            _SlaData?.EndSliceableRegion();
-
-                            if (!StringEqualsToAscii(aData, "rue"))
-                            {
-                                goto default;
-                            }
-                            break;
-                        }
-                    case 'f':
-                        {
-                            _SlaData?.BeginSliceableRegion();
-                            Span<byte> aData = stackalloc byte[4];
-                            Data.Next(aData);
-                            result.type = SJType.Bool;
-                            _SlaData?.EndSliceableRegion();
-
-                            if (!StringEqualsToAscii(aData, "alse"))
-                            {
-                                goto default;
-                            }
-                            break;
-                        }
-                    // Fail
                     default:
                         Error = $"Unknown token '{Tk(ch)}' or truncated literal";
                         goto _Top;
 
                 }
 
-                result.end = Data.Index; // Position points to anything or it ended
+                // Position points to anything or it ended
+                result.end = Data.Position;
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {

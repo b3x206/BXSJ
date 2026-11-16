@@ -32,7 +32,7 @@ public static class TestData
     // BXSJ root data assumes all tolerances are allowed.
     public static IEnumerable<string[]> BXSJRootData => [
         // Data, ExpectedCapture
-        [BXSJDataType, BXSJDataType.Trim('(', ')')], [BXSJDataRootStringType, BXSJDataRootStringType.Trim('(', ')', '"')],
+        [BXSJDataType, BXSJDataType.Trim('(', ')')], [BXSJDataRootStringType, BXSJDataRootStringType.Trim('(', ')', ' ')[1..^1]],
         [BXSJDataSingleComment, BXSJDataSingleComment.TrimStart('/').Trim()], [BXSJDataNewlineSingleComment, BXSJDataNewlineSingleComment.TrimStart('/').Trim()],
         [BXSJDataMultiComment, BXSJDataMultiComment.Trim('/', '*', ' ')],
     ];
@@ -41,9 +41,14 @@ public static class TestData
     // ---
     // Test refactor
     public const string JsonData1 = @"{
-        ""foo"": [""bar"", ""baz""],
-        ""idk"": 42,
-        ""mango"": { ""6"": 7 }
+        ""num"":42,
+        ""num2"":-42,
+        ""t"":true,
+        ""f"":false,
+        ""n"":null,
+        """":"""",
+        ""foo"":[""bar"",""baz""],
+        ""mango"":{""6"":7}
 }";
     public const string JsonDataInvalid = @"{
         ""foo"": ""bar"", ""baz""],

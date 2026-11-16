@@ -20,16 +20,16 @@ namespace BX.SJ
         int Position { get; }
         int Index => Position - 1;
 
-        bool Ended { get; }
+        bool Ended { get; } 
         // This is here, because we could technically MoveNext
         // once and check Ended and then Reset, but it is easier and less dirty.
         // Also, for the case of most readers, Reset may reset
         // other states (such as stacked ones).
         bool Empty { get; }
 
-        byte Next();
-        int Next(in Span<byte> data);
-        int SkipWhiteSpace();
+        byte Next();                  // Moves to the next character and returns it. Should return 0 if no next character.
+        byte Peek();                  // Peeks the next character. Should return 0 if no next character.
+        int SkipWhiteSpace();         // Skips whitespace, returns move count.
 
         ReadOnlySpan<byte> SliceU8(int start, int length);
         ReadOnlySpan<char> SliceU16(int start, int length);

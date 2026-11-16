@@ -116,9 +116,9 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(BXSJRootData), typeof(TestData))]
-    public void TestBXSJRootLiterals(string data, string _)
+    public void TestBXSJRootLiterals(string data, string expected)
     {
-        Assert.AreEqual(data, ReadBXSJ(DataReaderFromString(data)).ToString());
+        Assert.AreEqual(expected, ReadBasicBXSJ(DataReaderFromString(data)).ToString());
     }
 
     [TestMethod]

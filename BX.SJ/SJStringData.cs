@@ -69,6 +69,14 @@ namespace BX.SJ
 
             return default;
         }
+        public byte Peek()
+        {
+            if (Position < Data?.Length)
+            {
+                return (byte)Math.Min((char)0xFF, Data[Position]);
+            }
+            return 0;
+        }
         public int Next(in Span<byte> data)
         {
             if (data == null || data.Length <= 0) return 0;
@@ -97,7 +105,7 @@ namespace BX.SJ
         public ReadOnlySpan<char> SliceU16(int start, int length)
         {
             if (Empty) return ReadOnlySpan<char>.Empty;
-            Console.WriteLine($"start={start}, length={length}");
+            Console.WriteLine($"start={start}, length={length}, result={new string(Data.AsSpan(start, length))}");
             return Data.AsSpan(start, length);
         }
 

@@ -283,8 +283,6 @@ State can be pushed and popped in an opaque manner. The interface extensions / s
 1. [ ] Port tests to xunit as mstest seems somewhat specific to visual studio and can't be ran headless trivially <br>
   This should also improve the tests and place most logic into one manageable place, instead of repeating redundant logic..
 2. [~] Use `ISJDataReader`/`ISJDataWriter` to write data (composition) instead of using inheritance.
-   (This is already possible with the current setup as nothing is truly `private` within BXSJ,
-   but it should be the main design instead. For the time being though, I do not need such a feature so I will delay it until there..)
 3. [ ] UTF-8 (byte) reading/writing (Perhaps I could use the 'char' version as a basic UTF-8 version as that only converts the relevant tokens. Though the problem here becomes the slice spans + the endianness of the UTF-16 if I make the internals of BXSJ byte based..)
 4. [ ] Improve readability and then improve performance. (Doing the first one will likely improve performance.)
 

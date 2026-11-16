@@ -71,7 +71,7 @@ public static class ReaderTester
                                 if ((matchLen + 1) == str.Length)
                                 {
                                     fullMatchLen = matchLen + 1;
-                                    MarkCandidate(candidates, i, false);
+                                    MarkCandidate(candidates, j, false);
                                 }
                                 else
                                 {
@@ -137,6 +137,31 @@ public static class ReaderTester
             if (v) cs[index] |= bit;
             else cs[index] ^= bit; // Bit is a single flag
         }
+        //static int GetFirstIndex(Span<int> cs)
+        //{
+        //    int n = 0, s = 0;
+        //    for (s = 0; s < cs.Length; s++)
+        //        if (cs[s] != 0)
+        //        {
+        //            n = cs[s];
+        //            break;
+        //        }
+        //    if (n == 0) return -1;
+        //
+        //    int zeros = 32;
+        //    {
+        //        int x = n;
+        //        if (x != 0)
+        //        {
+        //            if ((x & 0x0000FFFF) == 0) { zeros += 16; x >>= 16; }
+        //            if ((x & 0x000000FF) == 0) { zeros += 8; x >>= 8; }
+        //            if ((x & 0x0000000F) == 0) { zeros += 4; x >>= 4; }
+        //            if ((x & 0x00000003) == 0) { zeros += 2; x >>= 2; }
+        //            return zeros - (x & 1);
+        //        }
+        //    }
+        //    return (s * sizeof(int) * 8) + zeros;
+        //}
 
         // Oops! All integers. This is an inefficient Regex, but eh, at this point I'm having fun from suffering.
         int matchLen = 0, fullMatchLen = 0;
@@ -171,7 +196,7 @@ public static class ReaderTester
                                 if ((matchLen + 1) == str.Length)
                                 {
                                     fullMatchLen = matchLen + 1;
-                                    MarkCandidate(candidates, i, false);
+                                    MarkCandidate(candidates, j, false);
                                 }
                                 else
                                 {
