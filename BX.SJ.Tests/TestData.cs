@@ -28,7 +28,10 @@ public static class TestData
         [JsonDataBoolFalse, JsonDataBoolFalse], [JsonDataBoolTrue, JsonDataBoolTrue],
         [JsonDataNull, JsonDataBoolFalse]
     ];
-    public static IEnumerable<string[]> JsonTruncatedRootData() => TestEx.CreateTruncatedStringData(JsonRootData.Where(v => v.Length > 0 && v[0] != JsonDataNumber));
+    public static IEnumerable<string[]> JsonTruncatedRootData() => TestEx.CreateTruncatedStringData(
+        JsonRootData.Where(v => v.Length > 0 && v[0] != JsonDataNumber),
+        argc: 1
+    );
     // BXSJ root data assumes all tolerances are allowed.
     public static IEnumerable<string[]> BXSJRootData => [
         // Data, ExpectedCapture
@@ -36,7 +39,10 @@ public static class TestData
         [BXSJDataSingleComment, BXSJDataSingleComment.TrimStart('/').Trim()], [BXSJDataNewlineSingleComment, BXSJDataNewlineSingleComment.TrimStart('/').Trim()],
         [BXSJDataMultiComment, BXSJDataMultiComment.Trim('/', '*', ' ')],
     ];
-    public static IEnumerable<string[]> BXSJTruncatedRootData() => TestEx.CreateTruncatedStringData(JsonRootData.Where(v => v.Length > 0));
+    public static IEnumerable<string[]> BXSJTruncatedRootData() => TestEx.CreateTruncatedStringData(
+        JsonRootData.Where(v => v.Length > 0),
+        argc: 1
+    );
 
     // ---
     // Test refactor

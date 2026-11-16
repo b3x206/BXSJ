@@ -468,7 +468,9 @@ namespace BX.SJ
             }
 
             int ml = 0, fullMatchIndex = -1;
-            for (int matching = 0; !Data.Ended; matching = 0, Data.Next())
+            int maxLength = 0;
+            for (int i = 0; i < readerLiterals.Length; i++) maxLength = Math.Max(maxLength, readerLiterals[i]?.Length ?? 0);
+            for (int matching = 0, i = 0; !Data.Ended && i < maxLength; matching = 0, i++, Data.Next())
             {
                 char c = (char)Data.Current;
                 for (int j = 0; j < readerLiterals.Length; j++)
@@ -576,26 +578,18 @@ namespace BX.SJ
             // \s*<string>\s*(*/|\n)
             int firstNonWs = start = Data.Index;
             int lastNonWs = Data.Index;
+            int endState = 0;
             for (ch = (char)Data.Current; !Data.Ended; ch = (char)Data.Next())
             {
+                Console.WriteLine($"{Data.Index} = {ch}");
                 switch (variant)
                 {
                     case SJTypeVariant.SingleComment:
                         switch (ch)
                         {
                             case '\n':
-                                //Data.Next(); // Skip '\n'
                                 goto _BreakOuter;
                             default:
-                                if (!char.IsWhiteSpace(ch))
-                                {
-                                    if (firstNonWs == start)
-                                    {
-                                        firstNonWs = Data.Index;
-                                        _SlaData?.BeginSliceableRegion();
-                                    }
-                                    lastNonWs = Data.Index;
-                                }
                                 break;
                         }
                         break;
@@ -603,42 +597,28 @@ namespace BX.SJ
                         switch (ch)
                         {
                             case '*':
-                                ch = (char)Data.Next();
-                                switch (ch)
+                                endState++;
+
+                                switch (endState)
                                 {
-                                    case '/': // */
-                                        goto _BreakOuter;
-                                    default:  // *[^]
-                                        if (!char.IsWhiteSpace(ch))
-                                        {
-                                            if (firstNonWs == start)
-                                            {
-                                                firstNonWs = Data.Index;
-                                                _SlaData?.BeginSliceableRegion();
-                                            }
-                                            lastNonWs = Data.Index;      // *[^]
-                                        }
-                                        else
-                                        {
-                                            if (firstNonWs == start)
-                                            {
-                                                firstNonWs = Data.Index - 1;
-                                                _SlaData?.BeginSliceableRegion();
-                                            }
-                                            lastNonWs = Data.Index - 1;  // *\s
-                                        }
+                                    case 1: // *
+                                        lastNonWs = Data.Index;
+                                        continue;
+                                    default:
+                                        endState = 0;
                                         break;
                                 }
                                 break;
-                            default:
-                                if (!char.IsWhiteSpace(ch))
+                            case '/':
+                                endState++;
+
+                                switch (endState)
                                 {
-                                    if (firstNonWs == start)
-                                    {
-                                        firstNonWs = Data.Index;
-                                        _SlaData?.BeginSliceableRegion();
-                                    }
-                                    lastNonWs = Data.Index;
+                                    case 2: // */
+                                        goto _BreakOuter;
+                                    default:
+                                        endState = 0;
+                                        break;
                                 }
                                 break;
                         }
@@ -647,23 +627,36 @@ namespace BX.SJ
                         Error = $"Unknown comment variant {variant}";
                         return (-1, -1);
                 }
+
+                if (!char.IsWhiteSpace(ch))
+                {
+                    if (firstNonWs == start)
+                    {
+                        firstNonWs = Data.Index;
+                        _SlaData?.BeginSliceableRegion();
+                    }
+                    lastNonWs = Data.Index;
+                }
             }
         _BreakOuter:
             _SlaData?.EndSliceableRegion();
             start = firstNonWs;  // Start is already inclusive
-            end = lastNonWs + 1; // End has to be inclusive
             switch (variant)
             {
+                default:
+                    end = lastNonWs + 1; // End has to be inclusive
+                    break;
                 case SJTypeVariant.MultiComment:
                     if (Data.Ended)
                     {
                         Error = "Unclosed multi line comment, expected '*/'";
                         return (-1, -1);
                     }
-                    //Data.Next(); // Skip '/'
+                    end = lastNonWs;     // End will include * on */
                     break;
             }
 
+            Console.WriteLine($"Return comment region : {start}..{end}");
             return (start, end);
         }
         /// <summary>
@@ -920,7 +913,12 @@ namespace BX.SJ
                 Error = "Empty data";
                 goto _Top;
             }
-            if (Data.Ended)
+            if (maxDepth > 0 && s.depth > maxDepth)
+            {
+                Error = $"Exceeded maximum depth {maxDepth}";
+                goto _Top;
+            }
+            if (!Data.MoveNext())
             {
                 // Reaching end of document is no longer an error, but it should return an empty "error" value.
                 result.type = SJType.Error;
@@ -938,20 +936,13 @@ namespace BX.SJ
                 }
                 return result;
             }
-            if (maxDepth > 0 && s.depth > maxDepth)
-            {
-                Error = $"Exceeded maximum depth {maxDepth}";
-                goto _Top;
-            }
 
-            char ch = (char)Data.Next();
-            Console.WriteLine($"Pos: {Data.Position} Char: {ch}");
+            char ch = (char)Data.Current;
             // Skip : White Space
             if (char.IsWhiteSpace(ch))
             {
                 Data.SkipWhiteSpace();
                 ch = (char)Data.Current;
-                Console.WriteLine($"Skip to {Data.Position} Char: {ch}");
             }
             result.start = Data.Index;
 
@@ -970,7 +961,6 @@ namespace BX.SJ
                 {
                     return result;
                 }
-                Console.WriteLine($"Went back to top, result: {result}");
                 goto _Top;
             }
             // Parse: Type (literal or something else). Treated sort of like a comment.
@@ -995,7 +985,6 @@ namespace BX.SJ
                     s.lastEntryType = result;
                     return result;
                 }
-                Console.WriteLine($"Went back to top, result: {result}");
                 goto _Top;
             }
             // Validate : Object == KV Colon, Array == Comma
@@ -1093,9 +1082,7 @@ namespace BX.SJ
                 result.type = ch == '{' ? SJType.Object : SJType.Array;
                 var prevHandle = s.stack.Peek();
                 s.stack.PushValue(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
-#if !NET_7_0_OR_GREATER
-                prevHandle = prevHandle.Renew(s.stack);
-#endif
+                prevHandle = prevHandle.Renew(ref s.stack);
 
                 result.objectDepth = (ushort)s.depth;
                 s.notExpectingType = false; // Technically a value entry, just does not update last state.
@@ -1158,7 +1145,6 @@ namespace BX.SJ
                 while (Data.MoveNext());
                 result.end = Data.Position;
                 _SlaData?.EndSliceableRegion();
-                Console.WriteLine($"result: {result}, pos: {Data.Position}");
 
                 if (!UpdateLastState(ref result) || !UpdateEnding())
                 {
@@ -1257,9 +1243,7 @@ namespace BX.SJ
             // * Must retain a handle for handling resize cases
             var stHandle = S.stack.Peek();
             result = Read();
-#if !NET_7_0_OR_GREATER
-            stHandle = stHandle.Renew(S.stack);
-#endif
+            stHandle = stHandle.Renew(ref S.stack);
 
             if (result.type == SJType.Comment)
             {
@@ -1328,9 +1312,7 @@ namespace BX.SJ
             // * Must retain a handle for handling resize cases
             var stHandle = S.stack.Peek();
             result = Read();
-#if !NET_7_0_OR_GREATER
-            stHandle = stHandle.Renew(S.stack);
-#endif
+            stHandle = stHandle.Renew(ref S.stack);
 
             switch (result.type)
             {

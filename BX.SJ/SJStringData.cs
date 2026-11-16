@@ -105,7 +105,6 @@ namespace BX.SJ
         public ReadOnlySpan<char> SliceU16(int start, int length)
         {
             if (Empty) return ReadOnlySpan<char>.Empty;
-            Console.WriteLine($"start={start}, length={length}, result={new string(Data.AsSpan(start, length))}");
             return Data.AsSpan(start, length);
         }
 

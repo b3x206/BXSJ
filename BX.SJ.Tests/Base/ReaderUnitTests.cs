@@ -447,7 +447,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(JsonRootData), typeof(TestData))]
-    public void TestJSCRootLiteralsWithCapture(string data)
+    public void TestRootWithComments(string data, string _)
     {
         // Since 3.x, comments are now captured "content only", so this basic output is expected.
         const string ContentLeft = "This is a comment!";

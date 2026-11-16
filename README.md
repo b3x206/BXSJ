@@ -17,6 +17,8 @@ _(all tests pass, benchmarks are consistent, slightly worse or slightly improved
 
 3. It isn't very simple and has incompatible extensions.
 
+4. This branch is currently in development. The readme will elaborate more things in future. This is the minimal readme.
+
 ## Examples
 
 ### Reader
@@ -132,6 +134,7 @@ These files are not included for compiling, you can copy and paste it normally.
 
 You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of the tests are "convoluted" (even though it should be simple), so it's better to use the examples.
 
+<!--
 ---
 
 ## But why?
@@ -268,14 +271,14 @@ State can be pushed and popped in an opaque manner. The interface extensions / s
 
 <!-- Filter for powershell script to postprocess README.md : /<!--\s*NO_RELEASE[\s\S]*END_NO_RELEASE\s*-->/gm -->
 <!-- NO_RELEASE -->
-
+<!--
 7. Tests have been changed a lot.
 * The generic type is now the data source, and future releases may add extra data sources.. I will design / plan this a little better so that mixed configurations could be better, but 3.0 release will just leave it similar to this..
 
 8. The `printf`/`WriteLine` driven debugging is because `vsdbg` is hilariously slow. (I guess that's why `raddbg` exists. Too bad C# is _too different_ or I didn't bother checking if a `netcoredbg` backend exists.)
-
+-->
 <!-- END_NO_RELEASE -->
-
+<!--
 </details>
 
 <details>
@@ -291,3 +294,4 @@ State can be pushed and popped in an opaque manner. The interface extensions / s
 <sup>Should have used the `BinaryWriter` instead...</sup>
 
 </details>
+-->

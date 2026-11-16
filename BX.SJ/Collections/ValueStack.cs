@@ -43,13 +43,8 @@ namespace BX.SJ.Collections
         where T : struct
     {
         // What am i even doing atp..
-        // Could cheat the resizes by using a List<T> instead of a raw array,
-        // but that's 2 indirections (and on my wildly inefficient parser
-        // i can't have such things, i must have super cache locality).
-#if NET_7_0_OR_GREATER
-        [ThreadStatic]
-        private static ValueStack<T> _stubStack;
-#endif
+        // Could cheat the resizes by using a List<T> instead + it wouldn't need the renew dance.
+
         [ThreadStatic]
         private static T _stub;
         public const int DefaultStackSize = 8;
@@ -57,11 +52,8 @@ namespace BX.SJ.Collections
 
         public readonly ref struct Handle
         {
-#if NET7_0_OR_GREATER
-            private readonly ref ValueStack<T> _ownerStack;
-#else
             private readonly (T value, int version)[] _ownerStack;
-#endif
+
             public readonly int index;
             private readonly int version;
             /// <summary>
@@ -69,19 +61,14 @@ namespace BX.SJ.Collections
             /// <br>Returns <see langword="false"/> for <see cref="IsStub"/>, but non-valid and non-stub values do exist as well.</br>
             /// </summary>
             public readonly bool IsValid => !IsStub &&
-#if NET_7_0_OR_GREATER
-                index < _ownerStack._stack.Length && _ownerStack._stack[index].version == version;
-#else
                 index < _ownerStack.Length && _ownerStack[index].version == version;
-#endif
+
             /// <summary>
             /// Returns <see langword="true"/> for strictly stub values, not for invalid values.
             /// </summary>
-#if NET_7_0_OR_GREATER
-            public readonly bool IsStub => index < 0;
-#else
+
             public readonly bool IsStub => index < 0 || _ownerStack == null;
-#endif
+
             // A roslyn analyzer emitting a warning if the result of this is stored would be great here.
             // Too bad it's out of scope for this project regardless.
             public ref T Value
@@ -93,11 +80,9 @@ namespace BX.SJ.Collections
                         goto _Fail;
                     }
 
-#if NET_7_0_OR_GREATER
-                    ref (T value, int version) t = ref _ownerStack._stack[index];
-#else
+
                     ref (T value, int version) t = ref _ownerStack[index];
-#endif
+
                     if (version != t.version)
                     {
                         goto _Fail;
@@ -111,59 +96,32 @@ namespace BX.SJ.Collections
                 }
             }
 
-#if NET7_0_OR_GREATER
-            public Handle(ref ValueStack<T> ownerStack, int index, int version)
-            {
-                _ownerStack = ref ownerStack;
-                this.index = index;
-                this.version = version;
-            }
-#else
             public Handle((T, int)[] ownerStack, int index, int version)
             {
                 _ownerStack = ownerStack;
                 this.index = index;
                 this.version = version;
             }
-#endif
-            public static Handle Stub()
-            {
-#if NET_7_0_OR_GREATER
-                return new Handle(ref _stubStack, -1, -1);
-#else
-                return new Handle(null, -1, -1);
-#endif
-        }
+            public static Handle Stub() => new Handle(null, -1, -1);
             public static Handle At(ref ValueStack<T> v, int index)
             {
                 if (index < 0 || index >= v.Count) return Stub();
-#if NET_7_0_OR_GREATER
-                return new Handle(ref v, index, v._stack[index].version);
-#else
+
                 var array = v._stack;
                 return new Handle(array, index, array[index].version);
-#endif
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static Handle AtUnchecked(ref ValueStack<T> stack, int index, int version)
             {
-#if NET_7_0_OR_GREATER
-                return new Handle(ref stack, index, version);
-#else
                 return new Handle(stack._stack, index, version);
-#endif
             }
 
+            // Sole reason I tell you to not use this outside of SJ. There are pitfalls.
             /// <summary>
             /// Renews handle if the previously pointed stack is known to be valid, but has wrong heap reference.
             /// <br>This can happen if the stack resizes.</br>
-            /// <br>On newer runtimes / cases where the <see langword="ref"/> fields are supported, 
-            /// this only renews / validates the version and is not strictly necessary.</br>
             /// </summary>
-            // #if NET_7_0_OR_GREATER
-            // [Obsolete("No need to renew the stack reference within the ref handle in .NET 7+", false)]
-            // #endif
-            public readonly Handle Renew(in ValueStack<T> v, bool withCurrentVersion = true)
+            public readonly Handle Renew(ref ValueStack<T> v, bool withCurrentVersion = true)
             {
                 int ver = version;
                 if (!withCurrentVersion)
@@ -172,14 +130,10 @@ namespace BX.SJ.Collections
                     if (ver != version) return Stub();
                 }
 
-#if NET_7_0_OR_GREATER
-                return new Handle(ref _ownerStack, index, ver);
-#else
                 // All ts because ref fields are not supported.
                 // I assume that a ref field likely pins the struct and the whole heap region that contains this struct,
                 // or adds to a tracker that allows moving when GC..
                 return new Handle(v._stack, index, ver);
-#endif
             }
         }
 
