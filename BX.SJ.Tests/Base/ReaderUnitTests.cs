@@ -107,7 +107,8 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     {
         try
         {
-            return ReaderTester.ReadJSC(reader);
+            reader.allowComments = true;
+            return ReaderTester.ReadWithTokens(reader);
         }
         finally
         {
@@ -134,11 +135,11 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
         }
         return $"{info.Name}_{data0}";
     }
-    /// <summary>
-    /// Collection of root data (that are either empty or not)
-    /// </summary>
-    public static IEnumerable<string[]> JsonRootDataProcessors => [[JsonDataEmptyObject], [JsonDataEmptyArray], [JsonDataRootString], [JsonDataRootNumber], [JsonDataRootBoolFalse], [JsonDataRootBoolTrue], [JsonDataRootNull]];
-    public static IEnumerable<string[]> JsonTruncatedRootDataProcessors() => TestEx.CreateTruncatedDataProcessors(JsonRootDataProcessors.Where(v => v.Length > 0 && v[0] != JsonDataRootNumber));
+    ///// <summary>
+    ///// Collection of root data (that are either empty or not)
+    ///// </summary>
+    //public static IEnumerable<string[]> JsonRootDataProcessors => [[JsonDataEmptyObject], [JsonDataEmptyArray], [JsonDataRootString], [JsonDataRootNumber], [JsonDataRootBoolFalse], [JsonDataRootBoolTrue], [JsonDataRootNull]];
+    //public static IEnumerable<string[]> JsonTruncatedRootDataProcessors() => TestEx.CreateTruncatedDataProcessors(JsonRootDataProcessors.Where(v => v.Length > 0 && v[0] != JsonDataRootNumber));
 
     // Tests
     // Basic tests: Read and Empty
@@ -524,7 +525,7 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     // Do also read literals with no ignore JSC to test "Ended".
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonRootDataProcessors))]
+    [DynamicData(nameof(JsonRootData), typeof(TestData))]
     public void TestJSCRootLiteralsWithCapture(string data)
     {
         // Since 3.x, comments are now captured "content only", so this basic output is expected.
@@ -543,13 +544,13 @@ public abstract class ReaderUnitTests<TReader> where TReader : SJReader
     // Empty root
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonRootDataProcessors))]
+    [DynamicData(nameof(JsonRootData), typeof(TestData))]
     public void TestRootLiterals(string data) =>
         // Since the empty builder for the sample code is simple but somewhat matching, it should equal.
         Assert.AreEqual(data, ReadAndDispose(CreateFromString(data)).ToString());
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonTruncatedRootDataProcessors))]
+    [DynamicData(nameof(JsonTruncatedRootData), typeof(TestData))]
     public void TestTruncatedRootLiterals(string data) => Assert.Throws<SJReader.ReadException>(() => ReadAndDispose(CreateFromString(data)));
     [TestMethod]
     [DataRow(true)]

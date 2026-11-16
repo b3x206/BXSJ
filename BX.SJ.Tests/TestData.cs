@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using static BX.SJ.Tests.ReaderTester;
 
 namespace BX.SJ.Tests;
 
@@ -9,13 +10,45 @@ public static class TestData
 {
     // JSON Data
     // - Root Data
-    public const string JsonDataEmptyObject = @"{}", JsonDataEmptyArray = @"[]", JsonDataRootString = @"""Hello world!""",
-        JsonDataRootNumber = @"42.42", JsonDataRootBoolFalse = @"false", JsonDataRootBoolTrue = @"true", JsonDataRootNull = @"null", DataEmpty = "";
+    public const string
+        // JSON compatible root data
+        JsonDataStringContent = "Hello world!",
+        JsonDataEmptyObject = @"{}", JsonDataEmptyArray = @"[]", JsonDataString = $@"""{JsonDataStringContent}""",
+        JsonDataNumber = @"42.42", JsonDataBoolFalse = @"false", JsonDataBoolTrue = @"true", JsonDataNull = @"null",
+        // Special BXSJ data
+        BXSJDataType = $@"(HelloWorld)", BXSJDataRootStringType = $@"(""{JsonDataStringContent} () \"""")",
+        BXSJDataSingleComment = $@"// {JsonDataStringContent}", BXSJDataNewlineSingleComment = $"// {JsonDataStringContent}\r\n",
+        BXSJDataMultiComment = $@"/* {JsonDataStringContent} */",
+        // Other
+        DataEmpty = "";
+    public static IEnumerable<string[]> JsonRootData => [
+        // Data, ExpectedCapture (if not using the tokenized output that gives BXSJ-adjacent output)
+        [JsonDataEmptyObject, ""], [JsonDataEmptyArray, ""],
+        [JsonDataString, JsonDataStringContent], [JsonDataNumber, JsonDataNumber],
+        [JsonDataBoolFalse, JsonDataBoolFalse], [JsonDataBoolTrue, JsonDataBoolTrue],
+        [JsonDataNull, JsonDataBoolFalse]
+    ];
+    public static IEnumerable<string[]> JsonTruncatedRootData() => TestEx.CreateTruncatedStringData(JsonRootData.Where(v => v.Length > 0 && v[0] != JsonDataNumber));
+    // BXSJ root data assumes all tolerances are allowed.
+    public static IEnumerable<string[]> BXSJRootData => [
+        // Data, ExpectedCapture
+        [BXSJDataType, BXSJDataType.Trim('(', ')')], [BXSJDataRootStringType, BXSJDataRootStringType.Trim('(', ')', ' ')[1..^1]],
+        [BXSJDataSingleComment, BXSJDataSingleComment.TrimStart('/').Trim()], [BXSJDataNewlineSingleComment, BXSJDataNewlineSingleComment.TrimStart('/').Trim()],
+        [BXSJDataMultiComment, BXSJDataMultiComment.Trim('/', '*', ' ')],
+    ];
+    public static IEnumerable<string[]> BXSJTruncatedRootData() => TestEx.CreateTruncatedStringData(JsonRootData.Where(v => v.Length > 0));
 
+    // ---
+    // Test refactor
     public const string JsonData1 = @"{
-        ""foo"": [""bar"", ""baz""],
-        ""idk"": 42,
-        ""mango"": { ""6"": 7 }
+        ""num"":42,
+        ""num2"":-42,
+        ""t"":true,
+        ""f"":false,
+        ""n"":null,
+        """":"""",
+        ""foo"":[""bar"",""baz""],
+        ""mango"":{""6"":7}
 }";
     public const string JsonDataInvalid = @"{
         ""foo"": ""bar"", ""baz""],
@@ -121,8 +154,8 @@ public static class TestData
     /// </summary>
     public static IEnumerable<object[]> StringDataProvider => [
         [DataEmojiSpam], [DataNormalEmojis], [JsonDataSpamKey], [JsonData1], [DepthMaxxKey],
-        [ObjectTwisterKey], [SciNumsKey], [JsonDataEmptyArray], [JsonDataRootBoolFalse],
-        [JsonDataRootBoolTrue], [JsonDataRootNumber], [JsonDataRootNull], [DataEmpty]
+        [ObjectTwisterKey], [SciNumsKey], [JsonDataEmptyArray], [JsonDataBoolFalse],
+        [JsonDataBoolTrue], [JsonDataNumber], [JsonDataNull], [DataEmpty]
     ];
     public static string? StringDataProviderName(MethodInfo _, object[] arg)
     {

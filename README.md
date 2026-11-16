@@ -15,9 +15,7 @@ This branch (`devel`) is where development is done, before getting packed into "
 2.  "Stable" SJ releases are the ones that are tagged with semver. You will generally see major releases as I generally refactor things and don't backport bugfixes (if there are bugfixes). <br>
 _(all tests pass, benchmarks are consistent, slightly worse or slightly improved and it doesn't regress too much)_ <br>
 
-3. Contrary to it's base or name, it is _not simple_ and is OOP, but whatever, it got like this because of my arbitrary requirements.
-
-4. Should have used antlr or re2c (or some other lexer tool to process the logical units), but those are also very large. Enjoy the handwritten slow lexer (it _works_ so _it's a good_).
+3. It isn't very simple and has incompatible extensions.
 
 ## Examples
 
@@ -26,7 +24,7 @@ _(all tests pass, benchmarks are consistent, slightly worse or slightly improved
 Use the [`SJStringReader`](./SJ/SJStringReader.cs) class to get started.
 
 ```cs
-// A basic object deserialization example. Non-recursive.
+// A basic object deserialization example, non-recursive.
 using BX.SJ;
 using System;
 using System.Numerics;
@@ -125,38 +123,6 @@ Console.WriteLine($"Saved Position : {data}, Read Position : {position}, Equals 
 * WriteLarge = Write ~500kb JSON (`{ "random_key": "random_value", ... 16384 entries }`) 32 times
 * Baseline = Do the same action, just without processing but read/write it.
 
-Classes used are [`SJStringReader`](./SJ/SJStringReader.cs) and [`SJStringWriter`](SJ/SJStringWriter.cs)
-
-```
-
-BenchmarkDotNet v0.15.8, Linux Debian GNU/Linux 13 (trixie)
-13th Gen Intel Core i7-13620H 2.92GHz, 1 CPU, 16 logical and 8 physical cores
-.NET SDK 8.0.421
-  [Host]     : .NET 8.0.27 (8.0.27, 8.0.2726.22922), X64 RyuJIT x86-64-v3
-  DefaultJob : .NET 8.0.27 (8.0.27, 8.0.2726.22922), X64 RyuJIT x86-64-v3
-
-```
-
-#### ReaderBenchmarks
-
-| Method             | Mean        | Error     | StdDev    | Ratio      | RatioSD  | Allocated | Alloc Ratio |
-|--------------------|------------:|----------:|----------:|-----------:|---------:|----------:|------------:|
-| ReadBaseline       |   0.0392 ms | 0.0001 ms | 0.0001 ms |       1.00 |     0.00 |         - |          NA |
-| Read               |  36.6612 ms | 0.2419 ms | 0.2263 ms |     935.90 |     6.17 |         - |          NA |
-|                    |             |           |           |            |          |           |             |
-| ReadLargeBaseline  |   3.5105 ms | 0.0200 ms | 0.0177 ms |       1.00 |     0.01 |         - |          NA |
-| ReadLarge          | 408.2533 ms | 1.4103 ms | 1.3192 ms |     116.30 |     0.67 |         - |          NA |
-
-#### WriterBenchmarks
-
-| Method             | Mean        | Error     | StdDev    | Ratio      | RatioSD  | Gen0   | Allocated | Alloc Ratio |
-|------------------- |------------:|----------:|----------:|-----------:|---------:|-------:|----------:|------------:|
-| WriteBaseline      |   0.0005 ms | 0.0000 ms | 0.0000 ms |       1.00 |     0.01 | 0.0134 |     168 B |        1.00 |
-| Write              |  11.0221 ms | 0.1107 ms | 0.1036 ms |  23,509.18 |   252.60 |      - |     168 B |        1.00 |
-|                    |             |           |           |            |          |        |           |             |
-| WriteLargeBaseline |   0.0001 ms | 0.0000 ms | 0.0000 ms |       1.00 |     0.00 | 0.0134 |     168 B |        1.00 |
-| WriteLarge         |  45.7750 ms | 0.1747 ms | 0.1548 ms | 575,208.09 | 2,453.84 |      - |     168 B |        1.00 |
-
 -->
 
 ---
@@ -164,16 +130,14 @@ BenchmarkDotNet v0.15.8, Linux Debian GNU/Linux 13 (trixie)
 More examples are in the [`./BX.SJ/Examples`](./BX.SJ/Examples) directory. <br>
 These files are not included for compiling, you can copy and paste it normally.
 
-You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of the tests are "convoluted", so it's better to use the examples.
+You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of the tests are "convoluted" (even though it should be simple), so it's better to use the examples.
 
 ---
 
 ## But why?
-* Because it's for older versions of Godot and other C# runtimes without good access to System.Text.Json or other JSON libraries.
+* Because it's for older versions of Godot and other C# runtimes without good access to System.Text.Json or other JSON libraries. (Although there is no .NET Framework support. This is because I still sometimes use mono for some reason)
 * Newtonsoft and other larger JSON libraries (incl. the System.Text.Json) are not really friendly to game engine runtimes (eg. AOT, Assembly load/unload friendliness, etc.). Source generators solve this but it's generally not a simple "plug and play" solution (meaning I don't need it or it's out of scope for this repository).
-* It's meant to be simple and stable but low level meaning it can be a pinned dependency. (Large updates will always increment versions and I will try my best to make first releases not need minor updates)
-* And why is all of the state public? <br>
-  \> I like not using reflection to access object's properties. Of course, it is "more dangerous" and prone to misuse, but it allows for better extensions and analysis (especially if you distribute it in a way hard to change the library like "dll" or "upm package").
+* It's meant to be ~~simple and~~ stable ~~but "low level"~~ meaning it can be a pinned dependency. (Large updates will always increment versions and I will try my best to make first releases not need minor updates)
 
 ## Changelog
 ### - 1.0.0

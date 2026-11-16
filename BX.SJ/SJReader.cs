@@ -127,7 +127,7 @@ namespace BX.SJ
             public readonly ReadOnlySpan<char> Slice()
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.Data.Slice(start, end - start);
+                return reader.Slice(start, end - start);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice(int start)
@@ -157,9 +157,8 @@ namespace BX.SJ
             {
                 this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
 
-                disposed = false;
                 this.popIfError = popIfError;
-                reader.PushState();
+                disposed = reader.PushState() < 0;
             }
 
             public void Dispose()
@@ -251,20 +250,21 @@ namespace BX.SJ
             }
             public override readonly string ToString()
             {
-                return $"current={current}, depth={depth}, top={{{stack.PeekValue()}}}";
+                return $"depth={depth}, top={{{stack.PeekValue()}}}";
             }
         }
 
-        // config
+        // - config
+        public const int DefaultMaxDepth = 128;
         /// <summary>
         /// Maximum read depth as generally recursion is used to read.
         /// <br>Set to zero to disable any depth checks.</br>
         /// </summary>
-        public ushort maxDepth = 128;
+        public ushort maxDepth = DefaultMaxDepth;
         /// <summary>
         /// Maximum amount of stackable state.
         /// </summary>
-        public int maxStateStack
+        public int MaxStateCount
         {
             get => _stateStack.maxSize;
             set => _stateStack.maxSize = value;
@@ -324,7 +324,7 @@ namespace BX.SJ
             }
         }
 
-        // state
+        // - state
         private State _S;
         public ref State S => ref _S;
         /// <summary>
@@ -350,24 +350,22 @@ namespace BX.SJ
         }
 
         // sources
-        public ISJReaderData Data { get; set; }
-
-        ///// <summary>
-        ///// Length of the data to read.
-        ///// </summary>
-        //public abstract int Length { get; }
-        ///// <summary>
-        ///// Get a character at <paramref name="i"/>.
-        ///// <br><b>Note:</b> This can receive OOB reads, generally at <paramref name="i"/> == <see cref="Length"/></br>
-        ///// <br>In this case, it is necessary to handle that exact condition with '\0' / EOF character of your choice.</br>
-        ///// <br>If reading from a stream, this should maybe seek within the index buffer or go back to the "approximate position" or refer to the underlying "string buffer"</br>
-        ///// </summary>
-        //public abstract char At(int i);
-        ///// <summary>
-        ///// Create a literal "char" slice, starting from <paramref name="start"/> with <paramref name="length"/> on the data source.
-        ///// <br>Used for the lazy <see cref="Value"/>'s <see cref="Value.Slice"/>.</br>
-        ///// </summary>
-        //public abstract ReadOnlySpan<char> Slice(int start, int length);
+        /// <summary>
+        /// Length of the data to read.
+        /// </summary>
+        public abstract int Length { get; }
+        /// <summary>
+        /// Get a character at <paramref name="i"/>.
+        /// <br><b>Note:</b> This can receive OOB reads, generally at <paramref name="i"/> == <see cref="Length"/></br>
+        /// <br>In this case, it is necessary to handle that exact condition with '\0' / EOF character of your choice.</br>
+        /// <br>If reading from a stream, this should maybe seek within the index buffer or go back to the "approximate position" or refer to the underlying "string buffer"</br>
+        /// </summary>
+        public abstract char At(int i);
+        /// <summary>
+        /// Create a literal "char" slice, starting from <paramref name="start"/> with <paramref name="length"/> on the data source.
+        /// <br>Used for the lazy <see cref="Value"/>'s <see cref="Value.Slice"/>.</br>
+        /// </summary>
+        public abstract ReadOnlySpan<char> Slice(int start, int length);
 
         /// <summary>
         /// <see cref="SJType.Number"/> continuation check, Note that this reader 
@@ -921,7 +919,7 @@ namespace BX.SJ
                 result.type = ch == '{' ? SJType.Object : SJType.Array;
                 var prevHandle = s.stack.Peek();
                 s.stack.PushValue(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
-                prevHandle = prevHandle.Renew(s.stack);
+                prevHandle = prevHandle.Renew(ref s.stack);
 
                 result.objectDepth = (ushort)s.depth;
                 s.current++;
@@ -1085,7 +1083,7 @@ namespace BX.SJ
             // * Must retain a handle for handling resize cases
             var stHandle = S.stack.Peek();
             result = Read();
-            stHandle = stHandle.Renew(S.stack);
+            stHandle = stHandle.Renew(ref S.stack);
 
             if (result.type == SJType.Comment)
             {
@@ -1153,7 +1151,7 @@ namespace BX.SJ
             // * Must retain a handle for handling resize cases
             var stHandle = S.stack.Peek();
             result = Read();
-            stHandle = stHandle.Renew(S.stack);
+            stHandle = stHandle.Renew(ref S.stack);
 
             switch (result.type)
             {
@@ -1295,7 +1293,7 @@ namespace BX.SJ
             s.depth = prevDepth;
             // Above pops the stack at the last read, which breaks some assumptions about version being same.
             // Just renew unsafely, it will be fine.
-            topHandle = topHandle.Renew(s.stack, false);
+            topHandle = topHandle.Renew(ref s.stack, false);
             topHandle.Value = prevTop;
             return result;
         }

@@ -423,7 +423,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
                 string? data = writer.ReadData();
                 // Validate
                 Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
-                ReaderTester.ReadJSC(new SJStringReader(data));
+                ReaderTester.Read(new SJStringReader(data) { allowComments = true });
                 // And show
                 Console.WriteLine(data);
             }
@@ -465,8 +465,8 @@ public abstract class WriterUnitTests<TWriter> where TWriter : SJWriter
             {
                 string? data = writer.ReadData();
                 Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
-                var r = new SJStringReader(data) { ThrowOnError = true };
-                ReaderTester.ReadJSC(r);
+                var r = new SJStringReader(data) { allowComments = true, ThrowOnError = true };
+                ReaderTester.Read(r);
                 Console.WriteLine(data);
             }
             else

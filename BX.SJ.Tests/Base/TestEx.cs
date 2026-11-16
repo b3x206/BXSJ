@@ -10,7 +10,7 @@ public static class TestEx
     /// </summary>
     /// <param name="strings">List of string arguments.</param>
     /// <returns>Truncated list of strings iterable to cause new and fun errors!</returns>
-    public static IEnumerable<string[]> CreateTruncatedDataProcessors(IEnumerable<string[]> strings, bool startTruncated = true)
+    public static IEnumerable<string[]> CreateTruncatedStringData(IEnumerable<string[]> strings, bool startTruncated = true)
     {
         foreach (var args in strings)
         {

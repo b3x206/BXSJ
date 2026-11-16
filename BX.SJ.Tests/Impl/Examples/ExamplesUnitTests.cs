@@ -10,11 +10,11 @@ public sealed class ExamplesUnitTests
         [JsonData2],
         [JsonData3],
         [JsonDataDiscard],
-        [JsonDataRootNull],
-        [JsonDataRootNumber],
-        [JsonDataRootBoolFalse],
-        [JsonDataRootBoolTrue],
-        [JsonDataRootString],
+        [JsonDataNull],
+        [JsonDataNumber],
+        [JsonDataBoolFalse],
+        [JsonDataBoolTrue],
+        [JsonDataString],
         [DataEmpty],
     ];
     public static IEnumerable<string[]> JscTestDataProcessors => [
