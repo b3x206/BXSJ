@@ -183,12 +183,13 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         // Validate whether if JsonData1 is loaded correctly.
         using SJReader reader = new(DataReaderFromString(JsonData1));
         ReaderTester.ReadWithTokens(reader);
-        Assert.AreEqual(JsonData1.Length, reader.Data.Position);
+        // Position is off by one if all chars are exhausted, which is generally the case.
+        Assert.AreEqual(JsonData1.Length, reader.Data.Index);
 
         // Read again with test
         reader.Reset();
         ReaderTester.ReadWithTokens(reader);
-        Assert.AreEqual(JsonData1.Length, reader.Data.Position);
+        Assert.AreEqual(JsonData1.Length, reader.Data.Index);
     }
     // Dispose is no-op for most cases, although disposed SJReader isn't usable
     [TestMethod]

@@ -272,6 +272,8 @@ State can be pushed and popped in an opaque manner. The interface extensions / s
 7. Tests have been changed a lot.
 * The generic type is now the data source, and future releases may add extra data sources.. I will design / plan this a little better so that mixed configurations could be better, but 3.0 release will just leave it similar to this..
 
+8. The `printf`/`WriteLine` driven debugging is because `vsdbg` is hilariously slow. (I guess that's why `raddbg` exists. Too bad C# is _too different_ or I didn't bother checking if a `netcoredbg` backend exists.)
+
 <!-- END_NO_RELEASE -->
 
 </details>

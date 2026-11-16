@@ -970,6 +970,7 @@ namespace BX.SJ
                 {
                     return result;
                 }
+                Console.WriteLine($"Went back to top, result: {result}");
                 goto _Top;
             }
             // Parse: Type (literal or something else). Treated sort of like a comment.
@@ -994,6 +995,7 @@ namespace BX.SJ
                     s.lastEntryType = result;
                     return result;
                 }
+                Console.WriteLine($"Went back to top, result: {result}");
                 goto _Top;
             }
             // Validate : Object == KV Colon, Array == Comma
@@ -1069,7 +1071,6 @@ namespace BX.SJ
                     }
                 }
                 result.end = Data.Index;
-                Console.WriteLine($"End {result.type}");
 
                 // UpdateState here is not needed because the upper state will be checked later
                 if (!UpdateEnding())
