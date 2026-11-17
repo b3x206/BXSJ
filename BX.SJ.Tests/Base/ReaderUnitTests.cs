@@ -449,17 +449,16 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [DynamicData(nameof(JsonRootData), typeof(TestData))]
     public void TestRootWithComments(string data, string _)
     {
-        // Since 3.x, comments are now captured "content only", so this basic output is expected.
-        const string ContentLeft = "This is a comment!";
-        const string ContentRight1 = "Dear god..";
-        const string ContentRight2 = "There's more! No.";
-        string CommentLeft = $"// {ContentLeft}" + Environment.NewLine;
-        string CommentRight = $"// {ContentRight1}" + Environment.NewLine + $"/* {ContentRight2} */";
+        const string ContentLeft = "// This is a comment!";
+        const string ContentRight1 = "// Dear god..";
+        const string ContentRight2 = "/* There's more! No. */";
+        string CommentLeft = $"{ContentLeft}" + Environment.NewLine;
+        string CommentRight = $"{ContentRight1}" + Environment.NewLine + $"{ContentRight2}";
 
         Assert.AreEqual(data, Read(DataReaderFromString(data), jsc: true).ToString());
-        string readerData = $"{CommentLeft}{data}{CommentRight}",
-            printData = $"{ContentLeft}{data}{ContentRight1}{ContentRight2}";
-        Assert.AreEqual(printData, Read(DataReaderFromString(readerData), jsc: true).ToString());
+        // One with valid formatting and one that the reader outputs.
+        string readerData = $"{CommentLeft}{data}{CommentRight}";
+        Assert.AreEqual(readerData, Read(DataReaderFromString(readerData), jsc: true).ToString());
     }
 
     [TestMethod]

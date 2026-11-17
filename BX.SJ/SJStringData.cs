@@ -69,6 +69,16 @@ namespace BX.SJ
 
             return default;
         }
+        public bool TryNext(out byte b)
+        {
+            if (MoveNext())
+            {
+                b = Current;
+                return true;
+            }
+            b = 0;
+            return false;
+        }
         public byte Peek()
         {
             if (Position < Data?.Length)
@@ -76,6 +86,16 @@ namespace BX.SJ
                 return (byte)Math.Min((char)0xFF, Data[Position]);
             }
             return 0;
+        }
+        public bool TryPeek(out byte b)
+        {
+            if (Position < Data?.Length)
+            {
+                b = (byte)Math.Min((char)0xFF, Data[Position]);
+                return true;
+            }
+            b = 0;
+            return false;
         }
         public int Next(in Span<byte> data)
         {
@@ -92,9 +112,16 @@ namespace BX.SJ
         }
         public int SkipWhiteSpace()
         {
+            // This method should start the iterator if it wasn't started.
             int i;
             for (i = 0; (Position <= 0 || char.IsWhiteSpace((char)Current)) && MoveNext(); i++) ;
             return i;
+        }
+        public bool TrySkipWhiteSpace(out int count)
+        {
+            bool result = true;
+            for (count = 0; (Position <= 0 || char.IsWhiteSpace((char)Current)) && (result = MoveNext()); count++) ;
+            return result;
         }
 
         public ReadOnlySpan<byte> SliceU8(int start, int length)
@@ -108,7 +135,7 @@ namespace BX.SJ
             return Data.AsSpan(start, length);
         }
 
-        private ValueStack<int> _positions = ValueStack<int>.CreateWithMaxSize(SJReader.DefaultMaxDepth);
+        private SJValueStack<int> _positions = SJValueStack<int>.CreateWithMaxSize(SJReader.DefaultMaxDepth);
         public int MaxStateCount { get => _positions.Capacity; set => _positions.Count = value; }
         public int PushState()
         {

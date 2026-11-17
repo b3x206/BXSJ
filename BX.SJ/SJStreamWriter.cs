@@ -246,7 +246,7 @@ namespace BX.SJ
                 stream.Position = sp;
             }
         }
-        private ValueStack<long> _positions = ValueStack<long>.Create();
+        private SJValueStack<long> _positions = SJValueStack<long>.Create();
         public override int PushState()
         {
             int baseResult = base.PushState();

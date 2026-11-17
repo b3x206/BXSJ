@@ -35,7 +35,7 @@ namespace BX.SJ
         public override bool CanReadData => true;
         public override string ReadData() => sb.ToString();
 
-        private ValueStack<int> _states = ValueStack<int>.Create();
+        private SJValueStack<int> _states = SJValueStack<int>.Create();
         public override int PushState()
         {
             int baseResult = base.PushState();

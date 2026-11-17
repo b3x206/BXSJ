@@ -1,5 +1,4 @@
 ﻿using System.Reflection;
-using static BX.SJ.Tests.ReaderTester;
 
 namespace BX.SJ.Tests;
 

@@ -145,7 +145,7 @@ namespace BX.SJ
             public bool WrittenCustomValue { get; private set; }
             public bool WrittenTrailingComma { get; private set; }
 
-            public ValueStack<Stacked> stack;
+            public SJValueStack<Stacked> stack;
             public readonly bool HasStackValue => depth > 0;
 
             public readonly void CopyTo(ref State s)
@@ -1387,7 +1387,7 @@ namespace BX.SJ
         public override string ToString() => $"[{base.ToString()}] state=({S}) error={Error}";
 
         // Code execution only - can be readonly
-        protected ValueStack<State> _stateStack = ValueStack<State>.CreateWithMaxSize(128);
+        protected SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(128);
         public int StateCount => _stateStack.Count;
         /// <summary>
         /// Pushes a loadable stacked state.

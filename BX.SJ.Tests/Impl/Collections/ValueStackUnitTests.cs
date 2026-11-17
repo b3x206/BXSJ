@@ -6,17 +6,17 @@ namespace BX.SJ.Tests.Impl.Collections;
 [TestClass]
 public sealed class ValueStackUnitTests
 {
-    static void IsValidHandle(ValueStack<int>.Handle handle)
+    static void IsValidHandle(SJValueStack<int>.Handle handle)
     {
         Assert.IsTrue(handle.IsValid);
         Assert.IsFalse(handle.IsStub);
     }
-    static void HandleValueEquals(ValueStack<int>.Handle handle, int expected)
+    static void HandleValueEquals(SJValueStack<int>.Handle handle, int expected)
     {
         IsValidHandle(handle);
         Assert.AreEqual(expected, handle.Value);
     }
-    static void IsStubHandle(ValueStack<int>.Handle h)
+    static void IsStubHandle(SJValueStack<int>.Handle h)
     {
         Assert.IsFalse(h.IsValid);
         Assert.IsTrue(h.IsStub);
@@ -28,7 +28,7 @@ public sealed class ValueStackUnitTests
     public void Stack()
     {
         const int Value = 1;
-        var ints = ValueStack<int>.Create();
+        var ints = SJValueStack<int>.Create();
 
         // ----
         // Handles
@@ -78,7 +78,7 @@ public sealed class ValueStackUnitTests
     public void HandleInvalidation()
     {
         const int Value = 1;
-        var ints = ValueStack<int>.Create();
+        var ints = SJValueStack<int>.Create();
 
         var handle = ints.Push(Value);
         var poppedHandle = ints.Pop();
@@ -97,12 +97,12 @@ public sealed class ValueStackUnitTests
     public void HandleCheckedAt()
     {
         const int Value = 1;
-        var ints = ValueStack<int>.CreateWithCapacity(1);
+        var ints = SJValueStack<int>.CreateWithCapacity(1);
 
-        IsStubHandle(ValueStack<int>.Handle.At(ref ints, 0));
-        IsStubHandle(ValueStack<int>.Handle.Stub());
+        IsStubHandle(SJValueStack<int>.Handle.At(ref ints, 0));
+        IsStubHandle(SJValueStack<int>.Handle.Stub());
         IsValidHandle(ints.Push(Value));
-        IsValidHandle(ValueStack<int>.Handle.At(ref ints, 0));
+        IsValidHandle(SJValueStack<int>.Handle.At(ref ints, 0));
 
         // Rare case where ints has been resized
         var h = ints.Pop();
@@ -116,7 +116,7 @@ public sealed class ValueStackUnitTests
     [Timeout(TestTimeouts.Short)]
     public void StackDefaultConfig()
     {
-        ValueStack<int> ints = default;
+        SJValueStack<int> ints = default;
 
         HandleValueEquals(ints.Push(0), 0);
         HandleValueEquals(ints.Push(1), 1);
@@ -128,7 +128,7 @@ public sealed class ValueStackUnitTests
     [Timeout(TestTimeouts.Short)]
     public void StackSetCount()
     {
-        ValueStack<int> ints = ValueStack<int>.CreateWithCapacity(8); // Capacity must be >= 2
+        SJValueStack<int> ints = SJValueStack<int>.CreateWithCapacity(8); // Capacity must be >= 2
         const int Value = 1;
 
         _ = ints.Push();
@@ -236,7 +236,7 @@ public sealed class ValueStackUnitTests
     public void StackCapacity()
     {
         const int MaxSize = 16;
-        ValueStack<int> ints = ValueStack<int>.Create(8, MaxSize);
+        SJValueStack<int> ints = SJValueStack<int>.Create(8, MaxSize);
 
         // Capacity can shrink if no borrowed value exists.
         ints.Capacity -= 1;
@@ -259,7 +259,7 @@ public sealed class ValueStackUnitTests
     [Timeout(TestTimeouts.Short)]
     public void HandleRenew()
     {
-        ValueStack<int> ints = ValueStack<int>.CreateWithCapacity(1);
+        SJValueStack<int> ints = SJValueStack<int>.CreateWithCapacity(1);
 
         var h1 = ints.Push();
         ints.Push();
@@ -273,7 +273,7 @@ public sealed class ValueStackUnitTests
     [Timeout(TestTimeouts.Short)]
     public void HandleRenewWithoutVersion()
     {
-        ValueStack<int> ints = ValueStack<int>.CreateWithCapacity(1);
+        SJValueStack<int> ints = SJValueStack<int>.CreateWithCapacity(1);
 
         var h1 = ints.Push();
         ints.Push();
@@ -291,7 +291,7 @@ public sealed class ValueStackUnitTests
     [DataRow(16)]
     public void StackClear(int count)
     {
-        static void LastValueEquals(ValueStack<int> vs, int count, int equals)
+        static void LastValueEquals(SJValueStack<int> vs, int count, int equals)
         {
             for (int i = 0; i < count; i++)
             {
@@ -300,13 +300,13 @@ public sealed class ValueStackUnitTests
             Assert.AreEqual(equals, vs.Peek().Value);
         }
 
-        var vs = ValueStack<int>.Create();
+        var vs = SJValueStack<int>.Create();
         for (int i = 0; i < count; i++) vs.Push(i);
         vs.Clear(resetValues: true);
         LastValueEquals(vs, count, default);
 
         // This could assume that Clear works properly, so recreate the vs instead of calling Clear.
-        vs = ValueStack<int>.Create();
+        vs = SJValueStack<int>.Create();
         for (int i = 0; i < count; i++) vs.Push(i);
         vs.Clear(resetValues: false);
         LastValueEquals(vs, count, count - 1);
@@ -317,7 +317,7 @@ public sealed class ValueStackUnitTests
     public void OutOfBoundsPopPushPeek()
     {
         const int Value = 1;
-        var ints = ValueStack<int>.CreateWithMaxSize(maxSize: 1);
+        var ints = SJValueStack<int>.CreateWithMaxSize(maxSize: 1);
         Assert.AreEqual(1, ints.Capacity);
         ints.Push(Value);
 
@@ -350,10 +350,10 @@ public sealed class ValueStackUnitTests
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(0)]
-    [DataRow(ValueStack<int>.DefaultStackSize * 2)]
+    [DataRow(SJValueStack<int>.DefaultStackSize * 2)]
     public void PushGrows(int maxSize)
     {
-        var ints = new ValueStack<int>(capacity: ValueStack<int>.DefaultStackSize, maxSize: maxSize);
+        var ints = new SJValueStack<int>(capacity: SJValueStack<int>.DefaultStackSize, maxSize: maxSize);
 
         switch (maxSize)
         {
@@ -391,7 +391,7 @@ public sealed class ValueStackUnitTests
     [DataRow(16)]
     public void StackIEnumerable(int expectedCount)
     {
-        var ints = ValueStack<int>.Create();
+        var ints = SJValueStack<int>.Create();
         for (int i = 0; i < expectedCount; i++) ints.Push();
 
         int c = 0;
@@ -427,7 +427,7 @@ public sealed class ValueStackUnitTests
     {
         if (count <= 0) throw new ArgumentException("Count must be larger than 0", nameof(count));
         const int Value = 1;
-        var ints = ValueStack<int>.Create();
+        var ints = SJValueStack<int>.Create();
         for (int i = 0; i < count; i++)
         {
             ints.Push(Value);
@@ -449,7 +449,7 @@ public sealed class ValueStackUnitTests
         foreach (var baseClass in new bool[] { true, false })
         {
             int[] a = new int[count];
-            var s = ValueStack<int>.Create();
+            var s = SJValueStack<int>.Create();
             for (int i = 0; i < count; i++) s.Push(Value);
 
             if (!baseClass) s.CopyTo(a, 0);
@@ -481,8 +481,8 @@ public sealed class ValueStackUnitTests
         const int Value = -1;
         foreach (bool containOne in new bool[] { true, false })
         {
-            ValueStack<int> s = default;
-            ValueStack<int> s2 = default;
+            SJValueStack<int> s = default;
+            SJValueStack<int> s2 = default;
             if (containOne) s2.Push(Value);
 
             for (int i = 0; i < count; i++) s.Push(i);
@@ -501,8 +501,8 @@ public sealed class ValueStackUnitTests
         const int Value = -1;
         foreach (bool containOne in new bool[] { true, false })
         {
-            ValueStack<int> s = default;
-            ValueStack<int> s2 = default;
+            SJValueStack<int> s = default;
+            SJValueStack<int> s2 = default;
             if (containOne) s2.Push(Value);
 
             for (int i = 0; i < count; i++) s.Push(i);
@@ -517,15 +517,15 @@ public sealed class ValueStackUnitTests
     [TestMethod]
     public void StackHashCode()
     {
-        var s1 = new ValueStack<int>();
+        var s1 = new SJValueStack<int>();
         s1.Push();
 
-        var s2 = new ValueStack<int>();
+        var s2 = new SJValueStack<int>();
         s2.Push(1);
 
-        var s3 = ValueStack<int>.Create();
+        var s3 = SJValueStack<int>.Create();
 
-        ValueStack<int> s4 = default;
+        SJValueStack<int> s4 = default;
 
         Assert.AreAllDistinct([s1.GetHashCode(), s2.GetHashCode(), s3.GetHashCode(), s4.GetHashCode()]);
     }

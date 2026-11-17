@@ -122,7 +122,7 @@ namespace BX.SJ
             });
         }
 
-        private ValueStack<int> _states = ValueStack<int>.Create();
+        private SJValueStack<int> _states = SJValueStack<int>.Create();
         public override int PushState()
         {
             int baseResult = base.PushState();

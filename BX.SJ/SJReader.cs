@@ -63,7 +63,7 @@ namespace BX.SJ
         /// <summary>
         /// Exception thrown on an error case while reading BXSJ.
         /// </summary>
-        public class ReadException : Exception
+        public sealed class ReadException : Exception
         {
             public ReadException(SJReader reader) : base($"{reader.Error} at position {reader.Data.Position}")
             { }
@@ -221,10 +221,11 @@ namespace BX.SJ
             public Value lastEntryKey;
             public Value lastEntryType;
 
+            public uint totalValueCount;
             public bool notExpectingType;
             public bool ended;
 
-            public ValueStack<Stacked> stack;
+            public SJValueStack<Stacked> stack;
             public readonly bool HasStackValues => depth > 0;
 
             public readonly void CopyTo(ref State s)
@@ -240,9 +241,10 @@ namespace BX.SJ
             public void Reset()
             {
                 stack.Clear(false);
-                lastEntryKey = default;
+                lastEntryKey = lastEntryType = default;
                 ended = false;
                 _error = null;
+                totalValueCount = 0;
             }
             public override readonly string ToString()
             {
@@ -450,97 +452,37 @@ namespace BX.SJ
         /// </summary>
         private int GetLiteralType()
         {
-            // __arglist is possible, but whatever. SJ literals are stored somewhere else.
-            int csSize = (readerLiterals.Length / (sizeof(byte) * 8)) + 1;
-            Span<byte> candidates = csSize > 64 ? new byte[csSize] : stackalloc byte[csSize];
-            static int GetSlice(int i) => i / (sizeof(byte) * 8);
-            static bool GetCandidate(Span<byte> cs, int i)
+            // This assumes that all literals essentially start with a different character and are not substrings of each other
+            int mc = -1, ci = 0;
+            char c = (char)Data.Current;
+            string l = null;
+            do
             {
-                int index = GetSlice(i), bit = 1 << (i % (sizeof(byte) * 8));
-                if (index < 0 || index >= cs.Length) return false;
-                return (cs[index] & bit) != 0;
-            }
-            static void MarkCandidate(Span<byte> cs, int i, bool v)
-            {
-                int index = GetSlice(i), bit = 1 << (i % (sizeof(byte) * 8));
-                if (v) cs[index] = (byte)(cs[index] | bit);
-                else cs[index] = (byte)(cs[index] ^ bit);  // Bit is a single flag
-            }
-
-            int ml = 0, fullMatchIndex = -1;
-            int maxLength = 0;
-            for (int i = 0; i < readerLiterals.Length; i++) maxLength = Math.Max(maxLength, readerLiterals[i]?.Length ?? 0);
-            for (int matching = 0, i = 0; !Data.Ended && i < maxLength; matching = 0, i++, Data.Next())
-            {
-                char c = (char)Data.Current;
-                for (int j = 0; j < readerLiterals.Length; j++)
+                switch (mc)
                 {
-                    string str = readerLiterals[j];
-                    if (string.IsNullOrEmpty(str)) continue;
-                    switch (ml)
-                    {
-                        case 0:
-                            // On the start, all is candidate and there is no need to check the allowed candidates.
-                            if (str[ml] == c)
-                            {
-                                if ((ml + 1) == str.Length)
-                                {
-                                    fullMatchIndex = j;
-                                    // This should capture "Current..Current+1" for a matching value
-                                    _SlaData?.BeginSliceableRegion();
-                                    _SlaData?.EndSliceableRegion();
-                                }
-                                else
-                                {
-                                    MarkCandidate(candidates, j, true); matching++;
-                                    _SlaData?.BeginSliceableRegion();
-                                }
-                            }
-                            break;
-                        default:
-                            if (GetCandidate(candidates, j))
-                            {
-                                if (ml < str.Length && str[ml] == c)
-                                {
-                                    if ((ml + 1) == str.Length)
-                                    {
-                                        fullMatchIndex = j;
-                                        MarkCandidate(candidates, j, false);
-                                    }
-                                    else
-                                    {
-                                        matching++;
-                                    }
-                                }
-                                else
-                                {
-                                    MarkCandidate(candidates, j, false);
-                                }
-                            }
-                            break;
-                    }
-                }
-                switch (matching)
-                {
-                    case 0:
-                        switch (fullMatchIndex)
+                    case -1:
+                        // Find first character
+                        for (int i = 0; i < readerLiterals.Length; i++)
                         {
-                            case -1:
+                            if (readerLiterals[i][ci] == c)
+                            {
+                                mc = i;
+                                l = readerLiterals[i];
+                                ci++;
                                 break;
-                            // Nothing was matching, but there was a full match candidate.
-                            default:
-                                _SlaData?.EndSliceableRegion();
-                                return fullMatchIndex;
+                            }
                         }
-
-                        fullMatchIndex = -1;
-                        ml = 0;
+                        if (mc < 0) return mc;
                         break;
                     default:
-                        ml++;
+                        // Match the rest
+                        if (ci < l.Length && l[ci++] != c) return -1; // Current character does not match
+                        if (ci >= l.Length)                return mc; // Must stop before going to the next character.
                         break;
                 }
             }
+            while (Data.TryNext(out c));
+
             return -1;
         }
 
@@ -557,7 +499,7 @@ namespace BX.SJ
             variant = SJTypeVariant.None;
 
             // (/*|//)
-            if (Data.Ended || Data.Current != '/') return (-1, -1);
+            if (Data.Current != '/') return (-1, -1);
             Data.Next();
 
             char ch = (char)Data.Current;
@@ -573,15 +515,14 @@ namespace BX.SJ
                     Error = $"Unexpected comment token '{Tk(ch)}', expected '/ or *' to start a comment.";
                     return (-1, -1);
             }
-            Data.Next();
+            ch = (char)Data.Next();
 
-            // \s*<string>\s*(*/|\n)
+            // \s*(.*)\s*(*/|\n)
             int firstNonWs = start = Data.Index;
             int lastNonWs = Data.Index;
-            int endState = 0;
-            for (ch = (char)Data.Current; !Data.Ended; ch = (char)Data.Next())
+            int endState = 0, lastNonWsState = 0;
+            do
             {
-                Console.WriteLine($"{Data.Index} = {ch}");
                 switch (variant)
                 {
                     case SJTypeVariant.SingleComment:
@@ -602,11 +543,9 @@ namespace BX.SJ
                                 switch (endState)
                                 {
                                     case 1: // *
+                                        lastNonWsState = lastNonWs;
                                         lastNonWs = Data.Index;
                                         continue;
-                                    default:
-                                        endState = 0;
-                                        break;
                                 }
                                 break;
                             case '/':
@@ -615,10 +554,8 @@ namespace BX.SJ
                                 switch (endState)
                                 {
                                     case 2: // */
+                                        lastNonWs = lastNonWsState; // This is set to the revertable one
                                         goto _BreakOuter;
-                                    default:
-                                        endState = 0;
-                                        break;
                                 }
                                 break;
                         }
@@ -627,7 +564,7 @@ namespace BX.SJ
                         Error = $"Unknown comment variant {variant}";
                         return (-1, -1);
                 }
-
+                endState = 0;
                 if (!char.IsWhiteSpace(ch))
                 {
                     if (firstNonWs == start)
@@ -638,25 +575,24 @@ namespace BX.SJ
                     lastNonWs = Data.Index;
                 }
             }
+            while (Data.TryNext(out ch));
         _BreakOuter:
             _SlaData?.EndSliceableRegion();
             start = firstNonWs;  // Start is already inclusive
+            end = lastNonWs + 1; // End has to be inclusive of the last non-ws character.
             switch (variant)
             {
                 default:
-                    end = lastNonWs + 1; // End has to be inclusive
                     break;
                 case SJTypeVariant.MultiComment:
-                    if (Data.Ended)
+                    if (endState != 2)
                     {
                         Error = "Unclosed multi line comment, expected '*/'";
                         return (-1, -1);
                     }
-                    end = lastNonWs;     // End will include * on */
                     break;
             }
 
-            Console.WriteLine($"Return comment region : {start}..{end}");
             return (start, end);
         }
         /// <summary>
@@ -670,7 +606,7 @@ namespace BX.SJ
             int start; int end;
             variant = SJTypeVariant.None;
 
-            if (Data.Ended || Data.Current != '(') return (-1, -1);
+            if (Data.Current != '(') return (-1, -1);
             Data.Next();
 
             // Skip whitespace
@@ -680,27 +616,23 @@ namespace BX.SJ
             Data.SkipWhiteSpace();
 
             // Check for string literal starting with '"'
-            if (!Data.Ended && Data.Current == '"')
+            if (Data.Current == '"')
             {
-                Data.Next(); // skip opening quote
                 _SlaData?.BeginSliceableRegion();
-                start = Data.Index;
+                start = Data.Index + 1;
                 bool escaped = false;
                 variant = SJTypeVariant.TypeString;
 
-                while (!Data.Ended)
+                while (true)
                 {
-                    byte c = Data.Current;
+                    if (!Data.TryNext(out byte ch))
+                    {
+                        Error = "Unclosed type literal string";
+                        return (-1, -1);
+                    }
                     if (escaped) escaped = false;
-                    else if (c == '\\') escaped = true;
-                    else if (c == '"') break;
-                    Data.Next();
-                }
-
-                if (Data.Ended || Data.Current != '"')
-                {
-                    Error = "Unclosed type literal string";
-                    return (-1, -1);
+                    else if (ch == '\\') escaped = true;
+                    else if (ch == '"') break;
                 }
 
                 end = Data.Index;
@@ -713,12 +645,8 @@ namespace BX.SJ
                 start = Data.Index;
                 variant = SJTypeVariant.TypeLiteral;
 
-                while (!Data.Ended)
-                {
-                    byte c = Data.Current;
-                    if (!IsTypeLiteralContinuation((char)c)) break;
-                    Data.Next();
-                }
+                byte c = Data.Current;
+                while (IsTypeLiteralContinuation((char)c) && Data.TryNext(out c)) ;
 
                 if (Data.Index == start)
                 {
@@ -733,54 +661,13 @@ namespace BX.SJ
             Data.SkipWhiteSpace();
 
             // Must end with ')'
-            if (Data.Ended || Data.Current != ')')
+            if (Data.Current != ')')
             {
                 Error = "Unclosed type literal";
                 return (-1, -1);
             }
 
             return (start, end);
-        }
-        /// <summary>
-        /// Check remaining tokens after the document is finished. (depth == 0)
-        /// <br>Does parsing of comments if <see cref="allowComments"/></br>
-        /// </summary>
-        /// <returns>
-        /// <see langword="false"/> if the ending has invalid characters. <see langword="true"/> if the document 
-        /// ending is valid <b>or the code must yield, if <see cref="captureComments"/>.</b>
-        /// </returns>
-        private bool UpdateEnding()
-        {
-            ref var s = ref S;
-            if (s.depth < 0)
-            {
-                return false;
-            }
-
-            // assert EOF or only whitespace if depth is zero.
-            for (; s.depth == 0 && Data.MoveNext();)
-            {
-                byte ch = Data.Current;
-
-                if (allowComments && ch == '/')
-                {
-                    // Yield for parsing the comment line as current points to == '/',
-                    // as it's "not EOF" and "more data available"
-                    return true;
-                }
-                else if (char.IsWhiteSpace((char)ch))
-                {
-                    Data.SkipWhiteSpace();
-                }
-                else
-                {
-                    Error = "Unexpected data after end of document";
-                    return false;
-                }
-            }
-
-            // more data available, or yield existing if it ended.
-            return true;
         }
 
         /// <summary>
@@ -908,11 +795,6 @@ namespace BX.SJ
                 result.objectDepth = 0;
                 return result;
             }
-            if (Data.Empty)
-            {
-                Error = "Empty data";
-                goto _Top;
-            }
             if (maxDepth > 0 && s.depth > maxDepth)
             {
                 Error = $"Exceeded maximum depth {maxDepth}";
@@ -921,6 +803,12 @@ namespace BX.SJ
             if (!Data.MoveNext())
             {
                 // Reaching end of document is no longer an error, but it should return an empty "error" value.
+                if (s.totalValueCount <= 0)
+                {
+                    Error = "Empty data"; // Except when there is no values
+                    goto _Top;
+                }
+
                 result.type = SJType.Error;
                 result.start = result.end = Data.Index;
                 result.objectDepth = 0;
@@ -941,7 +829,14 @@ namespace BX.SJ
             // Skip : White Space
             if (char.IsWhiteSpace(ch))
             {
-                Data.SkipWhiteSpace();
+                // This may end us up in a place where the last token has been consumed.
+                // So return whether if we can move next or not alongside the positions moved.
+                // Note : This may cause whitespace only documents to be considered valid
+                //        This isn't a quirk I want, so count the amount of values captured.
+                if (!Data.TrySkipWhiteSpace())
+                {
+                    goto _Top;
+                }
                 ch = (char)Data.Current;
             }
             result.start = Data.Index;
@@ -957,11 +852,10 @@ namespace BX.SJ
 
                 result.type = SJType.Comment;
                 (result.start, result.end) = GetCommentRange(out result.variant);
-                if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
+                if (!string.IsNullOrEmpty(Error) || result.start < 0 || result.end <= 0)
                 {
-                    return result;
+                    goto _Top;
                 }
-                goto _Top;
             }
             // Parse: Type (literal or something else). Treated sort of like a comment.
             else if (ch == '(')
@@ -979,13 +873,12 @@ namespace BX.SJ
 
                 result.type = SJType.Type;
                 (result.start, result.end) = GetTypeRange(out result.variant);
-                if (string.IsNullOrEmpty(Error) && result.start >= 0 && result.end > 0)
+                s.notExpectingType = true;
+                s.lastEntryType = result;
+                if (!string.IsNullOrEmpty(Error) || result.start < 0 || result.end <= 0)
                 {
-                    s.notExpectingType = true;
-                    s.lastEntryType = result;
-                    return result;
+                    goto _Top;
                 }
-                goto _Top;
             }
             // Validate : Object == KV Colon, Array == Comma
             else if (ch == ':' || ch == ',')
@@ -1060,12 +953,6 @@ namespace BX.SJ
                     }
                 }
                 result.end = Data.Index;
-
-                // UpdateState here is not needed because the upper state will be checked later
-                if (!UpdateEnding())
-                {
-                    goto _Top;
-                }
             }
             // Validate: Commas
             else if ((S.stack.PeekValue().expect & Expect.Comma) == Expect.Comma)
@@ -1146,7 +1033,7 @@ namespace BX.SJ
                 result.end = Data.Position;
                 _SlaData?.EndSliceableRegion();
 
-                if (!UpdateLastState(ref result) || !UpdateEnding())
+                if (!UpdateLastState(ref result))
                 {
                     goto _Top;
                 }
@@ -1155,14 +1042,13 @@ namespace BX.SJ
             else if (ch == '"')
             {
                 _SlaData?.BeginSliceableRegion();
-                ch = (char)Data.Next();
                 result.type = SJType.String;
-                result.start = Data.Index;
+                result.start = Data.Index + 1; // Skip '"'
 
                 bool escape = false;
                 while (true)
                 {
-                    if (Data.Ended)
+                    if (!Data.TryNext(out ch))
                     {
                         Error = "Unclosed string";
                         goto _Top;
@@ -1170,12 +1056,11 @@ namespace BX.SJ
                     if (escape) escape = false;
                     else if (ch == '\\') escape = true;
                     else if (ch == '"') break;
-                    ch = (char)Data.Next();
                 }
                 result.end = Data.Index;
                 _SlaData?.EndSliceableRegion();
 
-                if (!UpdateLastState(ref result) || !UpdateEnding())
+                if (!UpdateLastState(ref result))
                 {
                     goto _Top;
                 }
@@ -1203,12 +1088,14 @@ namespace BX.SJ
                 // Position points to anything or it ended
                 result.end = Data.Position;
 
-                if (!UpdateLastState(ref result) || !UpdateEnding())
+                if (!UpdateLastState(ref result))
                 {
                     goto _Top;
                 }
             }
 
+            // This part is only reached if a valid value is captured.
+            s.totalValueCount++;
             return result;
         }
         /// <summary>
@@ -1449,7 +1336,7 @@ namespace BX.SJ
             return result;
         }
 
-        private ValueStack<State> _stateStack = ValueStack<State>.CreateWithMaxSize(DefaultMaxDepth);
+        private SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(DefaultMaxDepth);
         private bool disposedValue;
 
         public int StateCount => _stateStack.Count;

@@ -39,7 +39,7 @@ namespace BX.SJ.Collections
     /// ]]>
     /// </example>
     /// <typeparam name="T">Struct type to store.</typeparam>
-    public struct ValueStack<T> : IEnumerable<T>, IEnumerable, IReadOnlyCollection<T>, ICollection
+    public struct SJValueStack<T> : IEnumerable<T>, IEnumerable, IReadOnlyCollection<T>, ICollection
         where T : struct
     {
         // What am i even doing atp..
@@ -60,8 +60,7 @@ namespace BX.SJ.Collections
             /// Returns <see langword="true"/> if the handle to the stack is valid.
             /// <br>Returns <see langword="false"/> for <see cref="IsStub"/>, but non-valid and non-stub values do exist as well.</br>
             /// </summary>
-            public readonly bool IsValid => !IsStub &&
-                index < _ownerStack.Length && _ownerStack[index].version == version;
+            public readonly bool IsValid => !IsStub && index < _ownerStack.Length && _ownerStack[index].version == version;
 
             /// <summary>
             /// Returns <see langword="true"/> for strictly stub values, not for invalid values.
@@ -103,7 +102,7 @@ namespace BX.SJ.Collections
                 this.version = version;
             }
             public static Handle Stub() => new Handle(null, -1, -1);
-            public static Handle At(ref ValueStack<T> v, int index)
+            public static Handle At(ref SJValueStack<T> v, int index)
             {
                 if (index < 0 || index >= v.Count) return Stub();
 
@@ -111,28 +110,31 @@ namespace BX.SJ.Collections
                 return new Handle(array, index, array[index].version);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            internal static Handle AtUnchecked(ref ValueStack<T> stack, int index, int version)
+            internal static Handle AtUnchecked(ref SJValueStack<T> stack, int index, int version)
             {
                 return new Handle(stack._stack, index, version);
             }
 
-            // Sole reason I tell you to not use this outside of SJ. There are pitfalls.
+            // One of the reasons I tell you to not use this outside of SJ. There are pitfalls.
             /// <summary>
             /// Renews handle if the previously pointed stack is known to be valid, but has wrong heap reference.
             /// <br>This can happen if the stack resizes.</br>
             /// </summary>
-            public readonly Handle Renew(ref ValueStack<T> v, bool withCurrentVersion = true)
+            public readonly Handle Renew(ref SJValueStack<T> v, bool withCurrentVersion = true)
             {
+                // This could have been mitigated with a `readonly ref` to the
+                // `readonly SJValueStack<T>`, but C# rightfully requests that
+                // any object that can be allocated solely in the stack must
+                // not go upwards, unless it's copied.
+                // (Even though Handle is a ref struct and even though I only
+                // return the borrow of the struct itself, not some other struct.
+                // But it could be assumed that it's some other struct in the context of it being called)
                 int ver = version;
                 if (!withCurrentVersion)
                 {
                     if (index >= 0 && index < v._stack.Length) ver = v._stack[index].version;
                     if (ver != version) return Stub();
                 }
-
-                // All ts because ref fields are not supported.
-                // I assume that a ref field likely pins the struct and the whole heap region that contains this struct,
-                // or adds to a tracker that allows moving when GC..
                 return new Handle(v._stack, index, ver);
             }
         }
@@ -217,11 +219,11 @@ namespace BX.SJ.Collections
             }
         }
 
-        public static ValueStack<T> Create() => new ValueStack<T>(DefaultStackSize, DefaultMaxSize);
-        public static ValueStack<T> CreateWithCapacity(int capacity) => new ValueStack<T>(capacity, DefaultMaxSize);
-        public static ValueStack<T> CreateWithMaxSize(int maxSize) => new ValueStack<T>(DefaultStackSize, maxSize);
-        public static ValueStack<T> Create(int capacity, int maxSize) => new ValueStack<T>(capacity, maxSize);
-        public ValueStack(int capacity = DefaultStackSize, int maxSize = DefaultMaxSize)
+        public static SJValueStack<T> Create() => new SJValueStack<T>(DefaultStackSize, DefaultMaxSize);
+        public static SJValueStack<T> CreateWithCapacity(int capacity) => new SJValueStack<T>(capacity, DefaultMaxSize);
+        public static SJValueStack<T> CreateWithMaxSize(int maxSize) => new SJValueStack<T>(DefaultStackSize, maxSize);
+        public static SJValueStack<T> Create(int capacity, int maxSize) => new SJValueStack<T>(capacity, maxSize);
+        public SJValueStack(int capacity = DefaultStackSize, int maxSize = DefaultMaxSize)
         {
             _stack = new (T, int)[maxSize > 0 && maxSize < capacity ? maxSize : capacity];
             _count = _maxReachedCount = 0;
@@ -422,7 +424,7 @@ namespace BX.SJ.Collections
             for (int i = 0; i < Count; i++) array[index + i] = this[i];
         }
         public delegate void CopyAction(T self, ref T to);
-        public readonly void CopyTo(ref ValueStack<T> vs, CopyAction action = null)
+        public readonly void CopyTo(ref SJValueStack<T> vs, CopyAction action = null)
         {
             for (int i = 0; i < _count; i++)
             {

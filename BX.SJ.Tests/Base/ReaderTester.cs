@@ -346,7 +346,7 @@ public static class ReaderTester
                     switch (root.variant)
                     {
                         case SJTypeVariant.SingleComment:
-                            sb.Append("// ").Append(root.Slice());
+                            sb.Append("// ").Append(root.Slice()).Append(Environment.NewLine);
                             break;
                         case SJTypeVariant.MultiComment:
                             sb.Append("/* ").Append(root.Slice()).Append(" */");
