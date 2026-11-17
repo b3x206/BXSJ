@@ -1312,6 +1312,7 @@ namespace BX.SJ
                     case SJType.Error:
                         return false;
 
+                    case SJType.Type:
                     case SJType.Comment:
                         other++;
                         break;

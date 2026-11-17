@@ -53,7 +53,7 @@ static Vector3 ReadVector3(SJReader reader, SJReader.Value root)
 }
 
 const string data = @"{ ""x"": 42.0, ""y"": -42.0, ""z"": 0.0 }";
-var reader = new SJStringReader(data);
+using var reader = new SJReader(new SJStringData(data));
 
 for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
 {
@@ -90,7 +90,7 @@ static Vector3 ReadVector3(SJReader reader, SJReader.Value root) { /*...*/ } // 
 var initialPosition = new Vector3(1f, 2f, 3f);
 var position = initialPosition;
 
-var writer = new SJStringWriter()
+using var writer = new SJWriter(new SJStringWriter(64))
 {
     // Enable pretty printing
     indentSize = 4,
@@ -106,7 +106,7 @@ using (writer.Object())
 position = Vector3.Zero;
 
 string data = writer.ReadData();
-var reader = new SJStringReader(data);
+using var reader = new SJReader(new SJStringReader(data));
 position = ReadVector3(reader, reader.Read());
 
 // Use ReadData to read the resulting string.
@@ -133,6 +133,10 @@ More examples are in the [`./BX.SJ/Examples`](./BX.SJ/Examples) directory. <br>
 These files are not included for compiling, you can copy and paste it normally.
 
 You can also use the [unit tests](./BX.SJ.Tests) as examples too, but some of the tests are "convoluted" (even though it should be simple), so it's better to use the examples.
+
+---
+
+This README will be remade after the interface vs inheritance is profiled in the better benchmarks that I will write.
 
 <!--
 ---

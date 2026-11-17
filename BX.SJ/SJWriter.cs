@@ -17,8 +17,17 @@ namespace BX.SJ
     /// <example>
     /// // Refer to file:///./SJStringWriter.cs
     /// </example>
-    public abstract class SJWriter
+    public sealed class SJWriter : ISJStateStackable, IDisposable
     {
+        // TODO :
+        // * State stacking on data
+        // * Check anything (version + error + state if automateable) before writing
+        // * IDisposable + IDisposable on data
+        // * Fluent API instead of golang API
+        //   * Return null on error (so that the rest of the calls in a chain can be not propagated)
+        //   * Remove some Write KV style things if that is done.
+        // * Port other classes to interface style.
+
 #pragma warning disable IDE0057 // ***** does not support System.Range
 
         /// <summary>
@@ -265,7 +274,7 @@ namespace BX.SJ
         /// with older servers / systems not behaving well with non-ascii strings.
         /// </summary>
         public bool asciiOnly = false;
-        protected bool _ThrowOnError = false;
+        private bool _ThrowOnError = false;
         /// <summary>
         /// When an erroreneous case occurs (or <see cref="Error"/> is set to anything other 
         /// than null/<see cref="string.Empty"/>), setting the <see cref="Error"/> will throw.
@@ -319,8 +328,8 @@ namespace BX.SJ
         // helper
         // To avoid using ArrayPool, which is maybe slower in case of small heap buffers.
         // Though resizing will allocate garbage and I will add a fallback.
-        protected const int LikelyMaxIntFormatSize = 66; // prefix + binary
-        protected char[] _formatBuffer = new char[LikelyMaxIntFormatSize];
+        private const int LikelyMaxIntFormatSize = 66; // prefix + binary
+        private char[] _formatBuffer = new char[LikelyMaxIntFormatSize];
         /// <summary>
         /// Returns the <see cref="_formatBuffer"/> as <paramref name="chars"/>.
         /// If <see cref="maxFormatBufferSize"/> is exceeded, returns from <see cref="ArrayPool{T}.Shared"/>.
@@ -329,7 +338,7 @@ namespace BX.SJ
         /// <param name="rented">Rented array from <see cref="ArrayPool{T}.Shared"/>.
         /// You must return this to the aforementioned pool to not leak memory if it's not <see langword="null"/>.</param>
         /// <param name="size">Size to get the buffer in.</param>
-        protected virtual bool GetFormatBuffer(ref Span<char> chars, out char[] rented, int size)
+        private bool GetFormatBuffer(ref Span<char> chars, out char[] rented, int size)
         {
             if (maxFormatBufferSize > 0 && size > maxFormatBufferSize)
             {
@@ -347,42 +356,41 @@ namespace BX.SJ
             return true;
         }
 
-        protected abstract void DoAppend(char c);
-        /// <summary>
-        /// Append to the underlying StringBuilder/Stream-like object.
-        /// <br>You can use this to write anything in anywhere, but it isn't recommended.</br>
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Append(char c)
+        private ISJDataWriter _Data;
+        private ISJStateStackable _StData;
+        public int LastDataVersion { get; private set; }
+        public ISJDataWriter Data
         {
-            checked { S.count++; }
-            DoAppend(c);
+            get => _Data;
+            set
+            {
+                if (ReferenceEquals(Data, _Data)) return;
+
+                _Data = value ?? throw new ArgumentNullException(nameof(value));
+                _StData = _Data as ISJStateStackable;
+
+                Reset();
+                LastDataVersion = _Data.Version;
+            }
         }
-        protected virtual void DoAppend(ReadOnlySpan<char> s)
+
+        public SJWriter(ISJDataWriter writer)
         {
-            for (int i = 0; i < s.Length; i++) DoAppend(s[i]);
-        }
-        /// <summary>
-        /// <inheritdoc cref="Append(char)"/>
-        /// </summary>
-        public void Append(ReadOnlySpan<char> s)
-        {
-            checked { S.count += s.Length; }
-            DoAppend(s);
+            Data = writer;
         }
 
         /// <summary>
         /// Throws the currently stored error. It does not check whether if an error is available.
         /// </summary>
         /// <exception cref="WriteException"></exception>
-        public virtual void ThrowError()
+        public void ThrowError()
         {
             throw new WriteException(this);
         }
 
         // The base writers
-        private static readonly Action<SJWriter, char> selfAppend = (writer, c) => writer.Append(c);
-        protected void WriteIndent(int depth)
+        private static readonly Action<SJWriter, char> selfAppend = (writer, c) => writer.Data.Write(c);
+        private void WriteIndent(int depth)
         {
             if (depth <= 0 || indentSize <= 0)
             {
@@ -399,7 +407,7 @@ namespace BX.SJ
                     indent.Fill(' ');
                     for (int i = 0; i < depth; i++)
                     {
-                        Append(indent);
+                        Data.Write(indent);
                     }
                 }
                 finally
@@ -413,32 +421,32 @@ namespace BX.SJ
                 indent.Fill(' ');
                 for (int i = 0; i < depth; i++)
                 {
-                    Append(indent);
+                    Data.Write(indent);
                 }
             }
         }
-        protected virtual void AppendEscaped(ReadOnlySpan<char> data, bool asciiOnly)
+        private void AppendEscaped(ReadOnlySpan<char> data, bool asciiOnly)
         {
             SJEscape.Escape(this, selfAppend, data, asciiOnly);
         }
-        protected void PrepareFormat()
+        private void PrepareFormat()
         {
             ref var s = ref S;
             if (s.fmtExpect == FormatExpect.None) return;
             if (indentSize <= 0)
             {
                 // On zero depth, newlines are allowed again for "single line comment" related reasons.
-                if (S.depth <= 0 && (s.fmtExpect & FormatExpect.Newline) == FormatExpect.Newline) { Append('\n'); }
+                if (S.depth <= 0 && (s.fmtExpect & FormatExpect.Newline) == FormatExpect.Newline) { Data.Write('\n'); }
                 s.fmtExpect = FormatExpect.None;
                 return;
             }
 
-            if ((s.fmtExpect & FormatExpect.Newline) == FormatExpect.Newline) { Append('\n'); }
+            if ((s.fmtExpect & FormatExpect.Newline) == FormatExpect.Newline) { Data.Write('\n'); }
             if ((s.fmtExpect & FormatExpect.Indent) == FormatExpect.Indent) { WriteIndent(S.depth); }
 
             s.fmtExpect = FormatExpect.None;
         }
-        protected void PrepareValue()
+        private void PrepareValue()
         {
             ref var s = ref S;
             if (s.ended)
@@ -452,7 +460,7 @@ namespace BX.SJ
             {
                 if ((s.expect & Expect.Comma) == Expect.Comma && top.index > 0)
                 {
-                    Append(',');
+                    Data.Write(',');
                     s.expect &= ~Expect.Comma;
                 }
 
@@ -466,14 +474,14 @@ namespace BX.SJ
             // Do this regardless of depth now
             PrepareFormat();
         }
-        protected void PrepareCommentValue(bool expectValue)
+        private void PrepareCommentValue(bool expectValue)
         {
             ref var s = ref S;
             if (expectValue && s.depth > 0)
             {
                 if ((s.expect & Expect.Comma) == Expect.Comma)
                 {
-                    Append(',');
+                    Data.Write(',');
 
                     s.expect &= ~Expect.Comma;
                 }
@@ -481,14 +489,14 @@ namespace BX.SJ
 
             PrepareFormat();
         }
-        protected void PrepareType()
+        private void PrepareType()
         {
             ref var s = ref S;
             if (s.depth > 0)
             {
                 if ((s.expect & Expect.Comma) == Expect.Comma)
                 {
-                    Append(',');
+                    Data.Write(',');
 
                     s.expect &= ~Expect.Comma;
                 }
@@ -497,12 +505,12 @@ namespace BX.SJ
             // Needed regardless as format is "postfix" to the previous value.
             PrepareFormat();
         }
-        protected void PrepareEndValue(int prevIndex)
+        private void PrepareEndValue(int prevIndex)
         {
             ref var s = ref S;
             if (indentSize > 0 && prevIndex > 0)
             {
-                Append('\n');
+                Data.Write('\n');
                 WriteIndent(s.depth);
                 s.fmtExpect = FormatExpect.None;
             }
@@ -527,7 +535,7 @@ namespace BX.SJ
                 _ => ReadOnlySpan<char>.Empty,
             };
         }
-        protected static bool IsUnsupportedIntegerFormat(ReadOnlySpan<char> format)
+        private static bool IsUnsupportedIntegerFormat(ReadOnlySpan<char> format)
         {
             if (format == null || format.IsEmpty) return false;
             return char.ToLowerInvariant(format[0]) switch
@@ -541,7 +549,7 @@ namespace BX.SJ
                 _ => true // Will likely postfix the invalid format specifier?
             };
         }
-        protected static bool IsInvalidTypeLiteral(ReadOnlySpan<char> literal, out char invalid)
+        private static bool IsInvalidTypeLiteral(ReadOnlySpan<char> literal, out char invalid)
         {
             int checkSt = 0;
             for (int i = 0; i < literal.Length; i++)
@@ -583,7 +591,7 @@ namespace BX.SJ
             invalid = r ? ' ' : '\0';
             return r; // empty literals / spaces aren't valid
         }
-        protected static int CleanupCharacters(ref Span<char> s, ReadOnlySpan<char> cs)
+        private static int CleanupCharacters(ref Span<char> s, ReadOnlySpan<char> cs)
         {
             // Currency format or other "number seperation" on invariant culture is like ¤1,234.00,
             // so should remove commas from the format as it's a json token and won't be able to read fully.
@@ -620,7 +628,7 @@ namespace BX.SJ
             return marked;
         }
         public delegate bool TryFormatHandler<in T>(T number, Span<char> dest, ReadOnlySpan<char> format, out int charsWritten);
-        protected bool WriteFormattedNumber<T>(
+        private bool WriteFormattedNumber<T>(
             WriteTarget target, T number, ReadOnlySpan<char> format, ReadOnlySpan<char> prefix, TryFormatHandler<T> tryFormat,
             bool checkEnded = true
         )
@@ -699,7 +707,7 @@ namespace BX.SJ
             }
 
             PrepareValue();
-            Append('{');
+            Data.Write('{');
 
             s.stack.Push(SJType.Object);
 
@@ -777,7 +785,7 @@ namespace BX.SJ
             PrepareEndValue(prevIndex);
             s.fmtExpect = FormatExpect.NewlineIndent;
 
-            Append('}');
+            Data.Write('}');
 
 
             return true;
@@ -802,7 +810,7 @@ namespace BX.SJ
             }
 
             PrepareValue();
-            Append('[');
+            Data.Write('[');
 
             s.expect = Expect.None;
             s.fmtExpect = FormatExpect.NewlineIndent;
@@ -878,7 +886,7 @@ namespace BX.SJ
             PrepareEndValue(prevIndex);
             s.fmtExpect = FormatExpect.NewlineIndent;
 
-            Append(']');
+            Data.Write(']');
 
             return true;
         }
@@ -892,7 +900,7 @@ namespace BX.SJ
         /// </remarks>
         /// <param name="value">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteLiteralKey(ReadOnlySpan<char> value, bool stringify = false)
+        public bool WriteLiteralKey(ReadOnlySpan<char> value, bool stringify = false)
         {
             ref var s = ref S;
             if (s.ended)
@@ -917,15 +925,15 @@ namespace BX.SJ
             }
 
             PrepareValue();
-            if (stringify) { Append('"'); }
+            if (stringify) { Data.Write('"'); }
             if (stringify) { AppendEscaped(value, asciiOnly); }
-            else { Append(value); }
-            if (stringify) { Append('"'); }
-            Append(':');
+            else { Data.Write(value); }
+            if (stringify) { Data.Write('"'); }
+            Data.Write(':');
 
             if (indentSize > 0)
             {
-                Append(' ');
+                Data.Write(' ');
 
             }
 
@@ -981,7 +989,7 @@ namespace BX.SJ
         /// <br>This also can be used as a faster way to write numbers if you have data for that.</br>
         /// </summary>
         /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteLiteralValue(ReadOnlySpan<char> data, bool stringify = false)
+        public bool WriteLiteralValue(ReadOnlySpan<char> data, bool stringify = false)
         {
             ref var s = ref S;
             if (s.ended)
@@ -998,13 +1006,13 @@ namespace BX.SJ
             PrepareValue();
             if (stringify)
             {
-                Append('"');
+                Data.Write('"');
                 AppendEscaped(data, asciiOnly);
-                Append('"');
+                Data.Write('"');
             }
             else
             {
-                Append(data);
+                Data.Write(data);
             }
 
             if (s.depth <= 0)
@@ -1035,7 +1043,7 @@ namespace BX.SJ
 
             return true;
         }
-        public virtual bool WriteString(ReadOnlySpan<char> value) => WriteLiteralValue(value, stringify: true);
+        public bool WriteString(ReadOnlySpan<char> value) => WriteLiteralValue(value, stringify: true);
         public bool WriteNumber(float number, string format = "G")
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
@@ -1067,7 +1075,7 @@ namespace BX.SJ
         /// </summary>
         /// <param name="type">Type literal or id. Should be a valid character matching <see cref="SJReader.IsTypeLiteralContinuation(char)"/>.</param>
         /// <param name="stringify">Write it as a string value (with '"' quotes) instead of a literal.</param>
-        public virtual bool WriteType(ReadOnlySpan<char> type, bool stringify = false)
+        public bool WriteType(ReadOnlySpan<char> type, bool stringify = false)
         {
             ref var s = ref S;
             if (!allowTypes)
@@ -1088,12 +1096,12 @@ namespace BX.SJ
 
             s.MarkWrittenType();
             PrepareType();
-            Append('(');
+            Data.Write('(');
             if (stringify)
             {
-                Append('"');
+                Data.Write('"');
                 AppendEscaped(type, asciiOnly);
-                Append('"');
+                Data.Write('"');
             }
             else
             {
@@ -1104,9 +1112,9 @@ namespace BX.SJ
                     return false;
                 }
 
-                Append(type);
+                Data.Write(type);
             }
-            Append(')');
+            Data.Write(')');
             s.expect |= Expect.NotType;
 
             return true;
@@ -1131,7 +1139,7 @@ namespace BX.SJ
         /// </param>
         /// <param name="newlineImmediately">Append a \n character after writing multiline comment. Only works with pretty printing.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteComment(ReadOnlySpan<char> data, char pad = ' ', bool hasNextValue = false, bool newlineImmediately = false)
+        public bool WriteComment(ReadOnlySpan<char> data, char pad = ' ', bool hasNextValue = false, bool newlineImmediately = false)
         {
             ref var s = ref S;
             if (!allowComments)
@@ -1143,12 +1151,12 @@ namespace BX.SJ
             s.MarkWrittenComment();
             PrepareCommentValue(hasNextValue);
 
-            Append("/*");
+            Data.Write("/*");
             for (int i = -1; i <= data.Length; i++)
             {
                 if (i < 0 || i >= data.Length)
                 {
-                    if (pad != 0 && pad != '\r' && pad != '\n') { Append(pad); }
+                    if (pad != 0 && pad != '\r' && pad != '\n') { Data.Write(pad); }
                     continue;
                 }
 
@@ -1156,18 +1164,18 @@ namespace BX.SJ
                 if (c == '*' && (i < (data.Length - 1) ? data[i + 1] : '\0') == '/')
                 {
                     // Very fun escape action (Write as '*\/' instead of '*/' which ends comment)
-                    Append(c);
-                    Append('\\');
+                    Data.Write(c);
+                    Data.Write('\\');
                     continue;
                 }
 
-                Append(c);
+                Data.Write(c);
                 if (c == '\n')
                 {
                     WriteIndent(s.depth);
                 }
             }
-            Append("*/");
+            Data.Write("*/");
 
             s.fmtExpect = FormatExpect.None;
             if (indentSize > 0)
@@ -1175,7 +1183,7 @@ namespace BX.SJ
                 s.fmtExpect = FormatExpect.NewlineIndent;
                 if (newlineImmediately)
                 {
-                    Append('\n');
+                    Data.Write('\n');
                     s.fmtExpect &= ~FormatExpect.Newline;
                 }
             }
@@ -1198,7 +1206,7 @@ namespace BX.SJ
         /// <param name="data">Data inside the comment to write. It is padded with spaces by default.</param>
         /// <param name="prefixPad">Padding prefix character to use. Pass 0 to not pad the <paramref name="data"/> with anything. Invalid characters (like '\n') also avoids padding.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public virtual bool WriteCommentLine(ReadOnlySpan<char> data, char prefixPad = ' ', bool hasNextValue = false)
+        public bool WriteCommentLine(ReadOnlySpan<char> data, char prefixPad = ' ', bool hasNextValue = false)
         {
             ref var s = ref S;
             if (!allowComments)
@@ -1214,22 +1222,22 @@ namespace BX.SJ
             s.MarkWrittenComment();
             PrepareCommentValue(hasNextValue);
 
-            Append("//");
+            Data.Write("//");
             for (int i = -1; i < data.Length; i++)
             {
                 if (i < 0)
                 {
-                    if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Append(prefixPad); }
+                    if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Data.Write(prefixPad); }
                     continue;
                 }
 
                 char c = data[i];
-                Append(c);
+                Data.Write(c);
                 if (c == '\n')
                 {
                     WriteIndent(s.depth);
-                    Append("//");
-                    if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Append(prefixPad); }
+                    Data.Write("//");
+                    if (prefixPad != 0 && prefixPad != '\r' && prefixPad != '\n') { Data.Write(prefixPad); }
                 }
             }
 
@@ -1237,7 +1245,7 @@ namespace BX.SJ
             // something something FormatExpect is done after Expect tokens and this is whitespace sensitive
             if (s.depth > 0 && (s.expect & Expect.Comma) == Expect.Comma)
             {
-                Append('\n');
+                Data.Write('\n');
                 s.fmtExpect &= ~FormatExpect.Newline;
             }
 
@@ -1369,25 +1377,12 @@ namespace BX.SJ
         }
 
         /// <summary>
-        /// If data can be read.
-        /// </summary>
-        /// <remarks>
-        /// You should also override this if <see cref="ReadData"/> has an implementation.
-        /// <br>Check using the implementation of WriterUnitTests on your target class.</br>
-        /// </remarks>
-        public virtual bool CanReadData => false;
-        /// <summary>
-        /// Read the written data from this writer, if applicable.
-        /// </summary>
-        /// <exception cref="NotSupportedException"></exception>
-        public virtual string ReadData() => throw new NotSupportedException("Cannot read data from this writer.");
-        /// <summary>
         /// Shows a simple preview of the current state.
         /// </summary>
         public override string ToString() => $"[{base.ToString()}] state=({S}) error={Error}";
 
         // Code execution only - can be readonly
-        protected SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(128);
+        private SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(128);
         public int StateCount => _stateStack.Count;
         /// <summary>
         /// Pushes a loadable stacked state.
@@ -1397,7 +1392,7 @@ namespace BX.SJ
         /// For any other thing with it's own state, this can be used to write it into it's own index like:
         /// <br><c>result := <see cref="PushState"/>; myStack[result] = otherState;</c></br>
         /// </returns>
-        public virtual int PushState()
+        public int PushState()
         {
             var handle = _stateStack.Push(false);
             if (handle.IsStub) return -1;
@@ -1415,7 +1410,7 @@ namespace BX.SJ
         /// For any other thing with it's own state, this can be used to read from it's own index like:
         /// <br><c>result := <see cref="PopState"/>; otherState = myStack[result];</c></br>
         /// </returns>
-        public virtual int PopState()
+        public int PopState()
         {
             if (_stateStack.Count <= 0) return -1;
             _stateStack.PopValue().CopyTo(ref S);
@@ -1435,7 +1430,7 @@ namespace BX.SJ
         /// data isn't commited as it's being written (ex: Stream sources)
         /// and close the writer instead or use alternative Reset methods.</br>
         /// </remarks>
-        public virtual void Reset()
+        public void Reset()
         {
             S.Reset();
             _stateStack.Clear(false);
