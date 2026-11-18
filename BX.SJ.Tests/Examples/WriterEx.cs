@@ -9,7 +9,7 @@ namespace BX.SJ.Tests.Examples
     {
         public static void TMain(string[] args)
         {
-            var writer = new SJStringWriter()
+            using var writer = new SJWriter(new SJStringWriter())
             {
                 indentSize = 4,
                 ThrowOnError = false,
@@ -19,7 +19,7 @@ namespace BX.SJ.Tests.Examples
                 allowOtherKeyTypes = true,
                 allowTypes = true
             };
-            Debug.Assert(writer.CanReadData, "Data must be readable to be able to present the final non standard data");
+            Debug.Assert(writer.Data.CanRead, "Data must be readable to be able to present the final non standard data");
 
             // Comments can be written anywhere in document. Comments write newlines regardless of the indent size.
             // Multiline comments can contain \n and other characters, but they aren't indented to the depth automatically.
@@ -27,11 +27,11 @@ namespace BX.SJ.Tests.Examples
             writer.WriteComment("Interoperability machine broke", pad: '_', newlineImmediately: false);
             // ↓ Will write "//↑ jSON 😭\n"
             writer.WriteCommentLine("↑ jSON 😭", prefixPad: '\0'); // Prefix pad cannot be \r, \n or \0. It is silently ignored and no pad is done
-            Console.WriteLine(writer.ReadData());
+            Console.WriteLine(writer.Data.ReadWritten());
 
             // Comment lines can be written after the document has ended:
             writer.Write(1234.1234f);
-            if (writer.WriteComment("↑ not jSON 😭") && writer.S.ended)
+            if ((bool)writer.WriteComment("↑ not jSON 😭") && writer.S.ended)
             {
                 Console.WriteLine("Written comment after the writer ended, wow.");
             }
@@ -43,7 +43,7 @@ namespace BX.SJ.Tests.Examples
 
             // The state will have it's "written comment" marked:
             Console.WriteLine($"Has written comment: {writer.S.WrittenComment}");
-            Console.WriteLine($"Final state: {writer.ReadData()}");
+            Console.WriteLine($"Final state: {writer.Data.ReadWritten()}");
             writer.Reset();
 
             // The trailing comma only occurs on one condition : A comment does not defer the comma per user's input. Let's demo this with an array.
@@ -54,14 +54,14 @@ namespace BX.SJ.Tests.Examples
                 writer.WriteLong(3);
                 using (writer.Object())
                 {
-                    writer.WriteKV("don't", "mind me");
+                    writer.WriteKey("don't").WriteString("mind me");
                     writer.WriteComment("yeah don't it's normal", hasNextValue: true);
                 }
                 writer.WriteLong(4);
                 writer.WriteCommentLine("Unexpectedly, the dev lied to us!", hasNextValue: true);
             } // The "allowTrailingComma" check will be done here.
             Console.WriteLine($"Has trailing comma: {writer.S.WrittenTrailingComma}");
-            Console.WriteLine($"Final state: {writer.ReadData()}");
+            Console.WriteLine($"Final state: {writer.Data.ReadWritten()}");
             writer.Reset();
 
             // Other key types allowed are any SJ type that isn't recursive.
@@ -88,17 +88,17 @@ namespace BX.SJ.Tests.Examples
                 // writer.WriteBool(true);
             }
             Console.WriteLine($"Has custom key: {writer.S.WrittenCustomKey}");
-            Console.WriteLine($"Final state: {writer.ReadData()}");
+            Console.WriteLine($"Final state: {writer.Data.ReadWritten()}");
             writer.Reset();
 
             // Type prefixes can be written as extra metadata.
             // They do nothing outside of storing extra data about the next Key or Value entry.
             // There can be only one per key or value entry, and can exist for the root object.
             writer.WriteType("Root1");
-            if (writer.WriteType("Root2"))
+            if ((bool)writer.WriteType("Root2"))
             {
                 writer.WriteNumber(1234.1234f);
-                Assert.Fail();
+                Assert.Fail("You normally can't write two types at once");
             }
             else
             {
@@ -131,9 +131,9 @@ namespace BX.SJ.Tests.Examples
                 writer.WriteType(0xC0DE, "X");
                 using (writer.Object())
                 {
-                    writer.WriteKV("privateKey", 4);
-                    writer.WriteKV("security", true);
-                    writer.WriteKV("dontHack", "yes on");
+                    writer.WriteKey("privateKey").Write(4);
+                    writer.WriteKey("security").Write(true);
+                    writer.WriteKey("dontHack").Write("yes on");
                 }
 
                 // Types can be applied to keys and values as well
@@ -149,7 +149,7 @@ namespace BX.SJ.Tests.Examples
                 writer.WriteNull(); // :shrug:
             }
             Console.WriteLine($"Has type literals (or types): {writer.S.WrittenType}");
-            Console.WriteLine($"Final state: {writer.ReadData()}");
+            Console.WriteLine($"Final state: {writer.Data.ReadWritten()}");
 
             // Note : If errors are ignored, SJWriter keeps writing :P
             // Unwinding an erroreneous implicit stack is easier with exceptions,

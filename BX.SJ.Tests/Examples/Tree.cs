@@ -1,4 +1,4 @@
-﻿#pragma warning disable CA1510 // Use ArgumentNullException throw helper
+﻿#pragma warning disable CA1510  // Use ArgumentNullException throw helper
 #pragma warning disable IDE0090 // Initialization can be simplified
 #pragma warning disable IDE0005
 #pragma warning disable IDE0057
@@ -132,9 +132,9 @@ namespace BX.SJ.Tests.Examples
                                     tree.numberValue = long.Parse(s.Slice(2), NumberStyles.BinaryNumber);
                                     n = true;
                                     break;
-                                // C# does not have this. Maybe enable if they add it, or use a custom impl.
-                                // It shouldn't be too hard, BXSJ uses all numbers as invariant culture.
-                                // case ('0', 'o'):
+                                    // C# does not have this. Maybe enable if they add it, or use a custom impl.
+                                    // It shouldn't be too hard, BXSJ uses all numbers as invariant culture.
+                                    // case ('0', 'o'):
                                     // tree.numberValue = long.Parse(s.Slice(2), NumberStyles.OctalNumber);
                                     // n = true;
                                     // break;
@@ -154,14 +154,20 @@ namespace BX.SJ.Tests.Examples
             }
         }
 
-        public static string ToJSON(SJTree tree) => ToJSON(tree, new SJStringWriter()
+        public static string ToJSON(SJTree tree, int indentSize = 0)
         {
-            ThrowOnError = true
-        });
+            using var w = new SJWriter(new SJStringWriter())
+            {
+                ThrowOnError = true,
+                indentSize = indentSize
+            };
+            return ToJSON(tree, w);
+        }
+
         public static string ToJSON(SJTree tree, SJWriter writer)
         {
             WriteTo(tree, writer);
-            return writer.ReadData() ?? "";
+            return writer.Data.ReadWritten() ?? "";
         }
         public static void WriteTo(SJTree tree, SJWriter writer)
         {
@@ -218,15 +224,7 @@ namespace BX.SJ.Tests.Examples
             }
         }
 
-        public override string ToString()
-        {
-            // Preview tree as JSON, though should do this if the object isn't that large.
-            return ToJSON(this, new SJStringWriter()
-            {
-                ThrowOnError = true,
-                indentSize = 4
-            });
-        }
+        public override string ToString() => ToJSON(this, 4);
     }
 }
 

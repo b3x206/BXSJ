@@ -4,6 +4,10 @@ namespace BX.SJ.Tests;
 
 public static class WriterTester
 {
+    // TODO:
+    // * Other non-standard extensions tester
+    // * Fix validation copy pasta
+
     // - Extensions
     // Technically, could be a "fluent" extension that takes "object".
     // > But that is out of scope, BXSave will have these natively instead of the core lib authored as a submodule..
@@ -33,7 +37,7 @@ public static class WriterTester
 
         public static readonly WriteOptions[] TestConfigs = [Format("G"), Format("R"), Ascii(false), Ascii(true)];
     }
-    public static bool Write(this SJWriter writer, object? value, params WriteOptions[] ws)
+    public static SJWriter Write(this SJWriter writer, object? value, params WriteOptions[] ws)
     {
         ArgumentNullException.ThrowIfNull(writer, nameof(writer));
         bool prevAsciiOnly = writer.asciiOnly;
@@ -73,7 +77,7 @@ public static class WriterTester
     public static void WriteMustFailAfter(SJWriter writer)
     {
         Assert.That.IsNullOrEmpty(writer.Error, $"Writer error must be empty before checking a failing write. Error : {writer.Error}");
-        Assert.IsFalse(writer.Write("Real or fake? No no fake!"), "Writing must fail");
+        Assert.IsFalse((bool)writer.Write("Real or fake? No no fake!"), "Writing must fail");
     }
 
     // - Test
@@ -97,63 +101,63 @@ public static class WriterTester
                     if ((writer.S.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
                     {
                         Console.WriteLine($"The writer {writer} was expecting a value. Setting that key null.");
-                        success = success && writer.WriteNull();
+                        success = success && (bool)writer.WriteNull();
                     }
 
                     // "Index" count is tracked only on the top level recursive structures
-                    success = success && writer.WriteKey("yes");
-                    success = success && writer.Write(true);
+                    success = success && (bool)writer.WriteKey("yes");
+                    success = success && (bool)writer.Write(true);
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("no");
-                    success = success && writer.Write(false);
+                    success = success && (bool)writer.WriteKey("no");
+                    success = success && (bool)writer.Write(false);
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("maybe");
-                    success = success && writer.WriteNull();
+                    success = success && (bool)writer.WriteKey("maybe");
+                    success = success && (bool)writer.WriteNull();
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("strings");
-                    success = success && writer.Write("Did you know : Every minute in here 60 seconds pass. But when I'm programming every key press makes minute pass in twice the speed!");
+                    success = success && (bool)writer.WriteKey("strings");
+                    success = success && (bool)writer.Write("Did you know : Every minute in here 60 seconds pass. But when I'm programming every key press makes minute pass in twice the speed!");
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("integer number");
-                    success = success && writer.Write(12345 + 67740);
+                    success = success && (bool)writer.WriteKey("integer number");
+                    success = success && (bool)writer.Write(12345 + 67740);
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("float number");
-                    success = success && writer.Write(Math.Sin(Math.PI * 0.245) * 100);
+                    success = success && (bool)writer.WriteKey("float number");
+                    success = success && (bool)writer.Write(Math.Sin(Math.PI * 0.245) * 100);
                     CheckWriterIndex();
 
                     // Use WriteKV
-                    success = success && writer.WriteKV("yes 2", true);
+                    success = success && (bool)writer.WriteKey("yes 2").WriteBool(true);
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("no 2", false);
+                    success = success && (bool)writer.WriteKey("no 2").WriteBool(false);
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("maybe 2", null);
+                    success = success && (bool)writer.WriteKey("maybe 2").WriteNull();
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("strings 2", "bla bla bla");
+                    success = success && (bool)writer.WriteKey("strings 2").WriteString("bla bla bla");
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("calc short for calc", 50 + 3 - 7 + 12 - 5 + 24 - 12 + 53 + -12 - 40 + 1);
+                    success = success && (bool)writer.WriteKey("calc short for calc").WriteNumber(50 + 3 - 7 + 12 - 5 + 24 - 12 + 53 + -12 - 40 + 1);
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("some number", Math.ScaleB(2.5, 4));
+                    success = success && (bool)writer.WriteKey("some number").WriteNumber(Math.ScaleB(2.5, 4));
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("array");
+                    success = success && (bool)writer.WriteKey("array");
                     if (success)
                         using (writer.Array())
                         {
                             for (int i = 0; i < 5; i++)
                             {
-                                success = success && writer.Write(i + 1);
+                                success = success && (bool)writer.Write(i + 1);
                             }
                         }
-                    success = success && writer.WriteKey("object");
+                    success = success && (bool)writer.WriteKey("object");
                     if (success)
                         using (writer.Object())
                         {
-                            success = success && writer.WriteKey("uhhh");
-                            success = success && writer.Write("idk..");
+                            success = success && (bool)writer.WriteKey("uhhh");
+                            success = success && (bool)writer.Write("idk..");
                         }
                     break;
                 }
@@ -168,17 +172,17 @@ public static class WriterTester
                         Assert.Fail("NeedValue is true while supposedly on an array.");
                     }
 
-                    success = success && writer.Write(true);
+                    success = success && (bool)writer.Write(true);
                     CheckWriterIndex();
-                    success = success && writer.Write(false);
+                    success = success && (bool)writer.Write(false);
                     CheckWriterIndex();
-                    success = success && writer.WriteNull();
+                    success = success && (bool)writer.WriteNull();
                     CheckWriterIndex();
-                    success = success && writer.Write("Did you know : Every minute in here, 60 seconds pass.");
+                    success = success && (bool)writer.Write("Did you know : Every minute in here, 60 seconds pass.");
                     CheckWriterIndex();
-                    success = success && writer.Write(12345 + 67740);
+                    success = success && (bool)writer.Write(12345 + 67740);
                     CheckWriterIndex();
-                    success = success && writer.Write(Math.Sin(Math.PI * 0.245) * 100);
+                    success = success && (bool)writer.Write(Math.Sin(Math.PI * 0.245) * 100);
                     CheckWriterIndex();
 
                     if (success)
@@ -186,15 +190,15 @@ public static class WriterTester
                         {
                             for (int i = 0; i < 5; i++)
                             {
-                                success = success && writer.Write(i + 1);
+                                success = success && (bool)writer.Write(i + 1);
                             }
                         }
 
                     if (success)
                         using (writer.Object())
                         {
-                            success = success && writer.WriteKey("uhhh");
-                            success = success && writer.Write("idk..");
+                            success = success && (bool)writer.WriteKey("uhhh");
+                            success = success && (bool)writer.Write("idk..");
                         }
                     break;
                 }
@@ -204,7 +208,7 @@ public static class WriterTester
 
         return success;
     }
-    public static bool WriteTestJSC(SJWriter writer)
+    public static bool WriteTestComments(SJWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
         if (writer.S.depth <= 0)
@@ -219,10 +223,10 @@ public static class WriterTester
             ++startingIndex, writer.S.stack.PeekValue().index, "Expected write to increase top level element counter index"
         );
         int commentCount = 0;
-        void WriteCommentLine(bool expectValue = false) => success = success && writer.WriteCommentLine(
+        void WriteCommentLine(bool expectValue = false) => success = success && (bool)writer.WriteCommentLine(
             $"Comment {++commentCount}", hasNextValue: expectValue
         );
-        void WriteComment(bool expectValue = false) => success = success && writer.WriteComment(
+        void WriteComment(bool expectValue = false) => success = success && (bool)writer.WriteComment(
             $"Comment {++commentCount}", hasNextValue: expectValue
         );
 
@@ -239,68 +243,68 @@ public static class WriterTester
                     if ((writer.S.expect & SJWriter.Expect.Value) == SJWriter.Expect.Value)
                     {
                         Console.WriteLine($"The writer {writer} was expecting a value. Setting that key null.");
-                        success = success && writer.WriteNull();
+                        success = success && (bool)writer.WriteNull();
                     }
 
                     WriteCommentLine();
                     WriteComment();
 
                     // "Index" count is tracked only on the top level recursive structures
-                    success = success && writer.WriteKey("yes");
+                    success = success && (bool)writer.WriteKey("yes");
                     WriteComment();
-                    success = success && writer.Write(true);
+                    success = success && (bool)writer.Write(true);
                     CheckWriterIndex();
 
                     WriteComment();
-                    success = success && writer.WriteKey("no");
-                    success = success && writer.Write(false);
+                    success = success && (bool)writer.WriteKey("no");
+                    success = success && (bool)writer.Write(false);
                     WriteComment();
                     CheckWriterIndex();
 
                     WriteCommentLine();
-                    success = success && writer.WriteKey("maybe");
+                    success = success && (bool)writer.WriteKey("maybe");
                     WriteCommentLine();
-                    success = success && writer.WriteNull();
+                    success = success && (bool)writer.WriteNull();
                     WriteComment();
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("strings");
+                    success = success && (bool)writer.WriteKey("strings");
                     WriteComment();
                     WriteComment();
                     WriteCommentLine();
-                    success = success && writer.Write("Did you know : Every minute in here 60 seconds pass. But when I'm programming every key press makes minute pass in twice the speed!");
+                    success = success && (bool)writer.Write("Did you know : Every minute in here 60 seconds pass. But when I'm programming every key press makes minute pass in twice the speed!");
                     WriteCommentLine();
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("integer number");
+                    success = success && (bool)writer.WriteKey("integer number");
                     WriteCommentLine();
                     WriteCommentLine();
-                    success = success && writer.Write(12345 + 67740);
+                    success = success && (bool)writer.Write(12345 + 67740);
                     CheckWriterIndex();
 
                     WriteComment();
-                    success = success && writer.WriteKey("float number");
+                    success = success && (bool)writer.WriteKey("float number");
                     WriteCommentLine();
                     WriteComment();
-                    success = success && writer.Write(Math.Sin(Math.PI * 0.245) * 100);
+                    success = success && (bool)writer.Write(Math.Sin(Math.PI * 0.245) * 100);
                     WriteCommentLine();
                     CheckWriterIndex();
 
                     // Use WriteKV
-                    success = success && writer.WriteKV("yes 2", true);
+                    success = success && (bool)writer.WriteKey("yes 2").WriteBool(true);
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("no 2", false);
+                    success = success && (bool)writer.WriteKey("no 2").WriteBool(false);
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("maybe 2", null);
+                    success = success && (bool)writer.WriteKey("maybe 2").WriteNull();
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("strings 2", "bla bla bla");
+                    success = success && (bool)writer.WriteKey("strings 2").WriteString("bla bla bla");
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("calc short for calc", 50 + 3 - 7 + 12 - 5 + 24 - 12 + 53 + -12 - 40 + 1);
+                    success = success && (bool)writer.WriteKey("calc short for calc").WriteNumber(50 + 3 - 7 + 12 - 5 + 24 - 12 + 53 + -12 - 40 + 1);
                     CheckWriterIndex();
-                    success = success && writer.WriteKV("some number", Math.ScaleB(2.5, 4));
+                    success = success && (bool)writer.WriteKey("some number").WriteNumber(Math.ScaleB(2.5, 4));
                     CheckWriterIndex();
 
-                    success = success && writer.WriteKey("array");
+                    success = success && (bool)writer.WriteKey("array");
                     if (success)
                         using (writer.Array())
                         {
@@ -315,16 +319,16 @@ public static class WriterTester
                                     WriteComment();
                                 }
 
-                                success = success && writer.Write(i + 1);
+                                success = success && (bool)writer.Write(i + 1);
                             }
                         }
-                    success = success && writer.WriteKey("object");
+                    success = success && (bool)writer.WriteKey("object");
                     if (success)
                         using (writer.Object())
                         {
-                            success = success && writer.WriteKey("uhhh");
+                            success = success && (bool)writer.WriteKey("uhhh");
                             WriteComment();
-                            success = success && writer.Write("idk..");
+                            success = success && (bool)writer.Write("idk..");
                         }
                     break;
                 }
@@ -339,29 +343,29 @@ public static class WriterTester
                         Assert.Fail("NeedValue is true while supposedly on an array.");
                     }
 
-                    success = success && writer.Write(true);
+                    success = success && (bool)writer.Write(true);
                     WriteComment();
                     WriteCommentLine();
                     CheckWriterIndex();
                     WriteComment();
-                    success = success && writer.Write(false);
+                    success = success && (bool)writer.Write(false);
                     WriteCommentLine();
                     CheckWriterIndex();
                     WriteCommentLine();
-                    success = success && writer.WriteNull();
+                    success = success && (bool)writer.WriteNull();
                     WriteCommentLine();
                     CheckWriterIndex();
                     WriteCommentLine();
-                    success = success && writer.Write("Did you know : Every minute in here, 60 seconds pass.");
+                    success = success && (bool)writer.Write("Did you know : Every minute in here, 60 seconds pass.");
                     WriteComment();
                     CheckWriterIndex();
                     WriteComment();
-                    success = success && writer.Write(12345 + 67740);
+                    success = success && (bool)writer.Write(12345 + 67740);
                     WriteComment();
                     CheckWriterIndex();
                     WriteComment();
                     WriteComment();
-                    success = success && writer.Write(Math.Sin(Math.PI * 0.245) * 100);
+                    success = success && (bool)writer.Write(Math.Sin(Math.PI * 0.245) * 100);
                     WriteComment();
                     CheckWriterIndex();
 
@@ -370,15 +374,15 @@ public static class WriterTester
                         {
                             for (int i = 0; i < 5; i++)
                             {
-                                success = success && writer.Write(i + 1);
+                                success = success && (bool)writer.Write(i + 1);
                             }
                         }
 
                     if (success)
                         using (writer.Object())
                         {
-                            success = success && writer.WriteKey("uhhh");
-                            success = success && writer.Write("idk..");
+                            success = success && (bool)writer.WriteKey("uhhh");
+                            success = success && (bool)writer.Write("idk..");
                         }
                     break;
                 }
@@ -470,13 +474,13 @@ public static class WriterTester
         {
             if ((i % 2) == 0)
             {
-                if (!writer.BeginObject()) return true;
+                if (!(bool)writer.BeginObject()) return true;
             }
             else
             {
                 // Previous entry was Object, which should be "valid" if it didn't fail
-                if (!writer.WriteKey("a")) return false;
-                if (!writer.BeginArray()) return true;
+                if (!(bool)writer.WriteKey("a")) return false;
+                if (!(bool)writer.BeginArray()) return true;
             }
         }
 
@@ -491,11 +495,11 @@ public static class WriterTester
             foreach (var newlineAfterMl in new[] { true, false })
             {
                 writer.Write(v, ws: ws);
-                if (!writer.CanReadData)
+                if (!writer.Data.CanRead)
                 {
                     Assert.Inconclusive($"[!] Cannot TestRootWith on writer type '{writer.GetType().AssemblyQualifiedName}' as data can't be read. Comparison expected was for string : '{s}'");
                 }
-                Assert.AreEqual(s, writer.ReadData());
+                Assert.AreEqual(s, writer.Data.ReadWritten());
                 WriteMustFailAfter(writer);
                 writer.Reset();
             }
@@ -553,13 +557,13 @@ public static class WriterTester
                 writer.Write(v, ws: ws);
                 writer.WriteComment(C2, Pad, newlineImmediately: nl);
                 writer.WriteCommentLine(C3, Pad);
-                if (!writer.CanReadData)
+                if (!writer.Data.CanRead)
                 {
                     Assert.Inconclusive($"[!] Cannot TestRootWith on writer type '{writer.GetType().AssemblyQualifiedName}' as data can't be read. Comparison expected was for string : '{s}'");
                 }
 
                 // Depth=0 writes now work like "pretty print", if printing line.
-                Assert.AreEqual($"//{Pad}{C1}\n{s}\n/*{Pad}{C2}{Pad}*/{(writer.indentSize > 0 ? "\n" : "")}//{Pad}{C3}", writer.ReadData());
+                Assert.AreEqual($"//{Pad}{C1}\n{s}\n/*{Pad}{C2}{Pad}*/{(writer.indentSize > 0 ? "\n" : "")}//{Pad}{C3}", writer.Data.ReadWritten());
                 WriteMustFailAfter(writer);
                 writer.Reset();
             }

@@ -32,7 +32,7 @@ public sealed class ReadmeUnitTests
         }
 
         const string data = @"{ ""x"": 42.0, ""y"": -42.0, ""z"": 0.0 }";
-        var reader = new SJReader(new SJStringData(data));
+        var reader = new SJReader(new SJStringReader(data));
 
         for (SJReader.Value root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
@@ -79,23 +79,23 @@ public sealed class ReadmeUnitTests
         var initialPosition = new Vector3(1f, 2f, 3f);
         var position = initialPosition;
 
-        var writer = new SJStringWriter()
+        var writer = new SJWriter(new SJStringWriter())
         {
             // Enable pretty printing
             indentSize = 4,
         };
         using (writer.Object())
         {
-            writer.WriteKV("X", position.X);
-            writer.WriteKV("Y", position.Y);
-            writer.WriteKV("Z", position.Z);
+            writer.WriteKey("X").Write(position.X);
+            writer.WriteKey("Y").Write(position.Y);
+            writer.WriteKey("Z").Write(position.Z);
         }
 
         // Now deserialize it
         position = Vector3.Zero;
 
-        string data = writer.ReadData();
-        var reader = new SJReader(new SJStringData(data));
+        string data = writer.Data.ReadWritten();
+        var reader = new SJReader(new SJStringReader(data));
         position = ReadVector3(reader, reader.Read());
 
         // Use ReadData to read the resulting string.
@@ -153,7 +153,7 @@ public sealed class ReadmeUnitTests
             var (process, mustThrow) = p;
             try
             {
-                var reader = new SJReader(new SJStringData(Data));
+                var reader = new SJReader(new SJStringReader(Data));
                 for (var v = reader.Read(); !reader.S.ended; v = reader.Read())
                 {
                     switch (v.type)
@@ -221,7 +221,7 @@ public sealed class ReadmeUnitTests
 [1.0, 2.0]
 // Oh well..
 ";
-        var reader = new SJReader(new SJStringData(Data))
+        var reader = new SJReader(new SJStringReader(Data))
         {
             allowComments = true,
             // default behaviour captures comments now

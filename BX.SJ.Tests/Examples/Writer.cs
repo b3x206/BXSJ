@@ -7,7 +7,7 @@
     {
         public static void TMain(string[] args)
         {
-            var writer = new SJStringWriter()
+            using var writer = new SJWriter(new SJStringWriter())
             {
                 // Enable pretty printing. Setting this 0 or less will disable pretty printing.
                 indentSize = 4,
@@ -40,7 +40,7 @@
                 writer.Write(5);
             } // writer.EndArray();
               // ↑ The array will end automatically once you go out of using scope.
-            Console.WriteLine($"Result Array : {writer.ReadData()}");
+            Console.WriteLine($"Result Array : {writer.Data.ReadWritten()}");
 
             // To not throw here, reset before writing another root level object..
             writer.Reset();
@@ -60,7 +60,7 @@
                 writer.Write("my nice value");
                 // If you end your object without writing a "value" after a "key" was written, you will cause an error so beware.
                 // You can also alternatively use:
-                writer.WriteKV("other key", "other nice value");
+                writer.WriteKey("other key").WriteString("other nice value");
                 // ↑ Though you should make sure that you are in a object or
                 //   not expecting a value before doing this.
 
@@ -69,10 +69,11 @@
                 {
                     using (writer.ArrayKV("in childhood"))
                     {
-                        writer.Write(3.141592); // Larp ~~pro max~~ duo
-                        writer.Write(2);        // It's nice
-                        writer.Write(5);        // Was my first favourite
-                        writer.Write(8);        // Also good
+                        writer
+                            .Write(3.141592) // Larp ~~pro max~~ duo
+                            .Write(2)        // It's nice
+                            .Write(5)        // Was my first favourite
+                            .Write(8);       // Also good
                     }
 
                     // Now I fail math. But dw I don't hate it, because I'm not a mathmetician
@@ -83,7 +84,7 @@
               // ↑ The object will end automatically once you go out of using scope.
 
             // Output the resulting JSON like this: (ReadData)
-            Console.WriteLine($"Result Object : {writer.ReadData()}");
+            Console.WriteLine($"Result Object : {writer.Data.ReadWritten()}");
         }
     }
 }

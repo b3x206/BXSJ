@@ -18,7 +18,7 @@ namespace BX.SJ.Tests.Examples
     {
         public static void TMain(string[] args)
         {
-            var data = new SJStringData();
+            var data = new SJStringReader();
             var reader = new SJReader(data)
             {
                 // These extra options allow reading invalid json, but valid bxsj. All of these will be demoed in order.

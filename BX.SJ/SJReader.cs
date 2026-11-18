@@ -1,4 +1,5 @@
-﻿using BX.SJ.Collections;
+﻿#pragma warning disable IDE0057 // ***** does not support System.Range
+using BX.SJ.Collections;
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -300,6 +301,7 @@ namespace BX.SJ
 
         // - state
         private State _S;
+        private bool disposedValue;
         public ref State S => ref _S;
         /// <summary>
         /// The error string detailing why the reader failed.
@@ -1323,8 +1325,9 @@ namespace BX.SJ
             return result;
         }
 
+        public static explicit operator bool(SJReader r) => !r.HasError;
+
         private SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(DefaultMaxDepth);
-        private bool disposedValue;
 
         public int StateCount => _stateStack.Count;
         /// <summary>
@@ -1445,3 +1448,4 @@ namespace BX.SJ
         }
     }
 }
+#pragma warning restore IDE0057 // ***** does not support System.Range

@@ -53,9 +53,9 @@ static Vector3 ReadVector3(SJReader reader, SJReader.Value root)
 }
 
 const string data = @"{ ""x"": 42.0, ""y"": -42.0, ""z"": 0.0 }";
-using var reader = new SJReader(new SJStringData(data));
+var reader = new SJReader(new SJStringReader(data));
 
-for (SJReader.Value root = reader.Read(); !reader.ended; root = reader.Read())
+for (SJReader.Value root = reader.Read(); !reader.S.ended; root = reader.Read())
 {
     // Can conditionally skip the irrelevant values here if it exists.
     Console.WriteLine($"Saved Position : {ReadVector3(reader, root)}");
@@ -90,23 +90,23 @@ static Vector3 ReadVector3(SJReader reader, SJReader.Value root) { /*...*/ } // 
 var initialPosition = new Vector3(1f, 2f, 3f);
 var position = initialPosition;
 
-using var writer = new SJWriter(new SJStringWriter(64))
+var writer = new SJWriter(new SJStringWriter())
 {
     // Enable pretty printing
     indentSize = 4,
 };
 using (writer.Object())
 {
-    writer.WriteKV("X", position.X);
-    writer.WriteKV("Y", position.Y);
-    writer.WriteKV("Z", position.Z);
+    writer.WriteKey("X").Write(position.X);
+    writer.WriteKey("Y").Write(position.Y);
+    writer.WriteKey("Z").Write(position.Z);
 }
 
 // Now deserialize it
 position = Vector3.Zero;
 
-string data = writer.ReadData();
-using var reader = new SJReader(new SJStringReader(data));
+string data = writer.Data.ReadWritten();
+var reader = new SJReader(new SJStringReader(data));
 position = ReadVector3(reader, reader.Read());
 
 // Use ReadData to read the resulting string.

@@ -9,7 +9,7 @@ namespace BX.SJ
     /// <summary>
     /// Uses <see cref="string"/> as JSON read resource.
     /// </summary>
-    public sealed class SJStringData : ISJDataReader, ISJStateStackable
+    public sealed class SJStringReader : ISJDataReader, ISJStateStackable
     {
         private string _Data;
         public string Data
@@ -28,7 +28,7 @@ namespace BX.SJ
                 Reset();
             }
         }
-        string ISJStateStackable.Error => null;
+        bool ISJStateStackable.HasError => false;
         public int Version { get; private set; } = 0;
         public byte CharSize => 2;
         public int Position { get; private set; } = 0;
@@ -37,9 +37,9 @@ namespace BX.SJ
         public byte Current { get; private set; }
         object IEnumerator.Current => Current;
 
-        public SJStringData()
+        public SJStringReader()
         { }
-        public SJStringData(string data)
+        public SJStringReader(string data)
         {
             _Data = data;
         }
@@ -98,19 +98,6 @@ namespace BX.SJ
             b = 0;
             return false;
         }
-        public int Next(in Span<byte> data)
-        {
-            if (data == null || data.Length <= 0) return 0;
-            int i;
-            // MoveNext first, this is to skip the last character as it will be left as the "Current"
-            for (i = 0; MoveNext() && i < data.Length; i++)
-            {
-                data[i] = Current;
-            }
-
-            // 'i' includes the Length
-            return i;
-        }
         public int SkipWhiteSpace()
         {
             // This method should start the iterator if it wasn't started.
@@ -140,13 +127,16 @@ namespace BX.SJ
         public int MaxStateCount { get => _positions.Capacity; set => _positions.Count = value; }
         public int PushState()
         {
-            _positions.PushValue(Position);
+            var h = _positions.Push(Position);
+            if (h.IsStub) return -1;
+
             return _positions.Count - 1;
         }
         public int PopState()
         {
             var h = _positions.Pop();
             if (h.IsStub) return -1;
+
             Position = h.Value;
             Current = Position >= Data.Length ? (byte)0 : (byte)Math.Min((char)0xFF, Data[Position]);
             return _positions.Count;
@@ -156,6 +146,7 @@ namespace BX.SJ
         {
             Position = Current = 0;
             _positions.Clear(false);
+            Version++;
         }
 
         public void Dispose()

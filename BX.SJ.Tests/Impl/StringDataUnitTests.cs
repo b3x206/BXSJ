@@ -3,10 +3,10 @@
 namespace BX.SJ.Tests.Impl;
 
 [TestClass]
-public sealed class StringDataUnitTests : ReaderUnitTests<SJStringData>
+public sealed class StringDataUnitTests : ReaderUnitTests<SJStringReader>
 {
-    public override SJStringData DataReaderFromString(string data) => new(data);
-    public override SJStringData DataReaderFromStream(Stream data, Encoding? enc)
+    public override SJStringReader DataReaderFromString(string data) => new(data);
+    public override SJStringReader DataReaderFromStream(Stream data, Encoding? enc)
     {
         ArgumentNullException.ThrowIfNull(data);
         // This just reads the text using the STL.

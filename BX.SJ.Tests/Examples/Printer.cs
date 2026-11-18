@@ -88,7 +88,7 @@ namespace BX.SJ.Tests.Examples
 
         public static void TMain(string[] args)
         {
-            var data = new SJStringData(args.Length > 1 ? args[1] : 
+            var data = new SJStringReader(args.Length > 1 ? args[1] : 
                 "{ \"foo\": [\"bar\", \"baz\"], \"idk\": 42, \"mango\": { \"6\": 7 } }");
             var reader = new SJReader(data);
 

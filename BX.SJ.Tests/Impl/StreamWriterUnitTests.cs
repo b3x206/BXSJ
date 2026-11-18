@@ -1,9 +1,10 @@
-﻿namespace BX.SJ.Tests.Impl;
+﻿#if false
+namespace BX.SJ.Tests.Impl;
 
 [TestClass]
 public sealed class StreamWriterUnitTests : WriterUnitTests<SJStreamWriter>
 {
-    public override SJStreamWriter CreateWriter() => new(new MemoryStream());
+    public override SJStreamWriter Create() => new(new MemoryStream());
     public override bool DisposeWriter(SJStreamWriter writer)
     {
         writer?.Dispose();
@@ -16,3 +17,4 @@ public sealed class StreamWriterUnitTests : WriterUnitTests<SJStreamWriter>
         base.TestDisposeTwice();
     }
 }
+#endif

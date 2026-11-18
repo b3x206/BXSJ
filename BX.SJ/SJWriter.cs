@@ -1,4 +1,5 @@
-﻿using BX.SJ.Collections;
+﻿#pragma warning disable IDE0057 // ***** does not support System.Range
+using BX.SJ.Collections;
 using System;
 using System.Buffers;
 using System.ComponentModel;
@@ -19,14 +20,6 @@ namespace BX.SJ
     /// </example>
     public sealed class SJWriter : ISJStateStackable, IDisposable
     {
-        // TODO :
-        // * Check anything (version + error + state if automateable) before writing
-        // * Fluent API instead of golang API
-        //   * Return null on error (so that the rest of the calls in a chain can be not propagated)
-        //   * Remove some Write KV style things if that is done.
-        // * Port other classes to interface style.
-
-#pragma warning disable IDE0057 // ***** does not support System.Range
 
         /// <summary>
         /// Exception thrown on an error case while reading JSON.
@@ -1018,8 +1011,8 @@ namespace BX.SJ
         public SJWriter WriteType(ReadOnlySpan<char> type, bool stringify = false)
         {
             ref var s = ref S;
-            if (!CheckWritableState())                         return Self();
-            if (!allowTypes)                                   return Self("Cannot write types on this writer, enable 'allowTypes'");
+            if (!CheckWritableState()) return Self();
+            if (!allowTypes) return Self("Cannot write types on this writer, enable 'allowTypes'");
             if ((s.expect & Expect.NotType) == Expect.NotType) return Self("Not expected type literal to be written");
 
             s.MarkWrittenType();
@@ -1232,6 +1225,8 @@ namespace BX.SJ
         /// </summary>
         public override string ToString() => $"[{base.ToString()}] state=({S}) error={Error}";
 
+        public static explicit operator bool(SJWriter w) => !w.HasError;
+
         // Code execution only - can be readonly
         private SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(128);
         public int StateCount => _stateStack.Count;
@@ -1335,6 +1330,6 @@ namespace BX.SJ
             Dispose(disposing: true);
             GC.SuppressFinalize(this);
         }
-#pragma warning restore IDE0057 // ***** does not support System.Range
     }
 }
+#pragma warning restore IDE0057 // ***** does not support System.Range

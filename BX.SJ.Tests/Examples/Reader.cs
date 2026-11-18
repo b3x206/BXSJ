@@ -17,7 +17,7 @@ namespace BX.SJ.Tests.Examples
             for (int i = 0; i < datas.Length; i++)
             {
                 var data = datas[i];
-                var reader1 = new SJReader(new SJStringData(data));
+                var reader1 = new SJReader(new SJStringReader(data));
 
                 SJReader.Value value = reader1.Read();
                 Console.WriteLine($"type : {value.type}, data : {new string(value.Slice())}");
@@ -25,7 +25,7 @@ namespace BX.SJ.Tests.Examples
 
             // Arrays and strings can be iterated as shown
             const string arrayData = "[1, 2, 3, 4, 5, 6]";
-            var readerData = new SJStringData(arrayData);
+            var readerData = new SJStringReader(arrayData);
             var reader = new SJReader(readerData);
             // This captures the root value. If there are multiple (can happen with non-standard ext)
             // It is always suggested to use a for loop and read like this to skip other values.:

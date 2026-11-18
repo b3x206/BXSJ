@@ -29,10 +29,10 @@ namespace BX.SJ
             sb = new StringBuilder(capacity, maxCapacity);
         }
 
+        bool ISJStateStackable.HasError => false; // No error cases could occur for this
         public int Count => sb.Length;
-        public int Version { get; private set; }
+        public int Version { get; private set; } = 0;
         public bool CanRead => true; // Is in memory
-        bool ISJStateStackable.HasError => false;
         public int MaxStateCount { get => _states.maxSize; set => _states.maxSize = value; }
 
         public string ReadWritten() => sb.ToString();
