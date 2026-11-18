@@ -61,13 +61,13 @@ namespace BX.SJ
     public sealed class SJReader : IDisposable, ISJStateStackable
     {
         /// <summary>
-        /// Exception thrown on an error case while reading BXSJ.
+        /// Exception thrown on an error case related to the BXSJ reader.
         /// </summary>
-        public sealed class ReadException : Exception
+        public sealed class ReaderException : Exception
         {
-            public ReadException(SJReader reader) : base($"{reader.Error} at position {reader.Data.Position}")
+            public ReaderException(SJReader reader) : base($"{reader.Error} at position {reader.Data.Position}")
             { }
-            public ReadException(string message) : base(message)
+            public ReaderException(string message) : base(message)
             { }
         }
         /// <summary>
@@ -145,31 +145,7 @@ namespace BX.SJ
                 return $"[SJReader.Value] type:{type}, start:{start}, end:{end}, depth:{objectDepth}";
             }
         }
-        public struct StateScope : IDisposable
-        {
-            private bool disposed;
-            private readonly bool popIfError;
-            private readonly SJReader reader;
 
-            public StateScope(SJReader reader, bool popIfError)
-            {
-                this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
-
-                this.popIfError = popIfError;
-                disposed = reader.PushState() < 0;
-            }
-
-            public void Dispose()
-            {
-                if (disposed || reader == null) return;
-
-                if (!popIfError || !string.IsNullOrEmpty(reader.Error))
-                {
-                    reader.PopState();
-                }
-                disposed = true;
-            }
-        }
         [Flags]
         public enum Expect
         {
@@ -758,10 +734,10 @@ namespace BX.SJ
         /// <summary>
         /// Throws the currently stored error. It does not check whether if an error is available.
         /// </summary>
-        /// <exception cref="ReadException"></exception>
+        /// <exception cref="ReaderException"></exception>
         public void ThrowError()
         {
-            throw new ReadException(this);
+            throw new ReaderException(this);
         }
         private void CheckDisposed()
         {
@@ -780,6 +756,8 @@ namespace BX.SJ
         /// <summary>
         /// Top level reader for a single non-recursive lexable generic value.
         /// </summary>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public Value Read()
         {
             CheckDisposed();
@@ -1101,6 +1079,8 @@ namespace BX.SJ
         /// <summary>
         /// Moves <see cref="State.depth"/> and <see cref="State.current"/> until a depth.
         /// </summary>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public void DiscardUntil(int depth)
         {
             CheckVersion();
@@ -1116,6 +1096,8 @@ namespace BX.SJ
         /// </summary>
         /// <param name="type">Type of the entry. This is either <see cref="EntryType.Value"/> or <see cref="EntryType.None"/>.</param>
         /// <returns>Whether if more data is available to read from <paramref name="value"/>.</returns>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public bool IterateArrayEntries(Value value, out Value result)
         {
             CheckVersion();
@@ -1163,6 +1145,8 @@ namespace BX.SJ
         /// <see cref="IterateArrayEntries(Value, out Value)"/> instead.</b>
         /// </remarks>
         /// <returns>Whether if more data is available to read from <paramref name="value"/>.</returns>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public bool IterateArray(Value value, out Value result)
         {
             while (IterateArrayEntries(value, out var v))
@@ -1185,6 +1169,8 @@ namespace BX.SJ
         /// Iterate <see cref="SJType.Object"/> typed <paramref name="value"/> with entry type info.
         /// </summary>
         /// <returns>Whether if more data is available to read from <paramref name="value"/>.</returns>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public bool IterateObjectEntries(Value value, out Value result)
         {
             CheckVersion();
@@ -1231,6 +1217,8 @@ namespace BX.SJ
         /// Otherwise, this method will return the previous key/next unread value (if exists)</br>
         /// </remarks>
         /// <returns>Whether if more data is available to read from <paramref name="object"/>.</returns>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public bool IterateObject(Value @object, out Value key, out Value value)
         {
             bool gotKey = false; key = default;
@@ -1284,6 +1272,8 @@ namespace BX.SJ
         /// If this returns <see langword="false"/> then either the <paramref name="v"/>
         /// is erroreneous or <paramref name="expectCount"/> is exceeded.
         /// </returns>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public bool PeekEntryCount(Value v, out int keys, out int values, out int other, int expectCount = -1)
         {
             CheckVersion();
@@ -1349,6 +1339,8 @@ namespace BX.SJ
         /// For any other SJReader with it's own state, this can be used to write it into it's own index like:
         /// <br><c>result := <see cref="PushState"/>; myStack[result] = otherState;</c></br>
         /// </returns>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public int PushState()
         {
             if (_StData == null)
@@ -1378,6 +1370,8 @@ namespace BX.SJ
         /// For any other SJReader with it's own state, this can be used to read from it's own index like:
         /// <br><c>result := <see cref="PopState"/>; otherState = myStack[result];</c></br>
         /// </returns>
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
         public int PopState()
         {
             if (_StData == null)
@@ -1398,7 +1392,9 @@ namespace BX.SJ
         /// <summary>
         /// Starts a <see cref="SJWriter"/> transaction, which will reset if this state is disposed.
         /// </summary>
-        public StateScope UseState(bool popIfError = false) => new StateScope(this, popIfError);
+        /// <exception cref="ReaderException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        public StateStackScope UseState(bool popIfError = false) => new StateStackScope(this, popIfError);
 
         /// <summary>
         /// Resets the reader to the default state. This also removes any stacked state if present.
@@ -1407,6 +1403,7 @@ namespace BX.SJ
         /// <br><b>This shouldn't discard loaded data and only reset the state.</b>
         /// (should have called it flush, but SJReader does not commit any data?)</br>
         /// </remarks>
+        /// <exception cref="InvalidOperationException"></exception>
         public void Reset()
         {
             CheckDisposed();
@@ -1430,7 +1427,9 @@ namespace BX.SJ
                     Data.Dispose();
                 }
 
-                // Data = null;
+                _Data = null;
+                _StData = null;
+                _SlaData = null;
                 S = default;
                 _stateStack = default;
                 disposedValue = true;

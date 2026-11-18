@@ -5,9 +5,9 @@ using System.Text;
 namespace BX.SJ
 {
     /// <summary>
-    /// Writes JSON to a <see cref="StringBuilder"/>
+    /// Writes <see cref="SJWriter"/> data to a <see cref="StringBuilder"/>
     /// </summary>
-    public sealed class SJStringWriter : SJWriter
+    public sealed class SJStringWriter : ISJDataWriter, ISJStateStackable
     {
         private readonly StringBuilder sb;
         public const int DefaultCapacity = 256;
@@ -33,26 +33,55 @@ namespace BX.SJ
         protected override void DoAppend(ReadOnlySpan<char> s) => sb.Append(s);
 
         public override bool CanReadData => true;
-        public override string ReadData() => sb.ToString();
 
-        private SJValueStack<int> _states = SJValueStack<int>.Create();
-        public override int PushState()
+        public int Count => sb.Length;
+        public int Version => 0; // Writing source not mutable
+        public bool CanRead => true;
+
+        string ISJStateStackable.Error => null;
+
+        public int MaxStateCount { get => _states.maxSize; set => _states.maxSize = value; }
+
+        public string ReadWritten() => sb.ToString();
+        public int ReadWritten(in Span<char> data)
+        {
+            int c = Math.Min(data.Length, sb.Length);
+            sb.CopyTo(0, data, c);
+            return c;
+        }
+
+        public void Reset()
+        {
+            sb.Clear();
+        }
+
+        public void Write(char c)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Write(ReadOnlySpan<char> s)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Dispose()
+        {
+            throw new NotImplementedException();
+        }
+
+        private SJValueStack<int> _states = SJValueStack<int>.CreateWithMaxSize();
+        public int PushState()
         {
             int baseResult = base.PushState();
             if (baseResult >= 0) _states.PushValue(sb.Length);
             return baseResult;
         }
-        public override int PopState()
+        public int PopState()
         {
             int baseResult = base.PopState();
             if (baseResult >= 0) sb.Length = _states.PopValue();
             return baseResult;
-        }
-
-        public override void Reset()
-        {
-            base.Reset();
-            sb.Clear();
         }
     }
 }

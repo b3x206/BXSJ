@@ -28,6 +28,7 @@ namespace BX.SJ
                 Reset();
             }
         }
+        string ISJStateStackable.Error => null;
         public int Version { get; private set; } = 0;
         public byte CharSize => 2;
         public int Position { get; private set; } = 0;

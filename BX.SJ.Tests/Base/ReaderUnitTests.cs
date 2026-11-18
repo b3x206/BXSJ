@@ -111,7 +111,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(JsonTruncatedRootData), typeof(TestData))]
-    public void TestTruncatedRootLiterals(string data) => Assert.Throws<SJReader.ReadException>(() => Read(DataReaderFromString(data)));
+    public void TestTruncatedRootLiterals(string data) => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(data)));
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
@@ -126,7 +126,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     public void TestBasic() => Read(DataReaderFromString(JsonData1));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestBasicInvalid() => Assert.Throws<SJReader.ReadException>(() => Read(DataReaderFromString(JsonDataInvalid)));
+    public void TestBasicInvalid() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataInvalid)));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestSlightlyComplicated() => Read(DataReaderFromString(JsonData2));
@@ -173,7 +173,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [DataRow(@"[""hello"" 1 2 3 4 5]")]
     [DataRow(@"{""hello"": 124 ""world!"": ""world: yo"" ""look"": ""no comma! waow bradar please JSON code make no mistakes""}")]
     [DataRow(@"{""hello"" 124, ""gurt"" ""yo"", ""yogurt"" ""yes""}")]
-    public void TestCommaColonState(string data) => Assert.Throws<SJReader.ReadException>(() => Read(DataReaderFromString(data)));
+    public void TestCommaColonState(string data) => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(data)));
 
     // Code Validation
     [TestMethod]
@@ -258,7 +258,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     public void TestDiscard() => TestDiscard(new(DataReaderFromString(JsonDataDiscard)));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDiscardInvalid() => Assert.Throws<SJReader.ReadException>(() => TestDiscard(new(DataReaderFromString(JsonDataDiscardInvalid))));
+    public void TestDiscardInvalid() => Assert.Throws<SJReader.ReaderException>(() => TestDiscard(new(DataReaderFromString(JsonDataDiscardInvalid))));
 
     //// Peek + Peek JSC
     //[TestMethod]
@@ -432,7 +432,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     public void TestJSC() => Read(DataReaderFromString(JsonDataComment), jsc: true);
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestJSCInvalid() => Assert.Throws<SJReader.ReadException>(() => Read(DataReaderFromString(JsonDataCommentInvalid), jsc: true));
+    public void TestJSCInvalid() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataCommentInvalid), jsc: true));
 
     // JSC with Capture
     [TestMethod]
@@ -467,19 +467,19 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [Timeout(TestTimeouts.Short)]
     public void TestEmptyString(/*bool throwOnError*/)
     {
-        Assert.Throws<SJReader.ReadException>(() => Read(DataReaderFromString(DataEmpty)));
+        Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(DataEmpty)));
     }
 
     // Stack
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestStacking() => Assert.Throws<SJReader.ReadException>(() => Read(DataReaderFromString(JsonDataStackingInvalid)));
+    public void TestStacking() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataStackingInvalid)));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestMaxArrayRecursion() => Assert.Throws<SJReader.ReadException>(() => Read((DataReaderFromMaxRecursionString("[]", SJReader.DefaultMaxDepth))));
+    public void TestMaxArrayRecursion() => Assert.Throws<SJReader.ReaderException>(() => Read((DataReaderFromMaxRecursionString("[]", SJReader.DefaultMaxDepth))));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestMaxObjectRecursion() => Assert.Throws<SJReader.ReadException>(() => Read(DataReaderFromMaxRecursionString("{}", SJReader.DefaultMaxDepth)));
+    public void TestMaxObjectRecursion() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromMaxRecursionString("{}", SJReader.DefaultMaxDepth)));
 
     // File tests
     public virtual Encoding JsonFileEncoding => Encoding.UTF8;
@@ -503,5 +503,5 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [DataRow(JsonFileInvalidBinary)]
     [DataRow(JsonFileInvalidNoColon)]
     [DataRow(JsonFileInvalidUnterminated)]
-    public void TestInvalidFile(string name) => Assert.Throws<SJReader.ReadException>(() => Read(DataReaderFromStream(LoadAsmFile(name), JsonFileEncoding)));
+    public void TestInvalidFile(string name) => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromStream(LoadAsmFile(name), JsonFileEncoding)));
 }

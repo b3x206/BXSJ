@@ -20,9 +20,7 @@ namespace BX.SJ
     public sealed class SJWriter : ISJStateStackable, IDisposable
     {
         // TODO :
-        // * State stacking on data
         // * Check anything (version + error + state if automateable) before writing
-        // * IDisposable + IDisposable on data
         // * Fluent API instead of golang API
         //   * Return null on error (so that the rest of the calls in a chain can be not propagated)
         //   * Remove some Write KV style things if that is done.
@@ -42,32 +40,6 @@ namespace BX.SJ
             public WriteException(string message) : base(message)
             { }
         }
-        public struct StateScope : IDisposable
-        {
-            private bool disposed;
-            private readonly bool popIfError;
-            private readonly SJWriter writer;
-
-            public StateScope(SJWriter writer, bool popIfError)
-            {
-                this.writer = writer ?? throw new ArgumentNullException(nameof(writer));
-
-                disposed = false;
-                this.popIfError = popIfError;
-                writer.PushState();
-            }
-
-            public void Dispose()
-            {
-                if (disposed || writer == null) return;
-
-                if (!popIfError || !string.IsNullOrEmpty(writer.Error))
-                {
-                    writer.PopState();
-                }
-                disposed = true;
-            }
-        }
         [Flags]
         public enum Expect
         {
@@ -78,7 +50,7 @@ namespace BX.SJ
         }
         [Flags]
         public enum FormatExpect { None, Newline = 1 << 0, Indent = 1 << 1, NewlineIndent = Newline | Indent }
-        // TODO(?): Move other operations to target this enumeration instead.
+
         /// <summary>
         /// Utility enumeration used to define the target <c>WriteLiteral-</c> method on formatted writers (with numbers)
         /// </summary>
@@ -229,6 +201,7 @@ namespace BX.SJ
             }
         }
 
+        public const int DefaultMaxDepth = 128;
         // settings
         /// <summary>
         /// The indent size to use. If this is 0 or less, no pretty printing is done.
@@ -237,11 +210,11 @@ namespace BX.SJ
         /// <summary>
         /// Maximum size for <see cref="writeStack"/>
         /// </summary>
-        public ushort maxDepth = 128;
+        public ushort maxDepth = DefaultMaxDepth;
         /// <summary>
         /// Maximum state stacking.
         /// </summary>
-        public int maxStateStack
+        public int MaxStateCount
         {
             get => _stateStack.maxSize;
             set => _stateStack.maxSize = value;
@@ -274,6 +247,10 @@ namespace BX.SJ
         /// with older servers / systems not behaving well with non-ascii strings.
         /// </summary>
         public bool asciiOnly = false;
+        /// <summary>
+        /// Returns <see langword="null"/> in an event of error for fluent calls.
+        /// </summary>
+        public bool returnNullOnError = false;
         private bool _ThrowOnError = false;
         /// <summary>
         /// When an erroreneous case occurs (or <see cref="Error"/> is set to anything other 
@@ -296,6 +273,7 @@ namespace BX.SJ
         }
 
         // state
+        private bool disposedValue = false;
         private State _S;
         /// <summary>
         /// Primary state contained in the writer.
@@ -386,6 +364,25 @@ namespace BX.SJ
         public void ThrowError()
         {
             throw new WriteException(this);
+        }
+        private void CheckDisposed()
+        {
+            if (disposedValue) throw new InvalidOperationException("Attempt to write to a disposed SJWriter.");
+        }
+        private bool CheckState(bool checkEnded = true)
+        {
+            CheckDisposed();
+            CheckVersion();
+
+            return !string.IsNullOrEmpty(Error);
+        }
+        public void CheckVersion()
+        {
+            if (Data.Version != LastDataVersion)
+            {
+                LastDataVersion = Data.Version;
+                Reset();
+            }
         }
 
         // The base writers
@@ -633,6 +630,8 @@ namespace BX.SJ
             bool checkEnded = true
         )
         {
+            if (!CheckState()) return false;
+            
             ref var s = ref S;
             if (!string.IsNullOrEmpty(Error)) return false;
             if (checkEnded && s.ended)
@@ -687,7 +686,7 @@ namespace BX.SJ
             }
         }
 
-        public bool BeginObject()
+        public SJWriter BeginObject()
         {
             ref var s = ref S;
             if (s.ended)
@@ -716,7 +715,7 @@ namespace BX.SJ
 
             return true;
         }
-        public bool EndObject()
+        public SJWriter EndObject()
         {
             ref var s = ref S;
             if (s.ended)
@@ -790,7 +789,7 @@ namespace BX.SJ
 
             return true;
         }
-        public bool BeginArray()
+        public SJWriter BeginArray()
         {
             ref var s = ref S;
             if (s.ended)
@@ -818,7 +817,7 @@ namespace BX.SJ
             s.stack.Push(SJType.Array);
             return true;
         }
-        public bool EndArray()
+        public SJWriter EndArray()
         {
             ref var s = ref S;
             if (s.ended)
@@ -900,7 +899,7 @@ namespace BX.SJ
         /// </remarks>
         /// <param name="value">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public bool WriteLiteralKey(ReadOnlySpan<char> value, bool stringify = false)
+        public SJWriter WriteLiteralKey(ReadOnlySpan<char> value, bool stringify = false)
         {
             ref var s = ref S;
             if (s.ended)
@@ -950,34 +949,34 @@ namespace BX.SJ
         /// </remarks>
         /// <param name="name">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public bool WriteKey(ReadOnlySpan<char> name) => WriteLiteralKey(name, stringify: true);
-        public bool WriteKeyNumber(float number, string format = "G")
+        public SJWriter WriteKey(ReadOnlySpan<char> name) => WriteLiteralKey(name, stringify: true);
+        public SJWriter WriteKeyNumber(float number, string format = "G")
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             // Leaving prefix empty string will disable prefixes
             return WriteFormattedNumber(WriteTarget.Key, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        public bool WriteKeyNumber(double number, string format = "G")
+        public SJWriter WriteKeyNumber(double number, string format = "G")
         {
             static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        public bool WriteKeyLong(long number, string format = "G", string prefix = null)
+        public SJWriter WriteKeyLong(long number, string format = "G", string prefix = null)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
-        public bool WriteKeyULong(ulong number, string format = "G", string prefix = null)
+        public SJWriter WriteKeyULong(ulong number, string format = "G", string prefix = null)
         {
             static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
-        public bool WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false", stringify: false);
-        public bool WriteKeyNull() => WriteLiteralKey("null", stringify: false);
+        public SJWriter WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false", stringify: false);
+        public SJWriter WriteKeyNull() => WriteLiteralKey("null", stringify: false);
 
         /// <summary>
         /// Writes a literal value with the rules for the top level object or array.
@@ -989,7 +988,7 @@ namespace BX.SJ
         /// <br>This also can be used as a faster way to write numbers if you have data for that.</br>
         /// </summary>
         /// <returns>Whether if the write was successful.</returns>
-        public bool WriteLiteralValue(ReadOnlySpan<char> data, bool stringify = false)
+        public SJWriter WriteLiteralValue(ReadOnlySpan<char> data, bool stringify = false)
         {
             ref var s = ref S;
             if (s.ended)
@@ -1043,39 +1042,40 @@ namespace BX.SJ
 
             return true;
         }
-        public bool WriteString(ReadOnlySpan<char> value) => WriteLiteralValue(value, stringify: true);
-        public bool WriteNumber(float number, string format = "G")
+        public SJWriter WriteString(ReadOnlySpan<char> value) => WriteLiteralValue(value, stringify: true);
+        public SJWriter WriteNumber(float number, string format = "G")
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        public bool WriteNumber(double number, string format = "G")
+        public SJWriter WriteNumber(double number, string format = "G")
         {
             static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        public bool WriteLong(long number, string format = "G", string prefix = null)
+        public SJWriter WriteLong(long number, string format = "G", string prefix = null)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
         }
-        public bool WriteULong(ulong number, string format = "G", string prefix = null)
+        public SJWriter WriteULong(ulong number, string format = "G", string prefix = null)
         {
             static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
         }
-        public bool WriteBool(bool value) => WriteLiteralValue(value ? "true" : "false");
-        public bool WriteNull() => WriteLiteralValue("null");
+        public SJWriter WriteBool(bool value) => WriteLiteralValue(value ? "true" : "false");
+        public SJWriter WriteNull() => WriteLiteralValue("null");
+
         /// <summary>
         /// Write a type prefix.
         /// </summary>
         /// <param name="type">Type literal or id. Should be a valid character matching <see cref="SJReader.IsTypeLiteralContinuation(char)"/>.</param>
         /// <param name="stringify">Write it as a string value (with '"' quotes) instead of a literal.</param>
-        public bool WriteType(ReadOnlySpan<char> type, bool stringify = false)
+        public SJWriter WriteType(ReadOnlySpan<char> type, bool stringify = false)
         {
             ref var s = ref S;
             if (!allowTypes)
@@ -1119,7 +1119,7 @@ namespace BX.SJ
 
             return true;
         }
-        public bool WriteType(long typeCode, string format = "G")
+        public SJWriter WriteType(long typeCode, string format = "G")
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
@@ -1139,7 +1139,7 @@ namespace BX.SJ
         /// </param>
         /// <param name="newlineImmediately">Append a \n character after writing multiline comment. Only works with pretty printing.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public bool WriteComment(ReadOnlySpan<char> data, char pad = ' ', bool hasNextValue = false, bool newlineImmediately = false)
+        public SJWriter WriteComment(ReadOnlySpan<char> data, char pad = ' ', bool hasNextValue = false, bool newlineImmediately = false)
         {
             ref var s = ref S;
             if (!allowComments)
@@ -1206,7 +1206,7 @@ namespace BX.SJ
         /// <param name="data">Data inside the comment to write. It is padded with spaces by default.</param>
         /// <param name="prefixPad">Padding prefix character to use. Pass 0 to not pad the <paramref name="data"/> with anything. Invalid characters (like '\n') also avoids padding.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public bool WriteCommentLine(ReadOnlySpan<char> data, char prefixPad = ' ', bool hasNextValue = false)
+        public SJWriter WriteCommentLine(ReadOnlySpan<char> data, char prefixPad = ' ', bool hasNextValue = false)
         {
             ref var s = ref S;
             if (!allowComments)
@@ -1254,16 +1254,16 @@ namespace BX.SJ
 
         // These are like "extensions"
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Write(float number, string format = "R") => WriteNumber(number, format);
+        public SJWriter Write(float number, string format = "R") => WriteNumber(number, format);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Write(double number, string format = "R") => WriteNumber(number, format);
+        public SJWriter Write(double number, string format = "R") => WriteNumber(number, format);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Write(long number, string format = "G", string prefix = null) => WriteLong(number, format, prefix);
+        public SJWriter Write(long number, string format = "G", string prefix = null) => WriteLong(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Write(ulong number, string format = "G", string prefix = null) => WriteULong(number, format, prefix);
+        public SJWriter Write(ulong number, string format = "G", string prefix = null) => WriteULong(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Write(ReadOnlySpan<char> value) => WriteString(value);
-        public bool Write(string value)
+        public SJWriter Write(ReadOnlySpan<char> value) => WriteString(value);
+        public SJWriter Write(string value)
         {
             // For the case of "Write" without any "info", the string overload is called for `null`
             // There will be an explicit check only for this. For anything else, null is treated as `default` or `string.Empty`
@@ -1276,79 +1276,7 @@ namespace BX.SJ
             return WriteString(value);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Write(bool value) => WriteBool(value);
-
-        // Currently only "string" keys are allowed on extensions.
-        // Could do a fluent like thing, but do want to return the result as well..
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool WriteKV(ReadOnlySpan<char> key, float number, string format = "R")
-        {
-            if (!WriteKey(key))
-            {
-                return false;
-            }
-            return WriteNumber(number, format);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool WriteKV(ReadOnlySpan<char> key, double number, string format = "R")
-        {
-            if (!WriteKey(key))
-            {
-                return false;
-            }
-            return WriteNumber(number, format);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool WriteKV(ReadOnlySpan<char> key, long number, string format = "G")
-        {
-            if (!WriteKey(key))
-            {
-                return false;
-            }
-            return WriteLong(number, format);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool WriteKV(ReadOnlySpan<char> key, ulong number, string format = "G")
-        {
-            if (!WriteKey(key))
-            {
-                return false;
-            }
-            return WriteULong(number, format);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool WriteKV(ReadOnlySpan<char> key, ReadOnlySpan<char> value)
-        {
-            if (!WriteKey(key))
-            {
-                return false;
-            }
-
-            return WriteString(value);
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool WriteKV(ReadOnlySpan<char> key, string value)
-        {
-            if (!WriteKey(key))
-            {
-                return false;
-            }
-            // No need to "worry about key", but still doing the null thing
-            if (value is null)
-            {
-                return WriteNull();
-            }
-
-            return WriteString(value);
-        }
-        public bool WriteKV(ReadOnlySpan<char> key, bool value)
-        {
-            if (!WriteKey(key))
-            {
-                return false;
-            }
-            return WriteBool(value);
-        }
+        public SJWriter Write(bool value) => WriteBool(value);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ArrayScope Array() => new ArrayScope(this);
@@ -1394,13 +1322,24 @@ namespace BX.SJ
         /// </returns>
         public int PushState()
         {
+            if (_StData == null)
+            {
+                Error = "Data source does not support stacking, it must implement stackability interface.";
+                return -1;
+            }
+
+            CheckVersion();
+            CheckDisposed();
             var handle = _stateStack.Push(false);
             if (handle.IsStub) return -1;
-            ref var next = ref handle.Value;
 
-            // Copy the data to the entry in stateStack
-            S.CopyTo(ref next);
-            return _stateStack.Count - 1;
+            int pos = _stateStack.Count - 1;
+            ref var next = ref handle.Value;
+            S.CopyTo(ref next); // Copy the data to the entry in stateStack
+
+            // Other values
+            _StData.PushState();
+            return pos;
         }
         /// <summary>
         /// Loads a stacked state.
@@ -1412,14 +1351,21 @@ namespace BX.SJ
         /// </returns>
         public int PopState()
         {
+            if (_StData == null)
+            {
+                Error = "Data source does not support stacking, it must implement stackability interface.";
+                return -1;
+            }
+
+            CheckVersion();
+            CheckDisposed();
             if (_stateStack.Count <= 0) return -1;
             _stateStack.PopValue().CopyTo(ref S);
-            return _stateStack.Count;
+
+            int pos = _stateStack.Count;
+            _StData.PopState();
+            return pos;
         }
-        /// <summary>
-        /// Starts a <see cref="SJWriter"/> transaction, which will reset if this state is disposed.
-        /// </summary>
-        public StateScope UseState(bool popIfError = false) => new StateScope(this, popIfError);
 
         /// <summary>
         /// Resets the writer to the default state. This also removes any stacked state if present.
@@ -1433,7 +1379,37 @@ namespace BX.SJ
         public void Reset()
         {
             S.Reset();
+            _Data.Reset();
             _stateStack.Clear(false);
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    // dispose managed state (managed objects)
+                    Data.Dispose();
+                }
+
+                _Data = null;
+                _StData = null;
+                S = default;
+                _stateStack = default;
+                disposedValue = true;
+            }
+        }
+        // ~SJWriter()
+        // {
+        //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+        //     Dispose(disposing: false);
+        // }
+        public void Dispose()
+        {
+            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
         }
 #pragma warning restore IDE0057 // ***** does not support System.Range
     }

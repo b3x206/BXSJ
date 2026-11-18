@@ -1,4 +1,5 @@
-﻿using BX.SJ.Collections;
+﻿#if false
+using BX.SJ.Collections;
 using System;
 using System.Buffers;
 using System.IO;
@@ -327,3 +328,4 @@ namespace BX.SJ
         }
     }
 }
+#endif
