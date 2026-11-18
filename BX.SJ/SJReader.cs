@@ -322,6 +322,7 @@ namespace BX.SJ
                 }
             }
         }
+        public bool HasError => !string.IsNullOrEmpty(Error);
 
         private ISJDataReader _Data = null;
         private ISJStateStackable _StData = null;
@@ -344,7 +345,6 @@ namespace BX.SJ
                 _SlaData = _Data as ISJSliceAware;
 
                 Reset();
-                LastDataVersion = _Data.Version;
             }
         }
         public int LastDataVersion { get; private set; }
@@ -745,11 +745,7 @@ namespace BX.SJ
         }
         public void CheckVersion()
         {
-            if (Data.Version != LastDataVersion)
-            {
-                LastDataVersion = Data.Version;
-                Reset();
-            }
+            if (Data.Version != LastDataVersion) Reset();
         }
 
         // Base sj.h
@@ -1409,6 +1405,7 @@ namespace BX.SJ
             CheckDisposed();
             S.Reset();
             Data.Reset();
+            LastDataVersion = Data.Version;
             _stateStack.Clear();
         }
 

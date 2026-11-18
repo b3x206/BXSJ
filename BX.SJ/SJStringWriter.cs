@@ -29,17 +29,10 @@ namespace BX.SJ
             sb = new StringBuilder(capacity, maxCapacity);
         }
 
-        protected override void DoAppend(char c) => sb.Append(c);
-        protected override void DoAppend(ReadOnlySpan<char> s) => sb.Append(s);
-
-        public override bool CanReadData => true;
-
         public int Count => sb.Length;
-        public int Version => 0; // Writing source not mutable
-        public bool CanRead => true;
-
-        string ISJStateStackable.Error => null;
-
+        public int Version { get; private set; }
+        public bool CanRead => true; // Is in memory
+        bool ISJStateStackable.HasError => false;
         public int MaxStateCount { get => _states.maxSize; set => _states.maxSize = value; }
 
         public string ReadWritten() => sb.ToString();
@@ -53,35 +46,26 @@ namespace BX.SJ
         public void Reset()
         {
             sb.Clear();
+            Version++;  // May desync data from the Writer
         }
 
-        public void Write(char c)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Write(ReadOnlySpan<char> s)
-        {
-            throw new NotImplementedException();
-        }
-
+        public void Write(char c) => sb.Append(c);
+        public void Write(ReadOnlySpan<char> s) => sb.Append(s);
         public void Dispose()
-        {
-            throw new NotImplementedException();
-        }
+        { }
 
-        private SJValueStack<int> _states = SJValueStack<int>.CreateWithMaxSize();
+        private SJValueStack<int> _states = SJValueStack<int>.CreateWithMaxSize(SJWriter.DefaultMaxDepth);
         public int PushState()
         {
-            int baseResult = base.PushState();
-            if (baseResult >= 0) _states.PushValue(sb.Length);
-            return baseResult;
+            var handle = _states.Push(sb.Length);
+            if (handle.IsStub) return -1;
+            return _states.Count - 1;
         }
         public int PopState()
         {
-            int baseResult = base.PopState();
-            if (baseResult >= 0) sb.Length = _states.PopValue();
-            return baseResult;
+            if (_states.Count <= 0) return -1;
+            sb.Length = _states.PopValue();
+            return _states.Count;
         }
     }
 }

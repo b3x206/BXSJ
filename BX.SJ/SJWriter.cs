@@ -170,7 +170,8 @@ namespace BX.SJ
             public ObjectScope(SJWriter writer)
             {
                 this.writer = writer ?? throw new ArgumentNullException(nameof(writer));
-                success = writer.BeginObject();
+                writer.BeginObject();
+                success = !writer.HasError;
             }
 
             public void Dispose()
@@ -189,7 +190,8 @@ namespace BX.SJ
             public ArrayScope(SJWriter writer)
             {
                 this.writer = writer ?? throw new ArgumentNullException(nameof(writer));
-                success = writer.BeginArray();
+                writer.BeginArray();
+                success = !writer.HasError;
             }
 
             public void Dispose()
@@ -302,6 +304,7 @@ namespace BX.SJ
                 }
             }
         }
+        public bool HasError => !string.IsNullOrEmpty(Error);
 
         // helper
         // To avoid using ArrayPool, which is maybe slower in case of small heap buffers.
@@ -348,7 +351,6 @@ namespace BX.SJ
                 _StData = _Data as ISJStateStackable;
 
                 Reset();
-                LastDataVersion = _Data.Version;
             }
         }
 
@@ -369,20 +371,41 @@ namespace BX.SJ
         {
             if (disposedValue) throw new InvalidOperationException("Attempt to write to a disposed SJWriter.");
         }
-        private bool CheckState(bool checkEnded = true)
+        private bool CheckState()
         {
             CheckDisposed();
             CheckVersion();
 
-            return !string.IsNullOrEmpty(Error);
+            return !HasError;
+        }
+        private bool CheckWritableState(bool checkEnded = true, bool checkDepth = true, bool emitError = true)
+        {
+            if (!CheckState()) return false;
+            ref var s = ref S;
+            if (checkEnded && s.ended)
+            {
+                if (emitError) Error = "Attempt to write a value to a ended state writer";
+                return false;
+            }
+            if (checkDepth && (maxDepth > 0 && s.depth >= maxDepth))
+            {
+                if (emitError) Error = $"Exceeded max depth {maxDepth}";
+                return false;
+            }
+
+            return true;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private SJWriter Self() => returnNullOnError && HasError ? null : this;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private SJWriter Self(string error)
+        {
+            Error = error;
+            return Self();
         }
         public void CheckVersion()
         {
-            if (Data.Version != LastDataVersion)
-            {
-                LastDataVersion = Data.Version;
-                Reset();
-            }
+            if (Data.Version != LastDataVersion) Reset();
         }
 
         // The base writers
@@ -625,19 +648,17 @@ namespace BX.SJ
             return marked;
         }
         public delegate bool TryFormatHandler<in T>(T number, Span<char> dest, ReadOnlySpan<char> format, out int charsWritten);
-        private bool WriteFormattedNumber<T>(
+        private SJWriter WriteFormattedNumber<T>(
             WriteTarget target, T number, ReadOnlySpan<char> format, ReadOnlySpan<char> prefix, TryFormatHandler<T> tryFormat,
             bool checkEnded = true
         )
         {
-            if (!CheckState()) return false;
-            
+            if (!CheckState()) return Self();
             ref var s = ref S;
-            if (!string.IsNullOrEmpty(Error)) return false;
             if (checkEnded && s.ended)
             {
                 Error = "Attempt to write into a finished JSONWriter";
-                return false;
+                return Self();
             }
 
             switch (target)
@@ -689,21 +710,8 @@ namespace BX.SJ
         public SJWriter BeginObject()
         {
             ref var s = ref S;
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.Key) == Expect.Key)
-            {
-                Error = "Expected writing object key";
-                return false;
-            }
-            if (maxDepth > 0 && S.depth >= maxDepth)
-            {
-                Error = $"Exceeded max write depth '{maxDepth}'";
-                return false;
-            }
+            if (!CheckWritableState()) return Self();
+            if ((s.expect & Expect.Key) == Expect.Key) return Self("Expected writing object key");
 
             PrepareValue();
             Data.Write('{');
@@ -713,51 +721,27 @@ namespace BX.SJ
             s.expect = Expect.Key;
             s.fmtExpect = FormatExpect.NewlineIndent;
 
-            return true;
+            return Self();
         }
         public SJWriter EndObject()
         {
             ref var s = ref S;
-            if (s.ended)
+            if (!CheckWritableState())                         /**/ return Self();
+            if ((s.expect & Expect.Key) == Expect.Key)         /**/ return Self("Expected writing object key");
+            if ((s.expect & Expect.Value) == Expect.Value)     /**/ return Self("Expected writing object value");
+            if ((s.expect & Expect.NotType) == Expect.NotType) /**/ return Self("Expected a Key or Value after type literal");
+            if ((s.expect & Expect.Comma) != Expect.Comma)
             {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
+                if (!allowTrailingComma) return Self("Trailing comma written. The comment writer may cause this, if end of content is specified wrongfully.");
+                else                /**/ s.MarkWrittenTrailingComma();
             }
-            ref var top = ref s.stack.PeekValue();
-            if (!top.Valid || top.type != SJType.Object)
-            {
-                Error = $"Invalid EndObject for toplevel with type '{top.type}', expected Object";
-                return false;
-            }
-            if ((s.expect & Expect.Value) == Expect.Value)
-            {
-                Error = "Expected writing object value";
-                return false;
-            }
-            if ((s.expect & Expect.NotType) == Expect.NotType)
-            {
-                Error = "Expected a Key or Value after type literal";
-                return false;
-            }
-            if ((s.expect & Expect.Key) != Expect.Key && (s.expect & Expect.Comma) != Expect.Comma)
-            {
-                if (!allowTrailingComma)
-                {
-                    Error = "Trailing comma written - the comment functions may cause this, if no end of content is specified.";
-                    return false;
-                }
-                else
-                {
-                    s.MarkWrittenTrailingComma();
-                }
-            }
+            if (s.stack.PeekValue().type != SJType.Object)     /**/ return Self($"Expected top level to have Object type, got '{s.stack.PeekValue().type}'");
 
             // Can end object
             s.expect = Expect.None;
 
-            int prevIndex = top.index;
-            s.stack.PopValue();
-            top = ref s.stack.PeekValue();
+            int prevIndex = s.stack.PopValue().index;
+            ref var top = ref s.stack.PeekValue();
 
             if (s.depth <= 0)
             {
@@ -775,8 +759,7 @@ namespace BX.SJ
                         break;
 
                     default:
-                        Error = $"Invalid top state type {top.type}";
-                        return false;
+                        return Self($"Invalid top state type {top.type}");
                 }
                 if (top.index > 0) s.expect |= Expect.Comma;
             }
@@ -786,27 +769,13 @@ namespace BX.SJ
 
             Data.Write('}');
 
-
-            return true;
+            return Self();
         }
         public SJWriter BeginArray()
         {
             ref var s = ref S;
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.Key) == Expect.Key)
-            {
-                Error = "Expected writing object key";
-                return false;
-            }
-            if (maxDepth > 0 && s.depth >= maxDepth)
-            {
-                Error = $"Exceeded max write depth '{maxDepth}'";
-                return false;
-            }
+            if (!CheckWritableState()) return Self();
+            if ((s.expect & Expect.Key) == Expect.Key) return Self("Expected writing object key");
 
             PrepareValue();
             Data.Write('[');
@@ -815,50 +784,26 @@ namespace BX.SJ
             s.fmtExpect = FormatExpect.NewlineIndent;
 
             s.stack.Push(SJType.Array);
-            return true;
+            return Self();
         }
         public SJWriter EndArray()
         {
             ref var s = ref S;
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.Key) == Expect.Key)
-            {
-                Error = "Expected writing object key";
-                return false;
-            }
-            if ((s.expect & Expect.NotType) == Expect.NotType)
-            {
-                Error = "Expected a Value after type literal";
-                return false;
-            }
+            if (!CheckWritableState())                         /**/ return Self();
+            if ((s.expect & Expect.Key) == Expect.Key)         /**/ return Self("Expected writing object key");
+            if ((s.expect & Expect.NotType) == Expect.NotType) /**/ return Self("Expected a Value after type literal");
             if ((s.expect & Expect.Comma) != Expect.Comma)
             {
-                if (!allowTrailingComma)
-                {
-                    Error = "Trailing comma written - the comment functions may cause this, if no end of content is specified.";
-                    return false;
-                }
-                else
-                {
-                    s.MarkWrittenTrailingComma();
-                }
+                if (!allowTrailingComma) return Self("Trailing comma written. The comment writer may cause this, if end of content is specified wrongfully.");
+                else                /**/ s.MarkWrittenTrailingComma();
             }
-            ref var top = ref S.stack.PeekValue();
-            if (!top.Valid || top.type != SJType.Array)
-            {
-                Error = $"Invalid EndObject for toplevel with type '{top.type}', expected Array";
-                return false;
-            }
+            if (s.stack.PeekValue().type != SJType.Array)     /**/ return Self($"Expected top level to have Array type, got '{s.stack.PeekValue().type}'");
 
             s.expect = Expect.None;
 
-            int prevIndex = top.index;
+            int prevIndex = s.stack.PopValue().index;
             s.stack.PopValue();
-            top = ref s.stack.PeekValue();
+            ref var top = ref s.stack.PeekValue();
 
             if (s.depth <= 0)
             {
@@ -876,8 +821,7 @@ namespace BX.SJ
                         break;
 
                     default:
-                        Error = $"Invalid top state type {top.type}";
-                        return false;
+                        return Self($"Invalid top state type {top.type}");
                 }
                 if (top.index > 0) s.expect |= Expect.Comma;
             }
@@ -887,7 +831,7 @@ namespace BX.SJ
 
             Data.Write(']');
 
-            return true;
+            return Self();
         }
 
         /// <summary>
@@ -902,32 +846,19 @@ namespace BX.SJ
         public SJWriter WriteLiteralKey(ReadOnlySpan<char> value, bool stringify = false)
         {
             ref var s = ref S;
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.Key) != Expect.Key)
-            {
-                Error = "Did not s.expect an object key";
-                return false;
-            }
+            if (!CheckWritableState())                 /**/ return Self();
+            if ((s.expect & Expect.Key) != Expect.Key) /**/ return Self("Did not expect an object key");
             if (!stringify)
             {
-                if (!allowOtherKeyTypes)
-                {
-                    Error = "Cannot write other key types outside of string, enable 'allowOtherKeyTypes'.";
-                    return false;
-                }
-
+                if (!allowOtherKeyTypes) return Self("Cannot write other key types outside of string, enable 'allowOtherKeyTypes'.");
                 s.MarkWrittenCustomKey();
             }
 
             PrepareValue();
-            if (stringify) { Data.Write('"'); }
-            if (stringify) { AppendEscaped(value, asciiOnly); }
-            else { Data.Write(value); }
-            if (stringify) { Data.Write('"'); }
+            if (stringify) /**/ { Data.Write('"'); }
+            if (stringify) /**/ { AppendEscaped(value, asciiOnly); }
+            else           /**/ { Data.Write(value); }
+            if (stringify) /**/ { Data.Write('"'); }
             Data.Write(':');
 
             if (indentSize > 0)
@@ -939,7 +870,7 @@ namespace BX.SJ
             s.expect = Expect.Value;
             s.fmtExpect = FormatExpect.None;
 
-            return true;
+            return Self();
         }
         /// <summary>
         /// Write a key, while <see cref="s.expect"/> has <see cref="Expect.Key"/>.
@@ -950,6 +881,9 @@ namespace BX.SJ
         /// <param name="name">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
         public SJWriter WriteKey(ReadOnlySpan<char> name) => WriteLiteralKey(name, stringify: true);
+        /// <summary>
+        /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
+        /// </summary>
         public SJWriter WriteKeyNumber(float number, string format = "G")
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
@@ -957,25 +891,40 @@ namespace BX.SJ
             // Leaving prefix empty string will disable prefixes
             return WriteFormattedNumber(WriteTarget.Key, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
+        /// <summary>
+        /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
+        /// </summary>
         public SJWriter WriteKeyNumber(double number, string format = "G")
         {
             static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
+        /// <summary>
+        /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
+        /// </summary>
         public SJWriter WriteKeyLong(long number, string format = "G", string prefix = null)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
+        /// <summary>
+        /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
+        /// </summary>
         public SJWriter WriteKeyULong(ulong number, string format = "G", string prefix = null)
         {
             static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
+        /// <summary>
+        /// Write custom boolean key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
+        /// </summary>
         public SJWriter WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false", stringify: false);
+        /// <summary>
+        /// Write custom null key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
+        /// </summary>
         public SJWriter WriteKeyNull() => WriteLiteralKey("null", stringify: false);
 
         /// <summary>
@@ -991,16 +940,8 @@ namespace BX.SJ
         public SJWriter WriteLiteralValue(ReadOnlySpan<char> data, bool stringify = false)
         {
             ref var s = ref S;
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.Key) == Expect.Key)
-            {
-                Error = "Expected writing object key, got WriteLiteral";
-                return false;
-            }
+            if (!CheckWritableState())                 /**/ return Self();
+            if ((s.expect & Expect.Key) == Expect.Key) /**/ return Self("Expected writing object key, got WriteLiteral");
 
             PrepareValue();
             if (stringify)
@@ -1032,15 +973,14 @@ namespace BX.SJ
                         s.expect = Expect.Value | Expect.Comma;
                         break;
                     default:
-                        Error = $"Invalid top level type {t}";
-                        return false;
+                        return Self($"Invalid top level type {t}");
                 }
                 // Key or value which can be typed both
                 s.expect &= ~Expect.NotType;
             }
             s.fmtExpect = FormatExpect.NewlineIndent;
 
-            return true;
+            return Self();
         }
         public SJWriter WriteString(ReadOnlySpan<char> value) => WriteLiteralValue(value, stringify: true);
         public SJWriter WriteNumber(float number, string format = "G")
@@ -1078,21 +1018,9 @@ namespace BX.SJ
         public SJWriter WriteType(ReadOnlySpan<char> type, bool stringify = false)
         {
             ref var s = ref S;
-            if (!allowTypes)
-            {
-                Error = "Cannot write types on this writer, enable 'allowTypes'";
-                return false;
-            }
-            if (s.ended)
-            {
-                Error = "Attempt to write into a finished JSONWriter";
-                return false;
-            }
-            if ((s.expect & Expect.NotType) == Expect.NotType)
-            {
-                Error = "Not expected type literal to be written";
-                return false;
-            }
+            if (!CheckWritableState())                         return Self();
+            if (!allowTypes)                                   return Self("Cannot write types on this writer, enable 'allowTypes'");
+            if ((s.expect & Expect.NotType) == Expect.NotType) return Self("Not expected type literal to be written");
 
             s.MarkWrittenType();
             PrepareType();
@@ -1108,8 +1036,7 @@ namespace BX.SJ
                 // Validating ts string for some reason. Whatever
                 if (IsInvalidTypeLiteral(type, out char invalid))
                 {
-                    Error = $"Invalid type literal 'char={invalid}', use stringify if invalid type charaters are needed.";
-                    return false;
+                    return Self($"Invalid type literal 'char={invalid}', use stringify if invalid type charaters are needed.");
                 }
 
                 Data.Write(type);
@@ -1117,7 +1044,7 @@ namespace BX.SJ
             Data.Write(')');
             s.expect |= Expect.NotType;
 
-            return true;
+            return Self();
         }
         public SJWriter WriteType(long typeCode, string format = "G")
         {
@@ -1142,11 +1069,8 @@ namespace BX.SJ
         public SJWriter WriteComment(ReadOnlySpan<char> data, char pad = ' ', bool hasNextValue = false, bool newlineImmediately = false)
         {
             ref var s = ref S;
-            if (!allowComments)
-            {
-                Error = "Cannot write comments on this writer, enable 'allowComments'";
-                return false;
-            }
+            if (!CheckState()) return Self();
+            if (!allowComments) return Self("Cannot write comments on this writer, enable 'allowComments'");
 
             s.MarkWrittenComment();
             PrepareCommentValue(hasNextValue);
@@ -1188,7 +1112,7 @@ namespace BX.SJ
                 }
             }
 
-            return true;
+            return this;
         }
         /// <summary>
         /// Write a comment for JSON, starting with // and ending with newline character
@@ -1209,11 +1133,8 @@ namespace BX.SJ
         public SJWriter WriteCommentLine(ReadOnlySpan<char> data, char prefixPad = ' ', bool hasNextValue = false)
         {
             ref var s = ref S;
-            if (!allowComments)
-            {
-                Error = "Cannot write comments on this writer, enable 'allowComments'";
-                return false;
-            }
+            if (!CheckState()) return Self();
+            if (!allowComments) return Self("Cannot write comments on this writer, enable 'allowComments'");
             if (s.depth > 0 && indentSize <= 0)
             {
                 return WriteComment(data, prefixPad, hasNextValue);
@@ -1249,7 +1170,7 @@ namespace BX.SJ
                 s.fmtExpect &= ~FormatExpect.Newline;
             }
 
-            return true;
+            return this;
         }
 
         // These are like "extensions"
@@ -1282,7 +1203,8 @@ namespace BX.SJ
         public ArrayScope Array() => new ArrayScope(this);
         public ArrayScope ArrayKV(ReadOnlySpan<char> key)
         {
-            if (!WriteKey(key))
+            WriteKey(key);
+            if (HasError)
             {
                 // No operation is done if key fails.
                 return new ArrayScope();
@@ -1295,7 +1217,8 @@ namespace BX.SJ
         public ObjectScope Object() => new ObjectScope(this);
         public ObjectScope ObjectKV(ReadOnlySpan<char> key)
         {
-            if (!WriteKey(key))
+            WriteKey(key);
+            if (HasError)
             {
                 // No operation is done if key fails.
                 return new ObjectScope();
@@ -1380,6 +1303,7 @@ namespace BX.SJ
         {
             S.Reset();
             _Data.Reset();
+            LastDataVersion = _Data.Version;
             _stateStack.Clear(false);
         }
 

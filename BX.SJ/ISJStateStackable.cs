@@ -20,7 +20,7 @@ namespace BX.SJ
         {
             if (disposed || reader == null) return;
 
-            if (!popIfError || !string.IsNullOrEmpty(reader.Error))
+            if (!popIfError || reader.HasError)
             {
                 reader.PopState();
             }
@@ -33,7 +33,7 @@ namespace BX.SJ
     /// </summary>
     public interface ISJStateStackable
     {
-        string Error { get; }            // Error contained in the stated object. Is not necessary, can be left null for most implementations
+        bool HasError { get; }
         int MaxStateCount { get; set; }
         int PushState();
         int PopState();
