@@ -47,7 +47,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         else
         {
             // Reading written data must equal written count
-            Assert.AreEqual(writer.S.count, writer.Data.ReadWritten().Length);
+            Assert.AreEqual(writer.Data.Count, writer.Data.ReadWritten().Length);
         }
     }
 
@@ -58,7 +58,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         static void ValidateResetState(SJWriter w)
         {
             Assert.That.IsNullOrEmpty(w.Error, "Error state must reset on Reset");
-            Assert.AreEqual(0, w.S.count, "Writer count must be zero after reset");
+            Assert.AreEqual(0, w.Data.Count, "Writer count must be zero after reset");
             Assert.AreEqual(0, w.S.depth, "Writer depth must be zero after reset");
             Assert.AreEqual(SJWriter.Expect.None, w.S.expect, "Writer expectation must be none for root");
             Assert.AreEqual(SJWriter.FormatExpect.None, w.S.fmtExpect, "Writer format expectation must be none for root");
@@ -143,7 +143,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         {
             string? data = writer.Data.ReadWritten();
             // Validate
-            Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
+            Assert.AreEqual(writer.Data.Count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
             var r = new SJReader(new SJStringReader(data)) { allowComments = false };
             ReaderTester.ReadWithTokens(r);
             // And show
@@ -309,7 +309,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         {
             string? data = writer.Data.ReadWritten();
             // Validate
-            Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
+            Assert.AreEqual(writer.Data.Count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
             var r = new SJReader(new SJStringReader(data)) { allowComments = true };
             ReaderTester.ReadWithTokens(r);
             // And show
@@ -345,7 +345,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         if (writer.Data.CanRead)
         {
             string? data = writer.Data.ReadWritten();
-            Assert.AreEqual(writer.S.count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
+            Assert.AreEqual(writer.Data.Count, data?.Length, $"Resulting writer counts must match. Non matching writer data: {data}");
             var r = new SJReader(new SJStringReader(data)) { allowComments = true };
             ReaderTester.ReadWithTokens(r);
             Console.WriteLine(data);

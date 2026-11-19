@@ -26,7 +26,7 @@ namespace BX.SJ
         /// </summary>
         public class WriteException : Exception
         {
-            public WriteException(SJWriter writer) : base($"{writer.Error} | at char={writer.S.count}")
+            public WriteException(SJWriter writer) : base($"{writer.Error} | at char={writer.Data.Count}")
             { }
             public WriteException(string message, int count) : base($"{message} | at char={count}")
             { }
@@ -97,7 +97,6 @@ namespace BX.SJ
 
             [EditorBrowsable(EditorBrowsableState.Never)]
             public string _error;
-            public int count;
             public int depth
             {
                 readonly get => stack.Count;
@@ -139,7 +138,6 @@ namespace BX.SJ
             public void MarkWrittenTrailingComma() => WrittenTrailingComma = true;
             public void Reset()
             {
-                count = 0;
                 stack.Clear(false);
 
                 expect = Expect.None;
@@ -151,7 +149,7 @@ namespace BX.SJ
 
             public override readonly string ToString()
             {
-                return $"count={count}, depth={depth} top={{{stack.PeekValue()}}}";
+                return $"depth={depth} top={{{stack.PeekValue()}}}";
             }
         }
 
@@ -338,7 +336,7 @@ namespace BX.SJ
             get => _Data;
             set
             {
-                if (ReferenceEquals(Data, _Data)) return;
+                if (ReferenceEquals(value, _Data)) return;
 
                 _Data = value ?? throw new ArgumentNullException(nameof(value));
                 _StData = _Data as ISJStateStackable;
@@ -398,7 +396,7 @@ namespace BX.SJ
         }
         public void CheckVersion()
         {
-            if (Data.Version != LastDataVersion) Reset();
+            if (Data != null && Data.Version != LastDataVersion) Reset();
         }
 
         // The base writers
@@ -720,10 +718,9 @@ namespace BX.SJ
         {
             ref var s = ref S;
             if (!CheckWritableState())                         /**/ return Self();
-            if ((s.expect & Expect.Key) == Expect.Key)         /**/ return Self("Expected writing object key");
             if ((s.expect & Expect.Value) == Expect.Value)     /**/ return Self("Expected writing object value");
             if ((s.expect & Expect.NotType) == Expect.NotType) /**/ return Self("Expected a Key or Value after type literal");
-            if ((s.expect & Expect.Comma) != Expect.Comma)
+            if ((s.expect & Expect.Key) != Expect.Key && (s.expect & Expect.Comma) != Expect.Comma)
             {
                 if (!allowTrailingComma) return Self("Trailing comma written. The comment writer may cause this, if end of content is specified wrongfully.");
                 else                /**/ s.MarkWrittenTrailingComma();
@@ -738,6 +735,7 @@ namespace BX.SJ
 
             if (s.depth <= 0)
             {
+                Console.WriteLine("Object Set ended as depth is 0");
                 s.ended = true;
                 s.expect |= Expect.NotType;
             }
@@ -795,11 +793,11 @@ namespace BX.SJ
             s.expect = Expect.None;
 
             int prevIndex = s.stack.PopValue().index;
-            s.stack.PopValue();
             ref var top = ref s.stack.PeekValue();
 
             if (s.depth <= 0)
             {
+                Console.WriteLine("Array Set ended as depth is 0");
                 s.ended = true;
                 s.expect |= Expect.NotType;
             }
@@ -952,6 +950,7 @@ namespace BX.SJ
             {
                 // Value is top level
                 s.ended = true;
+                Console.WriteLine("Set ended as literal is top level");
                 s.expect |= Expect.NotType;
             }
             else
@@ -1223,7 +1222,7 @@ namespace BX.SJ
         /// <summary>
         /// Shows a simple preview of the current state.
         /// </summary>
-        public override string ToString() => $"[{base.ToString()}] state=({S}) error={Error}";
+        public override string ToString() => $"[{base.ToString()}] count={Data?.Count} state=({S}) error={Error}";
 
         public static explicit operator bool(SJWriter w) => !w.HasError;
 

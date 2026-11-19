@@ -79,7 +79,7 @@ public sealed class ReadmeUnitTests
         var initialPosition = new Vector3(1f, 2f, 3f);
         var position = initialPosition;
 
-        var writer = new SJWriter(new SJStringWriter())
+        using var writer = new SJWriter(new SJStringWriter())
         {
             // Enable pretty printing
             indentSize = 4,
@@ -95,11 +95,11 @@ public sealed class ReadmeUnitTests
         position = Vector3.Zero;
 
         string data = writer.Data.ReadWritten();
-        var reader = new SJReader(new SJStringReader(data));
+        using var reader = new SJReader(new SJStringReader(data));
         position = ReadVector3(reader, reader.Read());
 
         // Use ReadData to read the resulting string.
-        Console.WriteLine($"Saved Position : {data}, Read Position : {position}, Equals : {initialPosition == position}");
+        Console.WriteLine($"Saved Position : {data} | Read Position : {position} | Equals : {initialPosition == position}");
 
         // -- Assertions
         Assert.AreEqual(initialPosition, position);
