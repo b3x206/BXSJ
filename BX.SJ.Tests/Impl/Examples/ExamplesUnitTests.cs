@@ -18,7 +18,7 @@ public sealed class ExamplesUnitTests
         [DataEmpty],
     ];
     public static IEnumerable<string[]> JscTestDataProcessors => [
-        [JsonDataComment],
+        [BxsjCommentData],
     ];
 
     [TestMethod]

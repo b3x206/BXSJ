@@ -6,7 +6,7 @@ using BX.SJ;
 namespace BX.SJ.Tests.Examples
 {
     /// <summary>
-    /// Example for reading JsonC documents with comment capturing using <see cref="SJWriter"/>.
+    /// Example for reading documents with comment capturing using <see cref="SJWriter"/>.
     /// </summary>
     sealed class ReaderJSC
     {

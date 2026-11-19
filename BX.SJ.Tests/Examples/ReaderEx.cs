@@ -33,6 +33,7 @@ namespace BX.SJ.Tests.Examples
             // They are demonstrated in ReaderJSC, but here's a primer:
             // * They can be anywhere and can be root values.
             // * Are always captured under SJType.Comment (except for non-entry based object/array reader)
+            // * Has a variant.
             const string CommentData = @"
 // Begin video settings
 {
@@ -48,13 +49,10 @@ namespace BX.SJ.Tests.Examples
 // End of video settings";
             data.Data = CommentData;
             {
-                // "values" will become stale as soon as reader.Data changes due to how ValueOrList is implemented.
-                // This is why it is recommended to treat SJReader.Value as perishable rather than to store it forever. It is better to copy it.
-                // (when rust port so that it's a compiler error :P)
                 // ReadIntoDictionary uses paths like "/path/to/object", root "/" contains root level comments as well.
-                // Check "ReaderEx
+                // Check "ReaderInspect.cs" for more information.
                 Dictionary<string, ValueOrList> values = ReadIntoDictionary(reader);
-                // We can now inspect the values, as long as the reader.Data stays the same or we supply CommentData.
+                // We can now inspect the values, as long as the reader.Data stays the same.
                 // SJReader.Value's are considered somewhat perishable ranges, but can be used with caution or be converted to strings.
                 foreach (var relatedEntries in values["/resolution"])
                 {

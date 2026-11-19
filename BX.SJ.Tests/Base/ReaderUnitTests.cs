@@ -31,12 +31,13 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
 
         if (tks[0] == '{')
         {
-            // keys are needed for object
+            // keys are needed for nesting object
             // {"a":{"a":...
             return DataReaderFromString(string.Concat(tks[0], string.Join("", Enumerable.Repeat($"\"a\":{tks[0]}", maxDepth)), string.Join("", Enumerable.Repeat(tks[1], maxDepth + 1))));
         }
         else
         {
+            // [[[...
             return DataReaderFromString(string.Concat(string.Join("", Enumerable.Repeat(tks[0], maxDepth + 1)), string.Join("", Enumerable.Repeat(tks[1], maxDepth + 1))));
         }
     }
@@ -101,7 +102,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     // - Basic tests: Root, basic JSON files and empty
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonRootData), typeof(TestData))]
+    [DynamicData(nameof(JsonRootDatas), typeof(TestData))]
     public void TestRootLiterals(string data, string _)
     {
         // Since the empty builder for the sample code is simple but matching, it must equal.
@@ -110,7 +111,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonTruncatedRootData), typeof(TestData))]
+    [DynamicData(nameof(JsonTruncatedRootDatas), typeof(TestData))]
     public void TestTruncatedRootLiterals(string data) => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(data)));
 
     [TestMethod]
@@ -123,10 +124,11 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestBasic() => Read(DataReaderFromString(JsonData1));
+    [DynamicData(nameof(JsonDatas), typeof(TestData))]
+    public void TestJsonData(string d) => Read(DataReaderFromString(JsonData1));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestBasicInvalid() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataInvalid)));
+    public void TestInvalidJsonData() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataInvalid)));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestSlightlyComplicated() => Read(DataReaderFromString(JsonData2));
@@ -141,9 +143,9 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         Assert.AreEqual(SJType.Object, root.type, $"Expected root to be object, it is instead this : {root}");
         while (reader.IterateObject(root, out SJReader.Value k, out SJReader.Value v))
         {
-            Assert.AreEqual(JsonDataSpamKey, new string(k.Slice()), "Keys must be equal");
+            Assert.AreEqual(FireSpamKey, new string(k.Slice()), "Keys must be equal");
             Assert.AreEqual(SJType.Key, k.type);
-            Assert.AreEqual(JsonDataSpamValue, new string(v.Slice()), "Values must be equal");
+            Assert.AreEqual(FireSpamValue, new string(v.Slice()), "Values must be equal");
             Assert.AreEqual(SJType.String, v.type);
         }
     }
@@ -429,10 +431,10 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     // JSC
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestJSC() => Read(DataReaderFromString(JsonDataComment), jsc: true);
+    public void TestJSC() => Read(DataReaderFromString(BxsjCommentData), jsc: true);
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestJSCInvalid() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataCommentInvalid), jsc: true));
+    public void TestJSCInvalid() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(BxsjCommentDataInvalid), jsc: true));
 
     // JSC with Capture
     [TestMethod]
@@ -446,7 +448,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     // Do also read literals with no ignore JSC to test "Ended".
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonRootData), typeof(TestData))]
+    [DynamicData(nameof(JsonRootDatas), typeof(TestData))]
     public void TestRootWithComments(string data, string _)
     {
         const string ContentLeft = "// This is a comment!";
@@ -473,7 +475,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     // Stack
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestStacking() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataStackingInvalid)));
+    public void TestStacking() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataInvalidStacking)));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestMaxArrayRecursion() => Assert.Throws<SJReader.ReaderException>(() => Read((DataReaderFromMaxRecursionString("[]", SJReader.DefaultMaxDepth))));

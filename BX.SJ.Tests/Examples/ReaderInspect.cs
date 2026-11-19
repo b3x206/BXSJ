@@ -1,5 +1,6 @@
 ﻿#nullable disable
 #pragma warning disable IDE0005
+#pragma warning disable IDE0028
 #pragma warning disable IDE0090
 using System;
 using System.Collections;
@@ -218,5 +219,6 @@ namespace BX.SJ.Tests.Examples
     }
 }
 #pragma warning restore IDE0005
+#pragma warning restore IDE0028
 #pragma warning restore IDE0090
 #nullable restore

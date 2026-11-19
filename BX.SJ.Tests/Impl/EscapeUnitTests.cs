@@ -54,8 +54,8 @@ public sealed class EscapeUnitTests
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(
-        nameof(StringDataProvider), typeof(TestData),
-        DynamicDataDisplayName = nameof(StringDataProviderName),
+        nameof(StringDatas), typeof(TestData),
+        DynamicDataDisplayName = nameof(StringDatasDisplayName),
         DynamicDataDisplayNameDeclaringType = typeof(TestData)
     )]
     public void TestBasicEx(string d) => TestEscapeUnescape(d);

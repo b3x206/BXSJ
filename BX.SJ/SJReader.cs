@@ -37,6 +37,8 @@ namespace BX.SJ
     {
         // TODO :
         // * (3.1.x) More variant infers
+        //   * Empty = Used for empty object, array and string. ! : This can automate skipping the object, so maybe not
+        //   * More numbers
         None,
 
         // Values

@@ -20,15 +20,15 @@ public static class TestData
         BXSJDataMultiComment = $@"/* {JsonDataStringContent} */",
         // Other
         DataEmpty = "";
-    public static IEnumerable<string[]> JsonRootData => [
+    public static IEnumerable<string[]> JsonRootDatas => [
         // Data, ExpectedCapture (if not using the tokenized output that gives BXSJ-adjacent output)
         [JsonDataEmptyObject, ""], [JsonDataEmptyArray, ""],
         [JsonDataString, JsonDataStringContent], [JsonDataNumber, JsonDataNumber],
         [JsonDataBoolFalse, JsonDataBoolFalse], [JsonDataBoolTrue, JsonDataBoolTrue],
         [JsonDataNull, JsonDataBoolFalse]
     ];
-    public static IEnumerable<string[]> JsonTruncatedRootData() => TestEx.CreateTruncatedStringData(
-        JsonRootData.Where(v => v.Length > 0 && v[0] != JsonDataNumber),
+    public static IEnumerable<string[]> JsonTruncatedRootDatas() => TestEx.CreateTruncatedStringData(
+        JsonRootDatas.Where(v => v.Length > 0 && v[0] != JsonDataNumber),
         argc: 1
     );
     // BXSJ root data assumes all tolerances are allowed.
@@ -39,12 +39,30 @@ public static class TestData
         [BXSJDataMultiComment, BXSJDataMultiComment.Trim('/', '*', ' ')],
     ];
     public static IEnumerable<string[]> BXSJTruncatedRootData() => TestEx.CreateTruncatedStringData(
-        JsonRootData.Where(v => v.Length > 0),
+        JsonRootDatas.Where(v => v.Length > 0),
         argc: 1
     );
 
     // ---
-    // Test refactor
+    // String-only entries
+    public const string DataEmojis = "🔴🟡🟢😭";
+    // Creates 1MB of UTF-16 string. Quite wholesome.
+    public static readonly string DataEmojiSpam = string.Concat(Enumerable.Repeat("🅱️🅱️🅱️🍄‍🍕🍕🍕🍄‍🍄‍🍕🍄‍🍕🍕🍕🍕🍄‍🍕🍄‍", 10240));
+    public const string FireSpamKey = "YoThisDataIsFire";
+    public static readonly string FireSpamValue = string.Concat(Enumerable.Repeat("🔥", 32768));
+    public const string DepthMaxxKey = "depthMaxx";
+    public const string ObjectTwisterKey = "objectTwister";
+    public const string SciNumsKey = "sciNum";
+    public const string JsonDataDiscardKey = "secretInfo";
+    // - Escape Data
+    public const string EscapeContent = "Quote: \", Backslash: \\, Tab: \t, Newline: \n, Pizza: \uD83C\uDF55, The 🅱 variant: \uD83C\uDD71\uFE0F";
+    public const string EscapeInvalidUnescape = "Oh wow, I'm escaping things I shouldn't! : \\a\\b\\c\\d\\e\\f\\g\\h\\i\\j\\k\\l\\m\\n\\o\\p\\q\\r\\s\\t\\u\\v\\w\\x\\y\\z\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O\\P\\Q\\R\\S\\T\\U\\V\\W\\X\\Y\\Z'";
+    public const string EscapeInvalidSurrogate = "\uDF55\uD83C\uDD71\uD83C\uFE0F In C++, surrogate escape you!";
+    public static readonly string EscapeContentAsciiSequence = string.Join("", Enumerable.Range(0, 255).Select(Convert.ToChar));
+    public static readonly string EscapeContentEmojiTest = string.Join('\n', Enumerable.Range(0x2700, 0xBF).Select((v, i) => 
+        string.Concat(char.ToString((char)v), ((i & 1) == 0) ? "ABCDEFGHIJKLMNOPQRSTUVWXYZ" : "abcdefghijklmnopqrstuvwxyz"))
+    );
+
     public const string JsonData1 = @"{
         ""num"":42,
         ""num2"":-42,
@@ -55,11 +73,6 @@ public static class TestData
         ""foo"":[""bar"",""baz""],
         ""mango"":{""6"":7}
 }";
-    public const string JsonDataInvalid = @"{
-        ""foo"": ""bar"", ""baz""],
-        ""id],123
-// Are comments valid? No
-";
     public const string JsonData2 = @"{
     ""numbers"": [0, -1, 1.23, 1.0e-5, 1000000],
     ""strings"": {
@@ -79,16 +92,9 @@ public static class TestData
     ""logic"": [true, false, null],
     ""empty"": { ""obj"": {}, ""arr"": [] }
 }";
-    // Fire data
-    // Creates 1MB of UTF-16 string. Quite wholesome.
-    public static readonly string DataEmojiSpam = string.Concat(Enumerable.Repeat("🅱️🅱️🅱️🍄‍🍕🍕🍕🍄‍🍄‍🍕🍄‍🍕🍕🍕🍕🍄‍🍕🍄‍", 10240));
-    public const string DataNormalEmojis = "🔴🟡🟢😭";
-    public const string JsonDataSpamKey = "YoThisDataIsFire";
-    public static readonly string JsonDataSpamValue = string.Concat(Enumerable.Repeat("🔥", 32768));
     public static readonly string JsonData3 = $@"{{
-    ""{JsonDataSpamKey}"": ""{JsonDataSpamValue}""
+    ""{FireSpamKey}"": ""{FireSpamValue}""
 }}";
-    public const string JsonDataDiscardKey = "secretInfo";
     public const string JsonDataDiscard = $@"{{
     ""userName"": ""gamer"",
     ""password"": ""password"",
@@ -107,7 +113,38 @@ public static class TestData
     }},
     ""badAtThisGame"": true
 }}";
-    // Discarded values are validated and parsed actually, they are just "skipped until the next adjacent value"
+
+    public const string BxsjCommentData = @"/* Let's start our ""invalid"" JSON journey! */
+// Also some more lines.
+{
+        // I like annotating my JSON, but it gets deleted when it's serialized :(
+        /* wen eta fix this? */
+        ""Array"": [1,2,3,4,5,6,7,8, /* oops convenient comment */ 9,10,11],
+        ""Objects"": /* OH NO */ { ""Yes"": true, ""No"": false, ""Empty??"": null, ""Whatever"": ""/* Not really a comment. */"" } // I like putting comments where inconvenient
+} // Our line ends with */";
+    public const string BxsjCommentDataWithValidations = $@"{{
+    ""{DepthMaxxKey}"": [[[[[[[/* assert=depth=8 */]]]]]]],
+    ""{ObjectTwisterKey}"": {{ ""[0]"": [{{}}, 8, [], {{}}, [], [], {{}}, [], {{ ""[0][8][0]"": [{{}}, [], [], []/* assert=count=4 */] }}], ""[1]"": 41 }},
+    ""{SciNumsKey}"": [-24, 24, -24.24, 24.24, -1e+206, 1e+206, -1e-206, 1e+206]
+}}";
+
+    public static IEnumerable<string[]> JsonDatas => [
+        [JsonData1], [JsonData2], [JsonData3], [JsonDataDiscard]
+    ];
+    public static IEnumerable<string[]> BxsjDatas => [
+        [BxsjCommentData], [BxsjCommentDataWithValidations]
+    ];
+
+    // Invalid
+    public const string JsonDataInvalid = @"{
+        ""num"": not,
+        ""foo"": {""bar"", ""baz""],
+        ""id]"":,[123]
+// Are comments valid? No
+}";
+    public const string JsonDataInvalidStacking = @"{
+    ""key"": { ""another key"": [{]}, ]
+}";
     public const string JsonDataDiscardInvalid = $@"{{
     ""userName"": ""gamer"",
     ""password"": ""password"",
@@ -124,45 +161,31 @@ public static class TestData
     }},
     ""badAtThisGame"": true
 }}";
-    // ↓ the sj.h does not complain what was there before, "if it starts/ends a recursive object it was valid". this one will complain though.
-    public const string JsonDataStackingInvalid = @"{
-    ""key"": { ""another key"": [{]}, ]
-}";
-    // This comment thing got out of hand because I wanted to read it's data somehow :(
-    public const string JsonDataComment = @"/* Let's start our ""invalid"" JSON journey! */
-// Also some more lines.
-{
-        // I like annotating my JSON, but it gets deleted when it's serialized :(
-        /* wen eta fix this? */
-        ""Array"": [1,2,3,4,5,6,7,8, /* oops convenient comment */ 9,10,11],
-        ""Objects"": /* OH NO */ { ""Yes"": true, ""No"": false, ""Empty??"": null, ""Whatever"": ""/* Not really a comment. */"" } // I like putting comments where inconvenient
-} // Our line ends with */";
-    // TODO : This one tests everything that could be tricky, but is valid
-    // This will need it's own basic payload testing, but for now it will be just tested through the usual codepath.
-    public const string DepthMaxxKey = "depthMaxx";
-    public const string ObjectTwisterKey = "objectTwister";
-    public const string SciNumsKey = "sciNum";
-    public const string ValidatedJscData = $@"{{
-    ""{DepthMaxxKey}"": [[[[[[[/* assert=depth=8 */]]]]]]],
-    ""{ObjectTwisterKey}"": {{ ""[0]"": [{{}}, 8, [], {{}}, [], [], {{}}, [], {{ ""[0][8][0]"": [{{}}, [], [], []/* assert=count=4 */] }}], ""[1]"": 41 }},
-    ""{SciNumsKey}"": [-24, 24, -24.24, 24.24, -1e+206, 1e+206, -1e-206, 1e+206]
-}}";
-    public const string JsonDataCommentInvalid = @"/* Let's start our invalid JSON journey! */
+
+    public const string BxsjCommentDataInvalid = @"/* Let's start our invalid JSON journey! */
 // Also some more lines.
 {
         // I like annotating my JSON, but it gets deleted when it's serialized :(
         /* wen eta fix this?
 } // Our line ends with */";
+
+    public static IEnumerable<string[]> InvalidJsonDatas => [
+        [JsonDataInvalid], [JsonDataInvalidStacking], [JsonDataDiscardInvalid]
+    ];
+    public static IEnumerable<string[]> InvalidBxsjDatas => [
+        [BxsjCommentDataInvalid]
+    ];
+
     /// <summary>
     /// Provides basic strings to use with <see cref="DynamicDataAttribute"/>.
     /// <br>Contains <see cref="string.Empty"/>.</br>
     /// </summary>
-    public static IEnumerable<object[]> StringDataProvider => [
-        [DataEmojiSpam], [DataNormalEmojis], [JsonDataSpamKey], [JsonData1], [DepthMaxxKey],
+    public static IEnumerable<object[]> StringDatas => [
+        [DataEmojiSpam], [DataEmojis], [FireSpamKey], [JsonData1], [DepthMaxxKey],
         [ObjectTwisterKey], [SciNumsKey], [JsonDataEmptyArray], [JsonDataBoolFalse],
         [JsonDataBoolTrue], [JsonDataNumber], [JsonDataNull], [DataEmpty]
     ];
-    public static string? StringDataProviderName(MethodInfo _, object[] arg)
+    public static string? StringDatasDisplayName(MethodInfo _, object[] arg)
     {
         // Emoji spam crashes visual studio
         if (arg.Length <= 0) return "";
@@ -191,11 +214,4 @@ public static class TestData
 
         return stream;
     }
-
-    // - Escape Data
-    public const string EscapeContent = "Quote: \", Backslash: \\, Tab: \t, Newline: \n, Pizza: \uD83C\uDF55, The 🅱 variant: \uD83C\uDD71\uFE0F";
-    public const string EscapeInvalidUnescape = "Oh wow, I'm escaping things I shouldn't! : \\a\\b\\c\\d\\e\\f\\g\\h\\i\\j\\k\\l\\m\\n\\o\\p\\q\\r\\s\\t\\u\\v\\w\\x\\y\\z\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O\\P\\Q\\R\\S\\T\\U\\V\\W\\X\\Y\\Z'";
-    public const string EscapeInvalidSurrogate = "\uDF55\uD83C\uDD71\uD83C\uFE0F In C++, surrogate escape you!";
-    public static readonly string EscapeContentAsciiSequence = string.Join("", Enumerable.Range(0, 255).Select(Convert.ToChar));
-    public static readonly string EscapeContentEmojiTest = string.Join('\n', Enumerable.Range(0x2700, 0xBF).Select((v, i) => string.Concat(char.ToString((char)v), ((i & 1) == 0) ? "ABCDEFGHIJKLMNOPQRSTUVWXYZ" : "abcdefghijklmnopqrstuvwxyz")));
 }

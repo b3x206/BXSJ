@@ -467,8 +467,8 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(
-        nameof(TestData.StringDataProvider), typeof(TestData),
-        DynamicDataDisplayName = nameof(TestData.StringDataProviderName),
+        nameof(TestData.StringDatas), typeof(TestData),
+        DynamicDataDisplayName = nameof(TestData.StringDatasDisplayName),
         DynamicDataDisplayNameDeclaringType = typeof(TestData)
     )]
     public void TestState(string write)
