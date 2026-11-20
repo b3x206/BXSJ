@@ -239,7 +239,7 @@ namespace BX.SJ
         /// </summary>
         public ushort maxDepth = DefaultMaxDepth;
         /// <summary>
-        /// Maximum amount of stackable state.
+        /// Maximum amount of stackable state. If set to zero or less, it can be stacked forever.
         /// </summary>
         public int MaxStateCount
         {
@@ -1266,8 +1266,7 @@ namespace BX.SJ
         /// This does not include <paramref name="other"/> values.
         /// </param>
         /// <param name="v">Value to peek it's entry count.</param>
-        /// <param name="keys">Count of keys seen.</param>
-        /// <param name="values">Count of values seen.</param>
+        /// <param name="values">Count of values seen. If the <paramref name="v"/> type is <see cref="SJType.Object"/>, this is equal to the keys count.</param>
         /// <param name="other">Count of other entries (comments) seen.</param>
         /// <returns>
         /// Whether if the peek was successful.
@@ -1276,7 +1275,7 @@ namespace BX.SJ
         /// </returns>
         /// <exception cref="ReaderException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public bool PeekEntryCount(Value v, out int keys, out int values, out int other, int expectCount = -1)
+        public bool PeekEntryCount(Value v, out int values, out int other, int expectCount = -1, bool popStateEvenIfError = false)
         {
             CheckVersion();
             switch (v.type)
@@ -1285,13 +1284,12 @@ namespace BX.SJ
                 case SJType.Object:
                     break;
                 default:
-                    keys = values = other = -1;
+                    values = other = -1;
                     return false;
             }
 
-            keys = values = other = 0;
+            values = other = 0;
 
-            // Stop PMO and start bankroll
             PushState();
             bool result = true;
 
@@ -1310,21 +1308,23 @@ namespace BX.SJ
                         break;
 
                     case SJType.Key:
-                        keys++;
+                        // just keys++;
+                        // could write expected count, but if SJ is functioning
+                        // as intended this should not have any problems.
                         break;
                     default:
                         values++;
                         break;
                 }
 
-                if (expectCount >= 0 && (keys > expectCount || values > expectCount))
+                if (expectCount >= 0 && (values > expectCount))
                 {
                     result = false;
                     break;
                 }
             }
 
-            PopState();
+            if (popStateEvenIfError || !HasError) PopState();
 
             return result;
         }
@@ -1352,6 +1352,10 @@ namespace BX.SJ
                 return -1;
             }
 
+            // Currently, the state stack will reset and a clean state will be pushed instead.
+            // Although the CheckVersion would be only reached in cases where the data within the data interface is modified.
+            // Immutability would be "great", but then there is the problem of being able to
+            // reuse the data, which is what I want rather than to allocate objects every read.
             CheckVersion();
             CheckDisposed();
             var handle = _stateStack.Push(false);
@@ -1383,6 +1387,8 @@ namespace BX.SJ
                 return -1;
             }
 
+            // This can reset the state. If that is the case, popping state should also perhaps roll back to the previous data?
+            // Currently, the state stack will reset and nothing will be popped instead.
             CheckVersion();
             CheckDisposed();
             if (_stateStack.Count <= 0) return -1;

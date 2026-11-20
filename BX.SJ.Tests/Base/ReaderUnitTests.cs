@@ -52,6 +52,13 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
             );
         }
     }
+    public virtual bool CheckIsStackable() => typeof(TData).IsAssignableTo(typeof(ISJStateStackable));
+    public virtual bool AssertIsStackable()
+    {
+        bool r = CheckIsStackable();
+        if (!r)  Assert.Inconclusive($"Cannot test stack related tests on type {typeof(TData)} as it does not implement {typeof(ISJStateStackable)}");
+        return r;
+    }
 
     // - Processors
     /// <summary>
@@ -201,6 +208,60 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [DataRow(@"{""hello"" 124, ""gurt"" ""yo"", ""yogurt"" ""yes""}")]
     public void TestCommaColonState(string data) => Assert.Throws<SJReader.ReaderException>(() => ReadWithTokens(FromString(data)));
 
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(@"{ ""numbers"": {
+""normal"": 123124.214124,
+""nNormal"": -123124.214124,
+""hex"": 0xDEADBEEF,
+""sci"": 1e+17,
+""octal"": 0o22447,
+""binary"": 0b11010011101,
+""notVeryValidButAccepted"": 01oo3o5x070e0e00
+}}")]
+    public void TestAcceptedNumbers(string s) => ReadWithTokens(FromString(s));
+
+    // Invalid Json with settings
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(@"{ ""a"": ""b"", ""c"": [""d"", ""e"", true, false, 23, { ""c"": false, },], ""ss"": true, }")]
+    public void TestTrailingCommas(string s)
+    {
+        using SJReader r = new(FromString(s));
+        r.allowTrailingComma = true;
+        ReadWithTokens(r);
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(@"{ ""a"": ""b"", 1235: [""d"", ""e"", true, false, 23, { null: false, true: true }], 0x3589: true }")]
+    public void TestOtherKeyTypes(string s)
+    {
+        using SJReader r = new(FromString(s));
+        r.allowOtherKeyTypes = true;
+        ReadWithTokens(r);
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(@"{ ""a"": ""b"", 1235: [""d"", ""e"", true, false, 23, { null: false, true: true, },], 0x3589: true, }")]
+    public void TestAllTolerance(string s)
+    {
+        using SJReader r = new(FromString(s));
+        r.allowTrailingComma = true;
+        r.allowOtherKeyTypes = true;
+        ReadWithTokens(r);
+    }
+
+    // BXSJ
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(@"{ ""key"" /* inline */ : ""value"" }")]
+    [DataRow(@"{ ""key"" : /* inline */ ""value"" }")]
+    [DataRow(@"{ ""key"" : ""value"" /* trailing */ , ""key2"": ""value2"" }")]
+    [DataRow(@"[ 1, 2, 3 /* trailing array */, 4, 5]")]
+    [DataRow(@"[ 1, 2, 3 /* trailing array */]")]
+    public void TestTrickyComments(string data) => ReadWithTokens(FromString(data), jsc: true);
+
     // Code Validation
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
@@ -225,7 +286,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     {
         static bool AssertValidation(SJReader reader, SJReader.Value v)
         {
-            // /assert=(top.)?([^=]+)=(.*)/
+            // @"assert=\s*(top.)?([^=]+)=(.*)"
             Assert.AreEqual(SJType.Comment, v.type);
 
             const string start = "assert=";
@@ -316,6 +377,250 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         Assert.AreEqual(0, reader.Data.Position, "Reader position must be zero after reset");
     }
 
+    // Other functionality
+    // Stacking
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void StateStacking()
+    {
+        const string FirstKey = "a", SecondKey = "b", ThirdKey = "c";
+        const string TestData = $@"{{
+    ""{FirstKey}"": true,
+    ""{SecondKey}"": [1, 2, 3, 4, {{ ""test"": true }}],
+    ""{ThirdKey}"": false
+}}";
+
+        using var r = new SJReader(FromString(TestData));
+        const string PushKey = SecondKey, PopKey = ThirdKey;
+        string? expectedPostPopKey = null;
+        bool postPop = false;
+
+        // Pop after second key entry and expect second key again.
+        for (var v = r.Read(); !r.S.ended; v = r.Read())
+        {
+            switch (v.type)
+            {
+                default:
+                    Assert.Fail($"Did not expect type {v.type} on root");
+                    return;
+
+                case SJType.Object:
+                    while (r.IterateObject(v, out var ok, out var ov))
+                    {
+                        var keySlice = ok.Slice();
+                        if (postPop)
+                        {
+                            Assert.That.AreEqual(expectedPostPopKey, keySlice);
+                            break;
+                        }
+
+                        if (keySlice.SequenceEqual(PushKey)) { Assert.AreEqual(0, r.PushState()); expectedPostPopKey = new string(keySlice); }
+                        else if (keySlice.SequenceEqual(PopKey)) { Assert.AreEqual(0, r.PopState()); postPop = true; }
+                    }
+                    break;
+            }
+        }
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(16)]
+    [DataRow(SJReader.DefaultMaxDepth)]
+    public void MaxStateStacking(int count)
+    {
+        if (!AssertIsStackable()) return;
+
+        // TODO : This is off by a little bit
+        using var r = new SJReader(FromString(CreateMaxRecursiveString("{}", count)))
+        {
+            maxDepth = 0,               // Disable depth checks
+            MaxStateCount = count + 1   // Count inclusive (error case handling is done in seperate method and usually occurs in full push or empty pop)
+        };
+
+        // Pop after second key entry and expect second key again.
+        for (var root = r.Read(); !r.S.ended; root = r.Read())
+        {
+            switch (root.type)
+            {
+                default:
+                    Assert.Fail($"Did not expect type {root.type}");
+                    return;
+
+                case SJType.Object:
+                    // Assuming parameter evaluation in C# is deterministic and is left to right.
+                    // https://stackoverflow.com/a/7360045
+                    Assert.AreEqual(r.StateCount, r.PushState());     // depth = 1
+                    while (r.IterateObject(root, out _, out var ov))
+                    {
+                        Assert.AreEqual(r.StateCount, r.PushState()); // depth = ..count
+                        root = ov;                                    // to move into reading the next value
+                    }
+                    break;
+            }
+        }
+
+        while (r.StateCount > 0)
+        {
+            int sc = r.StateCount;
+            Assert.AreEqual(sc, r.S.depth, "Depth does not match while popping.");
+            Assert.AreEqual(sc, r.PopState(), "Index does not match to the popped value id.");
+        }
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(1)]
+    [DataRow(16)]
+    [DataRow(SJReader.DefaultMaxDepth)]
+    public void InvalidStateStacking(int count)
+    {
+        if (!AssertIsStackable()) return;
+
+        using var r = new SJReader(FromString("0"))
+        {
+            MaxStateCount = count,
+        };
+
+        // Stacking does not set error.
+        for (int i = 0; i < count; i++) r.PushState();
+        Assert.AreNotEqual(count, r.PushState(), "Expected to return an error value that isn't equal to the next expected value.");
+
+        for (int i = 0; i < count; i++) r.PopState();
+        Assert.AreNotEqual(0, r.PopState(), "Expected to return an error value that isn't equal to the next expected value.");
+    }
+    public virtual void WithUnstackableType()
+    {
+        if (CheckIsStackable())
+        {
+            // Technically inconclusive, but should "pass".
+            Assert.Inconclusive($"Cannot test as type {typeof(TData)} is stackable.");
+            return;
+        }
+
+        using var r = new SJReader(FromString("0"))
+        {
+            ThrowOnError = true
+        };
+        Assert.Throws<SJReader.ReaderException>(() => r.PushState());
+    }
+
+    // Peek + Peek comments / other entries
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(@"[]", null, 0, 0)]
+    [DataRow(@"{}", null, 0, 0)]
+    [DataRow(@"[1]", null, 1, 0)]
+    [DataRow(@"{ ""1"":1 }", null, 1, 0)]
+    [DataRow(@"[1, 2, 3]", null, 3, 0)]
+    [DataRow(@"[1,{""v"":0,""o"":{}},3]", null, 3, 0)]
+    [DataRow(@"[1,{""v"":0,""o"": /*m*/{""a"":24,""b"":[/* bla */],""c"":true/* blu */} }, 3, {}, {}, [[],[]]]", "m", 3, 1)]                      // Only first layer entries are peeked
+    [DataRow(@"[1,{""v"":0,""o"": /*m*/{(KeyType)""a"":24,""b"":(Type)[/* bla */],""c"":(Bool)true/* blu */} }, 3, {}, {}, [[],[]]]", "m", 3, 4)] // ↑
+    public void PeekEntryCount(string data, string marker, int values, int others)
+    {
+        // TODO : Test can be simplified
+        if (!AssertIsStackable()) return;
+
+        using var r = new SJReader(FromString(data))
+        {
+            ThrowOnError = true,
+            allowTypes = true,
+        };
+        if (!string.IsNullOrEmpty(marker)) r.allowComments = true;
+
+        bool validatedMarker = false;
+        void Validate(SJReader.Value v)
+        {
+            switch (v.type)
+            {
+                case SJType.Comment:
+                    break;
+                case SJType.Array:
+                case SJType.Object:
+                    {
+                        Assert.IsTrue(r.PeekEntryCount(v, out int vc, out int oc), "Peek must succeed on recursive root values.");
+                        Assert.AreEqual(values, vc, "Value count mismatch, check arguments or code");
+                        Assert.AreEqual(others, oc, "Others count mismatch, check arguments or code");
+
+                        validatedMarker = true;
+                        break;
+                    }
+                default:
+                    {
+                        Assert.IsFalse(r.PeekEntryCount(v, out int vc, out int oc), "Peek must fail on non recursive root values.");
+
+                        validatedMarker = true;
+                        break;
+                    }
+            }
+        }
+        // Should read the rest to ensure that the state was reset correctly after peek.
+        void ReadWithMarker(SJReader r, SJReader.Value v, string m)
+        {
+            // Peek all elements if no marker.
+            bool nextMarker = string.IsNullOrEmpty(m);
+
+            switch (v.type)
+            {
+                default:
+                case SJType.Error:
+                    Assert.Fail($"Error or invalid type = '{v.type}'");
+                    break;
+                case SJType.End:
+                    break;
+                case SJType.Null:
+                case SJType.String:
+                case SJType.Number:
+                case SJType.Key:
+                case SJType.Bool:
+                    if (!string.IsNullOrEmpty(m) && nextMarker && !validatedMarker)
+                    {
+                        Validate(v);
+                        nextMarker = false;
+                    }
+                    break;
+                case SJType.Object:
+                    if (nextMarker && !validatedMarker)
+                    {
+                        Validate(v);
+                        nextMarker = false;
+                    }
+                    while (r.IterateObjectEntries(v, out var oe))
+                    {
+                        ReadWithMarker(r, oe, m);
+                    }
+                    break;
+                case SJType.Array:
+                    if (nextMarker && !validatedMarker)
+                    {
+                        Validate(v);
+                        nextMarker = false;
+                    }
+                    while (r.IterateArrayEntries(v, out var ae))
+                    {
+                        ReadWithMarker(r, ae, m);
+                    }
+                    break;
+                case SJType.Comment:
+                    if (nextMarker || validatedMarker)
+                    {
+                        break;
+                    }
+
+                    if (v.Slice().Trim().SequenceEqual(m))
+                    {
+                        // Next value will be the one to validate. It must be recursive.
+                        nextMarker = true;
+                    }
+                    break;
+            }
+        }
+
+        for (var v = r.Read(); !r.S.ended; v = r.Read())
+        {
+            if (v.type == SJType.Comment) continue; // Comments outside of the root value is ignored
+
+            ReadWithMarker(r, v, marker);
+        }
+    }
+
     // Discarding
     protected static void TestDiscard(SJReader reader, string discardKey = JsonDataDiscardKey)
     {
@@ -361,182 +666,6 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestDiscardInvalid() => Assert.Throws<SJReader.ReaderException>(() => TestDiscard(new(FromString(JsonDataDiscardInvalid))));
-
-    //// Peek + Peek JSC
-    //[TestMethod]
-    //// [Timeout(TestTimeouts.Short)]
-    //[DataRow(@"[]", null, 0, 0, 0)]
-    //[DataRow(@"{}", null, 0, 0, 0)]
-    //[DataRow(@"[1]", null, 0, 1, 0)]
-    //[DataRow(@"{ ""1"":1 }", null, 1, 1, 0)]
-    //[DataRow(@"[1, 2, 3]", null, 0, 3, 0)]
-    //[DataRow(@"[1,{""v"":0,""o"":{}},3]", null, 0, 3, 0)]
-    //[DataRow(@"[1,{""v"":0,""o"":/*c*/{""a"":24,""b"":[/* bla */],""c"":true/* blu */}},3, {}, {}, [[],[]]]", "c", 3, 3, 1)]
-    //public void TestPeekCount(string data, string marker, int keys, int values, int others)
-    //{
-    //    TData? r = null;
-    //    try
-    //    {
-    //        r = DataReaderFromString(data);
-    //        r.ThrowOnError = true;
-    //        if (!string.IsNullOrEmpty(marker)) r.allowComments = true;
-
-    //        bool validatedMarker = false;
-    //        void Validate(SJReader.Value v)
-    //        {
-    //            switch (v.type)
-    //            {
-    //                case SJType.Comment:
-    //                    break;
-    //                case SJType.Array:
-    //                case SJType.Object:
-    //                    {
-    //                        Assert.IsTrue(r.PeekEntryCount(v, out int kc, out int vc, out int oc), "Peek must succeed on recursive root values.");
-    //                        Assert.AreEqual(keys, kc, "Key count mismatch, check arguments or code");
-    //                        Assert.AreEqual(values, vc, "Value count mismatch, check arguments or code");
-    //                        Assert.AreEqual(others, oc, "Others count mismatch, check arguments or code");
-
-    //                        validatedMarker = true;
-    //                        break;
-    //                    }
-    //                default:
-    //                    {
-    //                        Assert.IsFalse(r.PeekEntryCount(v, out int kc, out int vc, out int oc), "Peek must fail on non recursive root values.");
-
-    //                        validatedMarker = true;
-    //                        break;
-    //                    }
-    //            }
-    //        }
-    //        // Should read the rest to ensure that the state was reset correctly after peek.
-    //        void ReadWithMarker(SJReader r, SJReader.Value v, string m)
-    //        {
-    //            // Peek all elements if no marker.
-    //            bool nextMarker = string.IsNullOrEmpty(m);
-
-    //            switch (v.type)
-    //            {
-    //                default:
-    //                case SJType.Error:
-    //                    Assert.Fail($"Error or invalid type = '{v.type}'");
-    //                    break;
-    //                case SJType.End:
-    //                    break;
-    //                case SJType.Null:
-    //                case SJType.String:
-    //                case SJType.Number:
-    //                case SJType.Key:
-    //                case SJType.Bool:
-    //                    if (!string.IsNullOrEmpty(m) && nextMarker && !validatedMarker)
-    //                    {
-    //                        Validate(v);
-    //                        nextMarker = false;
-    //                    }
-    //                    break;
-    //                case SJType.Object:
-    //                    if (nextMarker && !validatedMarker)
-    //                    {
-    //                        Validate(v);
-    //                        nextMarker = false;
-    //                    }
-    //                    while (r.IterateObjectEntries(v, out var oe))
-    //                    {
-    //                        ReadWithMarker(r, oe, m);
-    //                    }
-    //                    break;
-    //                case SJType.Array:
-    //                    if (nextMarker && !validatedMarker)
-    //                    {
-    //                        Validate(v);
-    //                        nextMarker = false;
-    //                    }
-    //                    while (r.IterateArrayEntries(v, out var ae))
-    //                    {
-    //                        ReadWithMarker(r, ae, m);
-    //                    }
-    //                    break;
-    //                case SJType.Comment:
-    //                    if (nextMarker || validatedMarker)
-    //                    {
-    //                        break;
-    //                    }
-
-    //                    if (v.Slice().Trim().SequenceEqual(m))
-    //                    {
-    //                        // Next value will be the one to validate. It must be recursive.
-    //                        nextMarker = true;
-    //                    }
-    //                    break;
-    //            }
-    //        }
-
-    //        for (var v = r.Read(); !r.S.ended; v = r.Read())
-    //        {
-    //            if (v.type == SJType.Comment) continue; // Comments outside of the root value is ignored
-
-    //            ReadWithMarker(r, v, marker);
-    //        }
-    //    }
-    //    finally
-    //    {
-    //        if (r is not null) DisposeReader(r);
-    //    }
-    //}
-
-    // Invalid JSON that is supported
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [DataRow(@"{ ""numbers"": {
-""normal"": 123124.214124,
-""nNormal"": -123124.214124,
-""hex"": 0xDEADBEEF,
-""sci"": 1e+17,
-""octal"": 0o22447,
-""binary"": 0b11010011101,
-""notVeryValidButAccepted"": 01oo3o5x070e0e00
-}}")]
-    public void TestInvalidNumbers(string s) => ReadWithTokens(FromString(s));
-
-    // Invalid Json with settings
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [DataRow(@"{ ""a"": ""b"", ""c"": [""d"", ""e"", true, false, 23, { ""c"": false, },], ""ss"": true, }")]
-    public void TestTrailingCommas(string s)
-    {
-        using SJReader r = new(FromString(s));
-        r.allowTrailingComma = true;
-        ReadWithTokens(r);
-    }
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [DataRow(@"{ ""a"": ""b"", 1235: [""d"", ""e"", true, false, 23, { null: false, true: true }], 0x3589: true }")]
-    public void TestOtherKeyTypes(string s)
-    {
-        using SJReader r = new(FromString(s));
-        r.allowOtherKeyTypes = true;
-        ReadWithTokens(r);
-    }
-
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [DataRow(@"{ ""a"": ""b"", 1235: [""d"", ""e"", true, false, 23, { null: false, true: true, },], 0x3589: true, }")]
-    public void TestAllTolerance(string s)
-    {
-        using SJReader r = new(FromString(s));
-        r.allowTrailingComma = true;
-        r.allowOtherKeyTypes = true;
-        ReadWithTokens(r);
-    }
-
-    // BXSJ
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [DataRow(@"{ ""key"" /* inline */ : ""value"" }")]
-    [DataRow(@"{ ""key"" : /* inline */ ""value"" }")]
-    [DataRow(@"{ ""key"" : ""value"" /* trailing */ , ""key2"": ""value2"" }")]
-    [DataRow(@"[ 1, 2, 3 /* trailing array */, 4, 5]")]
-    [DataRow(@"[ 1, 2, 3 /* trailing array */]")]
-    public void TestTrickyComments(string data) => ReadWithTokens(FromString(data), jsc: true);
 
     // File tests
     public virtual Encoding JsonFileEncoding => Encoding.UTF8;

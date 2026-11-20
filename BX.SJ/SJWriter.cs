@@ -201,7 +201,7 @@ namespace BX.SJ
         /// </summary>
         public ushort maxDepth = DefaultMaxDepth;
         /// <summary>
-        /// Maximum state stacking.
+        /// Maximum amount of stackable state. If set to zero or less, it can be stacked forever.
         /// </summary>
         public int MaxStateCount
         {

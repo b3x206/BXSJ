@@ -4,11 +4,8 @@ namespace BX.SJ.Tests;
 
 public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
 {
-    public abstract TWriter CreateWriter();
-    public virtual SJWriter Create()
-    {
-        return new SJWriter(CreateWriter());
-    }
+    // TODO : Organize this better.
+    public abstract TWriter CreateData();
 
     // Data / State
     private static readonly Type[] _ReadDataConsistencyExceptionTypes = [typeof(NotSupportedException), typeof(InvalidOperationException)];
@@ -20,7 +17,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestReadDataConsistency()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         // Buffered objects may struggle with converting representation to string.
         writer.ThrowOnError = true;
         using (writer.Object())
@@ -69,7 +66,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
             Assert.IsFalse(w.S.WrittenType, "Writer custom value state must be false");
         }
 
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = false;
         writer.allowComments = true;
         writer.allowOtherKeyTypes = true;
@@ -110,7 +107,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [DataRow(4, DisplayName = "Indent 4")]
     public void TestRootWrite(int indent)
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
         writer.ThrowOnError = false;
 
@@ -122,7 +119,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [DataRow(4, DisplayName = "Indent 4")]
     public void TestWrite(int indent)
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
         writer.ThrowOnError = true;
 
@@ -159,7 +156,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Mid)]
     public void TestWriteEmojiSpam()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = true;
         writer.WriteString(TestData.DataEmojiSpam);
         if (!writer.Data.CanRead)
@@ -176,7 +173,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestDefaultNoCustomKey()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         const string Message = "Error must exist on default state of writing custom key with a writer";
         writer.ThrowOnError = false;
 
@@ -188,7 +185,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public virtual void TestCustomNumberLiterals()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = 0;
         writer.ThrowOnError = true;
         if (!writer.Data.CanRead)
@@ -219,7 +216,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public virtual void TestCustomKeys()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = true;
         writer.allowOtherKeyTypes = true;
         writer.indentSize = 0;
@@ -259,7 +256,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestDefaultNoComments()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         const string Message = "Error must exist on default state of writing comments with a writer";
         writer.ThrowOnError = false;
 
@@ -276,7 +273,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestRootJSCWrite(int indent)
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
         writer.ThrowOnError = false;
         writer.allowComments = true;
@@ -289,7 +286,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [DataRow(4, DisplayName = "Indent 4")]
     public void TestJSCWrite(int indent)
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
         writer.allowComments = true;
         writer.ThrowOnError = true;
@@ -326,7 +323,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [DataRow(4, DisplayName = "Indent 4")]
     public void TestJSCMatrix(int indent)
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
         writer.allowComments = true;
         writer.ThrowOnError = true;
@@ -360,7 +357,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestJSCPadCharacters()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         if (!writer.Data.CanRead)
         {
             Assert.Inconclusive($"[!] Cannot test '{writer.GetType()}' as data can't be read.");
@@ -401,7 +398,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestDepth()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = 4;
         writer.ThrowOnError = true;
 
@@ -412,7 +409,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestMaxDepth()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = 4;
         writer.ThrowOnError = true;
 
@@ -422,7 +419,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestMaxDepthNoExcept()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = 4;
         writer.ThrowOnError = false;
 
@@ -446,7 +443,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestStack()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = 3;
         writer.ThrowOnError = true;
 
@@ -456,7 +453,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     public void TestStackNoExcept()
     {
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.indentSize = 4;
         writer.ThrowOnError = false;
         Assert.IsTrue(TestStackWith(writer), "Stack test must fail");
@@ -478,7 +475,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         // Test this with many strings (including emoji spam,
         // to check for stuff like whether if the StreamWriter has
         // resetted it's state correctly, well as correct as it can be.)
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = false;
         const string Key1 = "Hello", Key2 = "this should be all";
         const string Val2Fmt = "X";
@@ -528,7 +525,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     public void TestNegativeWrite()
     {
         // The codepaths are generally the same so I will only test WriteLiteralValue and WriteKey instead
-        using var writer = Create();
+        using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = false;
 
         using (writer.Object())
