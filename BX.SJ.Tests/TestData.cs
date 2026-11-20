@@ -32,19 +32,31 @@ public static class TestData
         argc: 1
     );
     // BXSJ root data assumes all tolerances are allowed.
-    public static IEnumerable<string[]> BXSJRootData => [
+    public static IEnumerable<string[]> BXSJRootDatas => [
         // Data, ExpectedCapture
-        [BXSJDataType, BXSJDataType.Trim('(', ')')], [BXSJDataRootStringType, BXSJDataRootStringType.Trim('(', ')', ' ')[1..^1]],
+        [BXSJDataType, BXSJDataType.Trim('(', ')')], [BXSJDataRootStringType, BXSJDataRootStringType.Trim('(', ')').Trim()[1..^1]],
         [BXSJDataSingleComment, BXSJDataSingleComment.TrimStart('/').Trim()], [BXSJDataNewlineSingleComment, BXSJDataNewlineSingleComment.TrimStart('/').Trim()],
         [BXSJDataMultiComment, BXSJDataMultiComment.Trim('/', '*', ' ')],
     ];
-    public static IEnumerable<string[]> BXSJTruncatedRootData() => TestEx.CreateTruncatedStringData(
+    public static IEnumerable<string[]> BXSJTruncatedRootDatas() => TestEx.CreateTruncatedStringData(
         JsonRootDatas.Where(v => v.Length > 0),
         argc: 1
     );
+    public static IEnumerable<string[]> BXSJTypeDatas => [
+        // Literals
+        ["(Foo)"], ["(Bar)"], ["(Interesting_Type)"], [$"({AZaz09})"], ["(-_.=)"], ["(IsValid-Wow_Yep.ItReallyIs=Valid)"],
+        // Strings
+        ["(\"Spaces wow \")"], ["(\"String () wow\")"], ["(\"\\\"\\\"\\\" Quotes wow\")"], ["(\")(\\\"\\\"\\\"\")"],
+        ["(\"🔥\")"], ["(\" <-- fire respect \")"], ["(\"\t\t\t\")"], ["(\"._-*0>£#$½{[]}\")"],
+    ];
 
     // ---
     // String-only entries
+    public const string AsciiUppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    public const string AsciiLowercase = "abcdefghijklmnopqrstuvwxyz";
+    public const string AsciiDigits = "0123456789";
+    public const string HexDigits = "0123456789ABCDEFabcdef";
+    public const string AZaz09 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     public const string DataEmojis = "🔴🟡🟢😭";
     // Creates 1MB of UTF-16 string. Quite wholesome.
     public static readonly string DataEmojiSpam = string.Concat(Enumerable.Repeat("🅱️🅱️🅱️🍄‍🍕🍕🍕🍄‍🍄‍🍕🍄‍🍕🍕🍕🍕🍄‍🍕🍄‍", 10240));
@@ -92,7 +104,7 @@ public static class TestData
     ""logic"": [true, false, null],
     ""empty"": { ""obj"": {}, ""arr"": [] }
 }";
-    public static readonly string JsonData3 = $@"{{
+    public static readonly string JsonDataFireSpam = $@"{{
     ""{FireSpamKey}"": ""{FireSpamValue}""
 }}";
     public const string JsonDataDiscard = $@"{{
@@ -122,17 +134,22 @@ public static class TestData
         ""Array"": [1,2,3,4,5,6,7,8, /* oops convenient comment */ 9,10,11],
         ""Objects"": /* OH NO */ { ""Yes"": true, ""No"": false, ""Empty??"": null, ""Whatever"": ""/* Not really a comment. */"" } // I like putting comments where inconvenient
 } // Our line ends with */";
+    // Validations available are anything inside S.
+    // Flag syntax is not yet parsed.
     public const string BxsjCommentDataWithValidations = $@"{{
     ""{DepthMaxxKey}"": [[[[[[[/* assert=depth=8 */]]]]]]],
-    ""{ObjectTwisterKey}"": {{ ""[0]"": [{{}}, 8, [], {{}}, [], [], {{}}, [], {{ ""[0][8][0]"": [{{}}, [], [], []/* assert=count=4 */] }}], ""[1]"": 41 }},
+    ""{ObjectTwisterKey}"": {{ ""[0]"": [{{}}, 8, [], {{}}, [], [], {{}}, [], {{ ""[0][8][0]"": [{{}}, [], [], []/* assert=top.count=4 */] }}], ""[1]"": 41 }},
     ""{SciNumsKey}"": [-24, 24, -24.24, 24.24, -1e+206, 1e+206, -1e-206, 1e+206]
 }}";
 
     public static IEnumerable<string[]> JsonDatas => [
-        [JsonData1], [JsonData2], [JsonData3], [JsonDataDiscard]
+        [JsonData1], [JsonData2], [JsonDataFireSpam], [JsonDataDiscard]
     ];
     public static IEnumerable<string[]> BxsjDatas => [
         [BxsjCommentData], [BxsjCommentDataWithValidations]
+    ];
+    public static IEnumerable<string[]> BxsjValidatedDatas => [
+        [BxsjCommentDataWithValidations]
     ];
 
     // Invalid

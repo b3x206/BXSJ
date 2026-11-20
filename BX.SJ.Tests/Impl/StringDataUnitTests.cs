@@ -5,8 +5,8 @@ namespace BX.SJ.Tests.Impl;
 [TestClass]
 public sealed class StringDataUnitTests : ReaderUnitTests<SJStringReader>
 {
-    public override SJStringReader DataReaderFromString(string data) => new(data);
-    public override SJStringReader DataReaderFromStream(Stream data, Encoding? enc)
+    public override SJStringReader FromString(string data) => new(data);
+    public override SJStringReader FromStream(Stream data, Encoding? enc)
     {
         ArgumentNullException.ThrowIfNull(data);
         // This just reads the text using the STL.

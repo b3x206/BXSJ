@@ -405,7 +405,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         writer.indentSize = 4;
         writer.ThrowOnError = true;
 
-        writer.maxDepth = 128;
+        writer.maxDepth = SJWriter.DefaultMaxDepth;
         Assert.IsFalse(WriterTester.WriteTestDepth(writer, 64));
     }
     [TestMethod]

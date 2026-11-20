@@ -30,6 +30,7 @@ namespace BX.SJ
 
     /// <summary>
     /// Used for any SJ related object with stackable opaque state.
+    /// <br>It is useful to start things like transactions.</br>
     /// </summary>
     public interface ISJStateStackable
     {
@@ -37,6 +38,8 @@ namespace BX.SJ
         int MaxStateCount { get; set; }
         int PushState();
         int PopState();
+        /// <param name="popIfError">Whether to pop only if <see cref="HasError"/>.
+        /// If left <see langword="false"/>, it will pop state regardless of when disposed.</param>
         StateStackScope UseState(bool popIfError = false) => new StateStackScope(this, popIfError);
     }
 }

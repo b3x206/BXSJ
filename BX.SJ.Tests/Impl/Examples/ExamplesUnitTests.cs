@@ -8,7 +8,7 @@ public sealed class ExamplesUnitTests
     public static IEnumerable<string[]> TestDataProcessors => [
         [JsonData1],
         [JsonData2],
-        [JsonData3],
+        [JsonDataFireSpam],
         [JsonDataDiscard],
         [JsonDataNull],
         [JsonDataNumber],

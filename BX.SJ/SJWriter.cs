@@ -9,18 +9,14 @@ using System.Runtime.CompilerServices;
 namespace BX.SJ
 {
     /// <summary>
-    /// Base class for <i>most</i> JSON-compatible writers.
+    /// Base class for <i>most</i> Json-compatible writers.
     /// </summary>
     /// <remarks>
-    /// * Can write incompatible JSON if not careful. This can be checked through <see cref="S"/> 
+    /// * Can write incompatible Json if not careful. This can be checked through <see cref="S"/> 
     /// or by validating against a strict <see cref="SJReader"/>.
     /// </remarks>
-    /// <example>
-    /// // Refer to file:///./SJStringWriter.cs
-    /// </example>
     public sealed class SJWriter : ISJStateStackable, IDisposable
     {
-
         /// <summary>
         /// Exception thrown on an error case while reading JSON.
         /// </summary>
@@ -240,10 +236,6 @@ namespace BX.SJ
         /// with older servers / systems not behaving well with non-ascii strings.
         /// </summary>
         public bool asciiOnly = false;
-        /// <summary>
-        /// Returns <see langword="null"/> in an event of error for fluent calls.
-        /// </summary>
-        public bool returnNullOnError = false;
         private bool _ThrowOnError = false;
         /// <summary>
         /// When an erroreneous case occurs (or <see cref="Error"/> is set to anything other 
@@ -387,7 +379,7 @@ namespace BX.SJ
             return true;
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private SJWriter Self() => returnNullOnError && HasError ? null : this;
+        private SJWriter Self() => this;
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private SJWriter Self(string error)
         {
@@ -912,11 +904,11 @@ namespace BX.SJ
         /// <summary>
         /// Write custom boolean key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
         /// </summary>
-        public SJWriter WriteKeyBool(bool value) => WriteLiteralKey(value ? "true" : "false", stringify: false);
+        public SJWriter WriteKeyBool(bool value) => WriteLiteralKey(value ? SJReader.TrueLiteral : SJReader.FalseLiteral, stringify: false);
         /// <summary>
         /// Write custom null key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
         /// </summary>
-        public SJWriter WriteKeyNull() => WriteLiteralKey("null", stringify: false);
+        public SJWriter WriteKeyNull() => WriteLiteralKey(SJReader.NullLiteral, stringify: false);
 
         /// <summary>
         /// Writes a literal value with the rules for the top level object or array.
@@ -999,8 +991,8 @@ namespace BX.SJ
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
         }
-        public SJWriter WriteBool(bool value) => WriteLiteralValue(value ? "true" : "false");
-        public SJWriter WriteNull() => WriteLiteralValue("null");
+        public SJWriter WriteBool(bool value) => WriteLiteralValue(value ? SJReader.TrueLiteral : SJReader.FalseLiteral);
+        public SJWriter WriteNull() => WriteLiteralValue(SJReader.NullLiteral);
 
         /// <summary>
         /// Write a type prefix.

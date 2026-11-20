@@ -417,14 +417,17 @@ namespace BX.SJ
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static string Tk(char c) => c == 0xFF ? "Any" : (c == '\0' ? "\\0/0" : $"{c}/{(int)c}");
 
-        public const int TrueLiteral = 0;
-        public const int FalseLiteral = 1;
-        public const int NullLiteral = 2;
+        public const string TrueLiteral = "true";
+        public const string FalseLiteral = "false";
+        public const string NullLiteral = "null";
+        public const int TrueLiteralId = 0;
+        public const int FalseLiteralId = 1;
+        public const int NullLiteralId = 2;
         public static readonly string[] readerLiterals = new string[]
         {
-            /* TrueLiteral  */ "true",
-            /* FalseLiteral */ "false",
-            /* NullLiteral  */ "null"
+            /* TrueLiteralId  */ TrueLiteral,
+            /* FalseLiteralId */ FalseLiteral,
+            /* NullLiteralId  */ NullLiteral
         };
         /// <summary>
         /// * If a literal is a valid substring of other, the larger string will be attempted to be captured
@@ -432,7 +435,8 @@ namespace BX.SJ
         /// </summary>
         private int GetLiteralType()
         {
-            // This assumes that all literals essentially start with a different character and are not substrings of each other
+            // This assumes that all literals essentially start with a different
+            // character and do not have any valid substrings within each other
             int mc = -1, ci = 0;
             char c = (char)Data.Current;
             string l = null;
@@ -1049,11 +1053,11 @@ namespace BX.SJ
                 // what in the strcmp()
                 switch (GetLiteralType())
                 {
-                    case TrueLiteral:
-                    case FalseLiteral:
+                    case TrueLiteralId:
+                    case FalseLiteralId:
                         result.type = SJType.Bool;
                         break;
-                    case NullLiteral:
+                    case NullLiteralId:
                         result.type = SJType.Null;
                         break;
 
@@ -1140,9 +1144,8 @@ namespace BX.SJ
         /// Iterate <see cref="SJType.Array"/> typed <paramref name="value"/>.
         /// </summary>
         /// <remarks>
-        /// <b>This skips <see cref="SJType.Comment"/> blocks. If you want to capture comments 
-        /// while reading an object, use lower level method of
-        /// <see cref="IterateArrayEntries(Value, out Value)"/> instead.</b>
+        /// <b>This skips any <see cref="SJType.Comment"/> or <see cref="SJType.Type"/> blocks. If you want to capture those 
+        /// while reading an array, use <see cref="IterateArrayEntries(Value, out Value)"/> instead.</b>
         /// </remarks>
         /// <returns>Whether if more data is available to read from <paramref name="value"/>.</returns>
         /// <exception cref="ReaderException"></exception>
@@ -1208,9 +1211,8 @@ namespace BX.SJ
         /// Iterate <see cref="SJType.Object"/> typed <paramref name="object"/> value.
         /// </summary>
         /// <remarks>
-        /// <b>This skips <see cref="SJType.Comment"/> blocks regardless.
-        /// If you want to capture comments while reading an object, use lower level method of
-        /// <see cref="IterateObjectEntries(Value, out Value)"/> instead.</b>
+        /// <b>This skips any <see cref="SJType.Comment"/> or <see cref="SJType.Type"/> blocks. If you want to capture those 
+        /// while reading an object, use <see cref="IterateArrayEntries(Value, out Value)"/> instead.</b>
         /// <br>Calling <see cref="IterateObject(Value, out Value, out Value)"/> with an existing key 
         /// value will use that key value and poll for it's value, unless the value for that key was already read, 
         /// which in this case, this method will return the next key/value.

@@ -249,6 +249,99 @@ public static class ReaderTester
         };
     }
 
+    public static void IterateWithHandler(SJReader reader, SJReader.Value root, Action<SJReader, SJReader.Value>? valueHandler, bool throwError = true)
+    {
+        switch (root.type)
+        {
+            default:
+            case SJType.Error:
+                {
+                    // Should be able to quit the loop. Note that Ended will also be marked on a case of error.
+                    Console.WriteLine($"Error | Exiting {root} -- Ended:{reader.S.ended}, Error: '{reader.Error}'");
+                    if (throwError)
+                    {
+                        reader.ThrowError();
+                    }
+                    break;
+                }
+            case SJType.End:
+                {
+                    // End is no longer an error, but it necessarily isn't the actual file ending.
+                    // Something distinct to actual "end" is that the depth is set negative though.
+                    if (reader.S.ended)
+                    {
+                        Assert.IsLessThanOrEqualTo(0, root.objectDepth, "Depth must be zero if ended");
+                    }
+                    break;
+                }
+
+            case SJType.Array:
+                {
+                    while (reader.IterateArrayEntries(root, out var v))
+                    {
+                        IterateWithHandler(reader, v, valueHandler, throwError);
+                    }
+                    if (!string.IsNullOrEmpty(reader.Error))
+                    {
+                        goto case SJType.Error;
+                    }
+                    break;
+                }
+            case SJType.Object:
+                {
+                    while (reader.IterateObjectEntries(root, out var v))
+                    {
+                        IterateWithHandler(reader, v, valueHandler, throwError);
+                    }
+                    if (!string.IsNullOrEmpty(reader.Error))
+                    {
+                        goto case SJType.Error;
+                    }
+                    break;
+                }
+            case SJType.Comment:
+                {
+                    switch (root.variant)
+                    {
+                        case SJTypeVariant.SingleComment:
+                        case SJTypeVariant.MultiComment:
+                            break;
+                        default:
+                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            else break;
+                    }
+                    break;
+                }
+            case SJType.Type:
+                {
+                    switch (root.variant)
+                    {
+                        case SJTypeVariant.TypeLiteral:
+                        case SJTypeVariant.TypeString:
+                            break;
+                        default:
+                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            else break;
+                    }
+                    break;
+                }
+            case SJType.Key:
+            case SJType.String:
+            case SJType.Number:
+            case SJType.Null:
+            case SJType.Bool:
+                {
+                    break;
+                }
+        }
+
+        valueHandler?.Invoke(reader, root);
+    }
+    public static void IterateWithHandler(SJReader reader, Action<SJReader, SJReader.Value>? valueHandler, bool throwError = true)
+    {
+        for (var v = reader.Read(); !reader.S.ended; v = reader.Read()) IterateWithHandler(reader, v, valueHandler, throwError);
+    }
+
     public static void ReadInnerTokens(StringBuilder sb, SJReader reader, SJReader.Value root, bool throwError = true)
     {
         switch (root.type)
@@ -281,8 +374,6 @@ public static class ReaderTester
                     sb.Append('[');
                     while (reader.IterateArrayEntries(root, out var v))
                     {
-                        // Skipping comments on array is easier. Technically could also do
-                        // the "ObjectEntry type" sieve for array as well.
                         if (v.type == SJType.Comment)
                         {
                             ReadInnerTokens(sb, reader, v, throwError);
@@ -351,6 +442,9 @@ public static class ReaderTester
                         case SJTypeVariant.MultiComment:
                             sb.Append("/* ").Append(root.Slice()).Append(" */");
                             break;
+                        default:
+                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            else break;
                     }
                     break;
                 }
@@ -365,7 +459,8 @@ public static class ReaderTester
                             sb.Append('(').Append('"').Append(root.Slice()).Append('"').Append(')');
                             break;
                         default:
-                            throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            else break;
                     }
                     break;
                 }
@@ -486,6 +581,7 @@ public static class ReaderTester
         }
     }
 
+    // With reader
     public static void ReadWithTokens(SJReader reader, StringBuilder sb, bool throwError = true)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -524,5 +620,44 @@ public static class ReaderTester
         var sb = new StringBuilder(DefaultSbCapacity);
         Read(reader, sb, throwError, indents, typePrefix);
         return sb;
+    }
+
+    // With data provider
+    public static StringBuilder ReadWithTokens<TData>(TData data, bool jsc = false)
+        where TData : ISJDataReader
+    {
+        using var r = new SJReader(data);
+        r.allowComments = jsc;
+        return ReadWithTokens(r);
+    }
+    public static StringBuilder Read<TData>(TData data, bool jsc = false, bool indents = false, bool typePrefix = false)
+        where TData : ISJDataReader
+    {
+        using var r = new SJReader(data);
+        r.allowComments = jsc;
+        return Read(r, indents: indents, typePrefix: typePrefix);
+    }
+    public static StringBuilder ReadBXSJWithTokens<TData>(TData data,
+        bool comments = true, bool otherKeys = true, bool trailingComma = false, bool types = true
+    ) where TData : ISJDataReader
+    {
+        using var r = new SJReader(data);
+        r.allowComments = comments;
+        r.allowOtherKeyTypes = otherKeys;
+        r.allowTrailingComma = trailingComma;
+        r.allowTypes = types;
+        return ReadWithTokens(r);
+    }
+    public static StringBuilder ReadBXSJ<TData>(
+        TData data, bool indents = false, bool typePrefix = false,
+        bool comments = true, bool otherKeys = true, bool trailingComma = false, bool types = true
+    ) where TData : ISJDataReader
+    {
+        using var r = new SJReader(data);
+        r.allowComments = comments;
+        r.allowOtherKeyTypes = otherKeys;
+        r.allowTrailingComma = trailingComma;
+        r.allowTypes = types;
+        return Read(r, indents: indents, typePrefix: typePrefix);
     }
 }

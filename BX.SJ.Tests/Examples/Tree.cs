@@ -80,7 +80,7 @@ namespace BX.SJ.Tests.Examples
 
                 case SJType.Array:
                     {
-                        while (reader.IterateArray(root, out var v))
+                        while (reader.IterateArray(root, out SJReader.Value v))
                         {
                             var node = new SJTree();
                             WriteFromInternal(node, reader, v);

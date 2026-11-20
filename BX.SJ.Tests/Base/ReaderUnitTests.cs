@@ -1,6 +1,8 @@
-﻿using System.Text;
+﻿using static BX.SJ.Tests.TestData;
+using static BX.SJ.Tests.ReaderTester;
+using System.Text;
 using System.Reflection;
-using static BX.SJ.Tests.TestData;
+using System.Globalization;
 
 namespace BX.SJ.Tests;
 
@@ -11,14 +13,17 @@ namespace BX.SJ.Tests;
 public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
 {
     // -- Config
-    public abstract TData DataReaderFromString(string data);
-    public abstract TData DataReaderFromStream(Stream data, Encoding? enc);
-    public virtual TData DataReaderFromEncodedString(string data, Encoding enc)
+    public abstract TData FromString(string data);
+    public abstract TData FromStream(Stream data, Encoding? enc);
+    public virtual TData FromStringWithEncoding(string data, Encoding enc)
     {
+        // Do not override this to cheat it. If you can encode data
+        // and read it back with that encoding, then go ahead.
+        // Otherwise, just implement FromStream.
         var ms = new MemoryStream(enc.GetBytes(data));
-        return DataReaderFromStream(ms, enc);
+        return FromStream(ms, enc);
     }
-    protected TData DataReaderFromMaxRecursionString(string tks, int maxDepth)
+    protected string CreateMaxRecursiveString(string tks, int maxDepth)
     {
         if (string.IsNullOrEmpty(tks))
         {
@@ -31,51 +36,23 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
 
         if (tks[0] == '{')
         {
-            // keys are needed for nesting object
+            // keys are needed for nesting object, with the exception of the last object
             // {"a":{"a":...
-            return DataReaderFromString(string.Concat(tks[0], string.Join("", Enumerable.Repeat($"\"a\":{tks[0]}", maxDepth)), string.Join("", Enumerable.Repeat(tks[1], maxDepth + 1))));
+            return string.Concat(tks[0],
+                string.Join("", Enumerable.Repeat($"\"a\":{tks[0]}", maxDepth)),
+                string.Join("", Enumerable.Repeat(tks[1], maxDepth + 1))
+            );
         }
         else
         {
             // [[[...
-            return DataReaderFromString(string.Concat(string.Join("", Enumerable.Repeat(tks[0], maxDepth + 1)), string.Join("", Enumerable.Repeat(tks[1], maxDepth + 1))));
+            return string.Concat(
+                string.Join("", Enumerable.Repeat(tks[0], maxDepth + 1)),
+                string.Join("", Enumerable.Repeat(tks[1], maxDepth + 1))
+            );
         }
     }
-    public virtual StringBuilder Read(TData data, bool jsc = false)
-    {
-        using var r = new SJReader(data);
-        r.allowComments = jsc;
-        return ReaderTester.ReadWithTokens(r);
-    }
-    public virtual StringBuilder ReadBasic(TData data, bool jsc = false, bool indents = false, bool typePrefix = false)
-    {
-        using var r = new SJReader(data);
-        r.allowComments = jsc;
-        return ReaderTester.Read(r, indents: indents, typePrefix: typePrefix);
-    }
-    public virtual StringBuilder ReadBXSJ(TData data,
-        bool comments = true, bool otherKeys = true, bool trailingComma = false, bool types = true
-    )
-    {
-        using var r = new SJReader(data);
-        r.allowComments = comments;
-        r.allowOtherKeyTypes = otherKeys;
-        r.allowTrailingComma = trailingComma;
-        r.allowTypes = types;
-        return ReaderTester.ReadWithTokens(r);
-    }
-    public virtual StringBuilder ReadBasicBXSJ(
-        TData data, bool indents = false, bool typePrefix = false,
-        bool comments = true, bool otherKeys = true, bool trailingComma = false, bool types = true
-    )
-    {
-        using var r = new SJReader(data);
-        r.allowComments = comments;
-        r.allowOtherKeyTypes = otherKeys;
-        r.allowTrailingComma = trailingComma;
-        r.allowTypes = types;
-        return ReaderTester.Read(r, indents: indents, typePrefix: typePrefix);
-    }
+
     // - Processors
     /// <summary>
     /// Processors for the encoding parameter in the tests.
@@ -98,47 +75,90 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         return $"{info.Name}_{data0}";
     }
 
-    // Tests
-    // - Basic tests: Root, basic JSON files and empty
+    // - Tests
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(JsonRootDatas), typeof(TestData))]
-    public void TestRootLiterals(string data, string _)
-    {
+    public void TestRootLiterals(string data, string _) =>
         // Since the empty builder for the sample code is simple but matching, it must equal.
-        // Other, differenter captures will give "expectedCapture"..
-        Assert.AreEqual(data, Read(DataReaderFromString(data)).ToString());
-    }
+        Assert.AreEqual(data, ReadWithTokens(FromString(data)).ToString());
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(JsonTruncatedRootDatas), typeof(TestData))]
-    public void TestTruncatedRootLiterals(string data) => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(data)));
+    public void TestTruncatedRootLiterals(string data) =>
+        Assert.Throws<SJReader.ReaderException>(() => ReadWithTokens(FromString(data)));
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("    ")]
+    [DataRow("    \t\r\n\v")]
+    [Timeout(TestTimeouts.Short)] // !! : Only ASCII whitespace is detected, rest is considered invalid token.
+    public void TestEmptyOrWhitespace(string data) => Assert.Throws<SJReader.ReaderException>(() => ReadWithTokens(FromString(data)));
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(BXSJRootData), typeof(TestData))]
-    public void TestBXSJRootLiterals(string data, string expected)
+    [DynamicData(nameof(BXSJRootDatas), typeof(TestData))]
+    public void TestBXSJRootLiterals(string data, string expected) =>
+        Assert.AreEqual(expected, ReadBXSJ(FromString(data)).ToString());
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(BXSJTruncatedRootDatas), typeof(TestData))]
+    public void TestTruncatedBXSJRootLiterals(string data) =>
+        Assert.Throws<SJReader.ReaderException>(() => ReadWithTokens(FromString(data)));
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(JsonRootDatas), typeof(TestData))]
+    public void TestRootWithComments(string data, string _)
     {
-        Assert.AreEqual(expected, ReadBasicBXSJ(DataReaderFromString(data)).ToString());
+        const string ContentLeft = "// This is a comment!";
+        const string ContentRight1 = "// Dear god..";
+        const string ContentRight2 = "/* There's more! No. */";
+        string CommentLeft = $"{ContentLeft}" + Environment.NewLine;
+        string CommentRight = $"{ContentRight1}" + Environment.NewLine + $"{ContentRight2}";
+
+        Assert.AreEqual(data, ReadWithTokens(FromString(data), jsc: true).ToString());
+        // One with valid formatting and one that the reader outputs.
+        string readerData = $"{CommentLeft}{data}{CommentRight}";
+        Assert.AreEqual(readerData, ReadWithTokens(FromString(readerData), jsc: true).ToString());
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(JsonRootDatas), typeof(TestData))]
+    public void TestRootWithTypes(string data, string _)
+    {
+        Assert.AreEqual(data, ReadBXSJWithTokens(FromString(data)).ToString());
+        foreach (string type in BXSJTypeDatas.Select(v => v[0]))
+        {
+            string readerData = $"{type}{data}";
+            Assert.AreEqual(readerData, ReadBXSJWithTokens(FromString(readerData)).ToString());
+        }
     }
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(JsonDatas), typeof(TestData))]
-    public void TestJsonData(string d) => Read(DataReaderFromString(JsonData1));
+    public void TestJsonDatas(string d) => ReadWithTokens(FromString(d));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestInvalidJsonData() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataInvalid)));
+    [DynamicData(nameof(InvalidJsonDatas), typeof(TestData))]
+    public void TestInvalidJsonDatas(string d) => Assert.Throws<SJReader.ReaderException>(() => ReadWithTokens(FromString(d)));
+
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestSlightlyComplicated() => Read(DataReaderFromString(JsonData2));
-    // Emoji spams will get differently encoded strings
+    [DynamicData(nameof(BxsjDatas), typeof(TestData))]
+    public void TestBXSJDatas(string d) => ReadWithTokens(FromString(d));
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(InvalidBxsjDatas), typeof(TestData))]
+    public void TestInvalidBXSJDatas(string d) => Assert.Throws<SJReader.ReaderException>(() => ReadWithTokens(FromString(d)));
+
     [TestMethod]
     [Timeout(TestTimeouts.Mid)]
     [DynamicData(nameof(EncodedStringProcessors), DynamicDataDisplayName = nameof(GetEncodedTestName))]
     public void TestEmojiSpam(Encoding enc)
     {
-        using SJReader reader = new(DataReaderFromEncodedString(JsonData3, enc));
+        using SJReader reader = new(FromStringWithEncoding(JsonDataFireSpam, enc));
         var root = reader.Read();
         Assert.AreEqual(SJType.Object, root.type, $"Expected root to be object, it is instead this : {root}");
         while (reader.IterateObject(root, out SJReader.Value k, out SJReader.Value v))
@@ -155,27 +175,31 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     public void TestEmojiSpamLiteral(Encoding enc)
     {
         // Buffered readers / writers (such as stream based ones) can struggle with this with invalidly truncated read from the resources with other encodings.
-        using SJReader reader = new(DataReaderFromEncodedString($"\"{DataEmojiSpam}\"", enc));
+        using SJReader reader = new(FromStringWithEncoding($"\"{DataEmojiSpam}\"", enc));
         var root = reader.Read();
         Assert.AreEqual(SJType.String, root.type);
         Assert.IsTrue(root.Slice().SequenceEqual(DataEmojiSpam), "Sliced value must equal the string inside the literal.");
     }
 
-    // Tricky conditions on the comma/colon state
+    // Tricky conditions on the comma/colon state / Stacking
     [TestMethod]
-    [DataRow(64)]
+    [DataRow("[]", SJReader.DefaultMaxDepth - 1)]
+    [DataRow("{}", SJReader.DefaultMaxDepth - 1)]
     [Timeout(TestTimeouts.Short)]
-    public void TestValidDeepObjects(int depth) => Read(DataReaderFromMaxRecursionString("{}", depth));
+    public void TestValidDepth(string tks, int depth) => ReadWithTokens(FromString(CreateMaxRecursiveString(tks, depth)));
     [TestMethod]
-    [DataRow(64)]
+    [DataRow("[]", SJReader.DefaultMaxDepth)]
+    [DataRow("{}", SJReader.DefaultMaxDepth)]
     [Timeout(TestTimeouts.Short)]
-    public void TestValidDeepArray(int depth) => Read(DataReaderFromMaxRecursionString("[]", depth));
+    public void TestInvalidDepth(string tks, int depth) => Assert.Throws<SJReader.ReaderException>(() =>
+        ReadWithTokens(FromString(CreateMaxRecursiveString(tks, depth)))
+    );
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(@"[""hello"" 1 2 3 4 5]")]
     [DataRow(@"{""hello"": 124 ""world!"": ""world: yo"" ""look"": ""no comma! waow bradar please JSON code make no mistakes""}")]
     [DataRow(@"{""hello"" 124, ""gurt"" ""yo"", ""yogurt"" ""yes""}")]
-    public void TestCommaColonState(string data) => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(data)));
+    public void TestCommaColonState(string data) => Assert.Throws<SJReader.ReaderException>(() => ReadWithTokens(FromString(data)));
 
     // Code Validation
     [TestMethod]
@@ -183,33 +207,109 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     public void TestResetRetainsData()
     {
         // Validate whether if JsonData1 is loaded correctly.
-        using SJReader reader = new(DataReaderFromString(JsonData1));
-        ReaderTester.ReadWithTokens(reader);
+        using SJReader reader = new(FromString(JsonData1));
+        ReadWithTokens(reader);
         // Position is off by one if all chars are exhausted, which is generally the case.
         Assert.AreEqual(JsonData1.Length, reader.Data.Index);
 
         // Read again with test
         reader.Reset();
-        ReaderTester.ReadWithTokens(reader);
+        ReadWithTokens(reader);
         Assert.AreEqual(JsonData1.Length, reader.Data.Index);
     }
-    // Dispose is no-op for most cases, although disposed SJReader isn't usable
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(BxsjValidatedDatas), typeof(TestData))]
+    public void TestStateValidatedData(string s)
+    {
+        static bool AssertValidation(SJReader reader, SJReader.Value v)
+        {
+            // /assert=(top.)?([^=]+)=(.*)/
+            Assert.AreEqual(SJType.Comment, v.type);
+
+            const string start = "assert=";
+            ReadOnlySpan<char> s = v.Slice();
+            if (!s.StartsWith(start)) return false; // Not an assertion
+            s = s[start.Length..];
+
+            const string sep = "=";
+            const string stackable = "top.";
+
+            int sepIdx = s.IndexOf(sep);
+            ReadOnlySpan<char> sMemberName = s[..sepIdx];
+            int stackedIndex = sMemberName.IndexOf(stackable);
+
+            // We can compare ToString representation (invariant one)
+            Type type = typeof(SJReader.State);
+            object state = reader.S;
+
+            switch (stackedIndex)
+            {
+                // Must be prefix, but is ignored if not..
+                case 0:
+                    sMemberName = sMemberName[stackable.Length..];
+                    type = typeof(SJReader.State.Stacked);
+                    state = reader.S.stack.PeekValue();
+                    break;
+            }
+
+            string memberName = new(sMemberName.Trim());
+            ReadOnlySpan<char> value = s[(sepIdx + sep.Length)..].Trim();
+
+            CultureInfo prevCulture = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+                const BindingFlags bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+                var f = type.GetField(memberName, bf);
+                if (f is not null)
+                {
+                    Assert.That.AreEqual(value, f.GetValue(state)?.ToString());
+                    return true;
+                }
+                var p = type.GetProperty(memberName, bf);
+                if (p is not null)
+                {
+                    Assert.That.AreEqual(value, p.GetValue(state)?.ToString());
+                    return true;
+                }
+
+                Assert.Fail($"Field or Property to assert '{memberName}' does not exist on type '{type}'");
+                return false;
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = prevCulture;
+            }
+        }
+
+        using var r = new SJReader(FromString(s));
+        IterateWithHandler(r, (self, v) =>
+        {
+            if (v.type == SJType.Comment)
+            {
+                if (!AssertValidation(self, v)) Console.WriteLine($"Comment with content <{v.Slice()}> does not have an assertion on any state.");
+            }
+        });
+    }
+
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(1)]
     [DataRow(4)]
     public void TestDisposeTimes(int n)
     {
-        SJReader reader = new(DataReaderFromString(JsonData1));
-        ReaderTester.Read(reader);
+        SJReader reader = new(FromString(JsonData1));
+        Read(reader);
         for (int i = 0; i < n; i++) reader.Dispose();
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestResetClearsState()
     {
-        using SJReader reader = new(DataReaderFromString(JsonDataInvalid));
-        ReaderTester.ReadWithTokens(reader, throwError: false);
+        using SJReader reader = new(FromString(JsonDataInvalid));
+        ReadWithTokens(reader, throwError: false);
 
         reader.Reset();
         Assert.That.IsNullOrEmpty(reader.Error, "Error state must reset on Reset");
@@ -257,10 +357,10 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDiscard() => TestDiscard(new(DataReaderFromString(JsonDataDiscard)));
+    public void TestDiscard() => TestDiscard(new(FromString(JsonDataDiscard)));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDiscardInvalid() => Assert.Throws<SJReader.ReaderException>(() => TestDiscard(new(DataReaderFromString(JsonDataDiscardInvalid))));
+    public void TestDiscardInvalid() => Assert.Throws<SJReader.ReaderException>(() => TestDiscard(new(FromString(JsonDataDiscardInvalid))));
 
     //// Peek + Peek JSC
     //[TestMethod]
@@ -395,48 +495,40 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
 ""binary"": 0b11010011101,
 ""notVeryValidButAccepted"": 01oo3o5x070e0e00
 }}")]
-    public void TestInvalidNumbers(string s) => Read(DataReaderFromString(s));
+    public void TestInvalidNumbers(string s) => ReadWithTokens(FromString(s));
 
-    // Invalid JSON with settings
+    // Invalid Json with settings
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(@"{ ""a"": ""b"", ""c"": [""d"", ""e"", true, false, 23, { ""c"": false, },], ""ss"": true, }")]
-    public void TestTrailingCommas(string d)
+    public void TestTrailingCommas(string s)
     {
-        using SJReader r = new(DataReaderFromString(d));
+        using SJReader r = new(FromString(s));
         r.allowTrailingComma = true;
-        ReaderTester.ReadWithTokens(r);
+        ReadWithTokens(r);
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(@"{ ""a"": ""b"", 1235: [""d"", ""e"", true, false, 23, { null: false, true: true }], 0x3589: true }")]
-    public void TestOtherKeyTypes(string d)
+    public void TestOtherKeyTypes(string s)
     {
-        using SJReader r = new(DataReaderFromString(d));
+        using SJReader r = new(FromString(s));
         r.allowOtherKeyTypes = true;
-        ReaderTester.ReadWithTokens(r);
+        ReadWithTokens(r);
     }
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(@"{ ""a"": ""b"", 1235: [""d"", ""e"", true, false, 23, { null: false, true: true, },], 0x3589: true, }")]
-    public void TestAllTolerance(string d)
+    public void TestAllTolerance(string s)
     {
-        using SJReader r = new(DataReaderFromString(d));
+        using SJReader r = new(FromString(s));
         r.allowTrailingComma = true;
         r.allowOtherKeyTypes = true;
-        ReaderTester.ReadWithTokens(r);
+        ReadWithTokens(r);
     }
 
-    // JSC
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public void TestJSC() => Read(DataReaderFromString(BxsjCommentData), jsc: true);
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public void TestJSCInvalid() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(BxsjCommentDataInvalid), jsc: true));
-
-    // JSC with Capture
+    // BXSJ
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(@"{ ""key"" /* inline */ : ""value"" }")]
@@ -444,66 +536,25 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [DataRow(@"{ ""key"" : ""value"" /* trailing */ , ""key2"": ""value2"" }")]
     [DataRow(@"[ 1, 2, 3 /* trailing array */, 4, 5]")]
     [DataRow(@"[ 1, 2, 3 /* trailing array */]")]
-    public void TestTrickyJSC(string data) => Read(DataReaderFromString(data), jsc: true);
-    // Do also read literals with no ignore JSC to test "Ended".
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(JsonRootDatas), typeof(TestData))]
-    public void TestRootWithComments(string data, string _)
-    {
-        const string ContentLeft = "// This is a comment!";
-        const string ContentRight1 = "// Dear god..";
-        const string ContentRight2 = "/* There's more! No. */";
-        string CommentLeft = $"{ContentLeft}" + Environment.NewLine;
-        string CommentRight = $"{ContentRight1}" + Environment.NewLine + $"{ContentRight2}";
-
-        Assert.AreEqual(data, Read(DataReaderFromString(data), jsc: true).ToString());
-        // One with valid formatting and one that the reader outputs.
-        string readerData = $"{CommentLeft}{data}{CommentRight}";
-        Assert.AreEqual(readerData, Read(DataReaderFromString(readerData), jsc: true).ToString());
-    }
-
-    [TestMethod]
-    //[DataRow(true)]
-    //[DataRow(false)]
-    [Timeout(TestTimeouts.Short)]
-    public void TestEmptyString(/*bool throwOnError*/)
-    {
-        Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(DataEmpty)));
-    }
-
-    // Stack
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public void TestStacking() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromString(JsonDataInvalidStacking)));
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public void TestMaxArrayRecursion() => Assert.Throws<SJReader.ReaderException>(() => Read((DataReaderFromMaxRecursionString("[]", SJReader.DefaultMaxDepth))));
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public void TestMaxObjectRecursion() => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromMaxRecursionString("{}", SJReader.DefaultMaxDepth)));
+    public void TestTrickyComments(string data) => ReadWithTokens(FromString(data), jsc: true);
 
     // File tests
     public virtual Encoding JsonFileEncoding => Encoding.UTF8;
-    /// <summary>
-    /// Tests reading a basic JSON file (100kb-ish).
-    /// </summary>
     [TestMethod]
     [Timeout(TestTimeouts.Mid)]
     [DataRow(JsonFileValidName)]
-    public void TestFile(string name) => Read(DataReaderFromStream(LoadAsmFile(name), JsonFileEncoding));
-    /// <summary>
-    /// Tests reading large JSON file.
-    /// </summary>
+    public void TestFile(string name) => ReadWithTokens(FromStream(LoadAsmFile(name), JsonFileEncoding));
     [TestMethod]
     [Timeout(TestTimeouts.Long)]
     [DataRow(JsonFileLargeName)]
     [DataRow(JsonFileLargeMinName)]
-    public void TestVeryLarge(string name) => Read(DataReaderFromStream(LoadAsmFile(name), JsonFileEncoding));
+    public void TestVeryLarge(string name) => ReadWithTokens(FromStream(LoadAsmFile(name), JsonFileEncoding));
     [TestMethod]
     [Timeout(TestTimeouts.Mid)]
     [DataRow(JsonFileInvalidBinary)]
     [DataRow(JsonFileInvalidNoColon)]
     [DataRow(JsonFileInvalidUnterminated)]
-    public void TestInvalidFile(string name) => Assert.Throws<SJReader.ReaderException>(() => Read(DataReaderFromStream(LoadAsmFile(name), JsonFileEncoding)));
+    public void TestInvalidFile(string name) => Assert.Throws<SJReader.ReaderException>(() =>
+        ReadWithTokens(FromStream(LoadAsmFile(name), JsonFileEncoding))
+    );
 }
