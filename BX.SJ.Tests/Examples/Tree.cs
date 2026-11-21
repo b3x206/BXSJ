@@ -192,7 +192,7 @@ namespace BX.SJ.Tests.Examples
                         {
                             foreach (var kv in tree.objectValue.Value)
                             {
-                                writer.WriteKey(kv.Key);
+                                writer.WriteKeyString(kv.Key);
                                 WriteTo(kv.Value, writer);
                             }
                         }

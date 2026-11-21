@@ -424,13 +424,17 @@ namespace BX.SJ.Collections
             for (int i = 0; i < Count; i++) array[index + i] = this[i];
         }
         public delegate void CopyAction(T self, ref T to);
-        public readonly void CopyTo(ref SJValueStack<T> vs, CopyAction action = null)
+        public readonly void CopyTo(ref SJValueStack<T> vs, CopyAction action)
         {
+            if (action == null) throw new ArgumentNullException(nameof(action));
             for (int i = 0; i < _count; i++)
             {
-                if (action == null) { vs.PushInternal(this[i]); }
-                else { action(this[i], ref vs[vs.PushInternal(null).index]); }
+                action(this[i], ref vs[vs.PushInternal(null).index]);
             }
+        }
+        public readonly void CopyTo(ref SJValueStack<T> vs)
+        {
+            for (int i = 0; i < _count; i++) vs.PushInternal(this[i]);
         }
 
         public override readonly int GetHashCode()

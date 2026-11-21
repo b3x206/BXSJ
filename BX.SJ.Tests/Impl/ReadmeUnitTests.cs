@@ -86,9 +86,9 @@ public sealed class ReadmeUnitTests
         };
         using (writer.Object())
         {
-            writer.WriteKey("X").Write(position.X);
-            writer.WriteKey("Y").Write(position.Y);
-            writer.WriteKey("Z").Write(position.Z);
+            writer.WriteKeyString("X").Write(position.X);
+            writer.WriteKeyString("Y").Write(position.Y);
+            writer.WriteKeyString("Z").Write(position.Z);
         }
 
         // Now deserialize it

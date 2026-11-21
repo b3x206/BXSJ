@@ -39,7 +39,7 @@ public static class TestData
         [BXSJDataMultiComment, BXSJDataMultiComment.Trim('/', '*', ' ')],
     ];
     public static IEnumerable<string[]> BXSJTruncatedRootDatas() => TestEx.CreateTruncatedStringData(
-        JsonRootDatas.Where(v => v.Length > 0),
+        BXSJRootDatas.Where(v => v.Length > 0),
         argc: 1
     );
     public static IEnumerable<string[]> BXSJTypeDatas => [
@@ -135,7 +135,7 @@ public static class TestData
         ""Objects"": /* OH NO */ { ""Yes"": true, ""No"": false, ""Empty??"": null, ""Whatever"": ""/* Not really a comment. */"" } // I like putting comments where inconvenient
 } // Our line ends with */";
     // Validations available are anything inside S.
-    // Flag syntax is not yet parsed.
+    // Flag syntax is not yet parsed beyond ToString, which is whitespace sensitive..
     public const string BxsjCommentDataWithValidations = $@"{{
     ""{DepthMaxxKey}"": [[[[[[[/* assert=depth=8 */]]]]]]],
     ""{ObjectTwisterKey}"": {{ ""[0]"": [{{}}, 8, [], {{}}, [], [], {{}}, [], {{ ""[0][8][0]"": [{{}}, [], [], []/* assert=top.count=4 */] }}], ""[1]"": 41 }},

@@ -56,7 +56,8 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     public virtual bool AssertIsStackable()
     {
         bool r = CheckIsStackable();
-        if (!r)  Assert.Inconclusive($"Cannot test stack related tests on type {typeof(TData)} as it does not implement {typeof(ISJStateStackable)}");
+        if (!r) Assert.Inconclusive(@$"Cannot test stack related tests on type {typeof(TData)} as it does not implement {typeof(ISJStateStackable)}.
+If this warning isn't desired, override this method to return false and remove this line.");
         return r;
     }
 
@@ -137,7 +138,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         Assert.AreEqual(data, ReadBXSJWithTokens(FromString(data)).ToString());
         foreach (string type in BXSJTypeDatas.Select(v => v[0]))
         {
-            string readerData = $"{type}{data}";
+            string readerData = $"{type}{data}"; // Read with tokens ignores whitespace
             Assert.AreEqual(readerData, ReadBXSJWithTokens(FromString(readerData)).ToString());
         }
     }
@@ -154,7 +155,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(BxsjDatas), typeof(TestData))]
-    public void TestBXSJDatas(string d) => ReadWithTokens(FromString(d));
+    public void TestBXSJDatas(string d) => ReadBXSJWithTokens(FromString(d));
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(InvalidBxsjDatas), typeof(TestData))]
@@ -301,7 +302,6 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
             ReadOnlySpan<char> sMemberName = s[..sepIdx];
             int stackedIndex = sMemberName.IndexOf(stackable);
 
-            // We can compare ToString representation (invariant one)
             Type type = typeof(SJReader.State);
             object state = reader.S;
 
@@ -318,6 +318,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
             string memberName = new(sMemberName.Trim());
             ReadOnlySpan<char> value = s[(sepIdx + sep.Length)..].Trim();
 
+            // We can compare ToString representation (invariant one)
             CultureInfo prevCulture = CultureInfo.CurrentCulture;
             try
             {
@@ -336,7 +337,27 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
                     return true;
                 }
 
-                Assert.Fail($"Field or Property to assert '{memberName}' does not exist on type '{type}'");
+                string fieldsAndProperties = "";
+                try
+                {
+                    var members = type.GetMembers(bf);
+                    fieldsAndProperties = string.Join(", ",
+                        members
+                            .Where(v => v is FieldInfo)
+                            .Select(v => $"{(v as FieldInfo)?.FieldType} {v.Name}")
+                        .Concat(
+                        members
+                            .Where(v => v is PropertyInfo)
+                            .Select(v => $"{(v as PropertyInfo)?.PropertyType} {v.Name}"))
+                    );
+                }
+                catch
+                {
+                    fieldsAndProperties = "";
+                }
+
+                Assert.Fail(@$"Field or Property to assert '{memberName}' does not exist on type '{type}'
+Fields + Properties available : {fieldsAndProperties}");
                 return false;
             }
             finally
@@ -345,13 +366,17 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
             }
         }
 
-        using var r = new SJReader(FromString(s));
-        IterateWithHandler(r, (self, v) =>
+        using var r = new SJReader(FromString(s))
+        {
+            allowComments = true
+        };
+        ReadWithHandler(r, (self, v) =>
         {
             if (v.type == SJType.Comment)
             {
                 if (!AssertValidation(self, v)) Console.WriteLine($"Comment with content <{v.Slice()}> does not have an assertion on any state.");
             }
+            return true;
         });
     }
 
@@ -361,10 +386,59 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [DataRow(4)]
     public void TestDisposeTimes(int n)
     {
+        // Disposing multiple times shouldn't error.
         SJReader reader = new(FromString(JsonData1));
         Read(reader);
         for (int i = 0; i < n; i++) reader.Dispose();
     }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestAfterDispose()
+    {
+        // Data itself is also disposable, but it's assumed that it has all the resources freed up.
+        SJReader reader = new(FromString(JsonData1));
+        Action<SJReader>[] acts = [
+            // Anything that must throw is here (since Action does not match these methods exactly this is done)
+            static (r) => r.Read(),
+            static (r) => r.Reset(),
+            (r) => { if (CheckIsStackable()) r.PushState(); },
+            (r) => { if (CheckIsStackable()) r.PopState(); },
+            static (r) => r.Data = null, // Will throw InvalidOperationException when disposed
+        ];
+        SJReader.Value lastValue = default;
+        Action<SJReader.Value>[] valActs = [
+            static (v) => v.Slice(),
+            static (v) => { if (!v.TrySlice(out _)) throw new InvalidOperationException(); },
+        ];
+
+        // JsonData1 should have more than 4 elements
+        ReadWithHandler(reader, (r, v) =>
+        {
+            lastValue = v;
+            return r.S.totalValueCount <= 4;
+        });
+        reader.Dispose();
+
+        // SJReader
+        for (int i = 0; i < acts.Length; i++)
+        {
+            Action<SJReader> mustThrow = acts[i];
+            Assert.Throws<InvalidOperationException>(() => mustThrow(reader), $"{i} action does not throw InvalidOperationException on disposed reader.");
+        }
+        // SJReader.Value
+        for (int i = 0; i < valActs.Length; i++)
+        {
+            Action<SJReader.Value> mustThrow = valActs[i];
+            Assert.Throws<InvalidOperationException>(() => mustThrow(lastValue), $"{i} value action does not throw InvalidOperationException on disposed reader.");
+        }
+        for (int i = 0; i < valActs.Length; i++)
+        {
+            Action<SJReader.Value> mustThrow = valActs[i];
+            Assert.Throws<InvalidOperationException>(() => mustThrow(default), $"{i} value action does not throw InvalidOperationException on disposed reader.");
+        }
+    }
+
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestResetClearsState()
@@ -383,6 +457,8 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
     [Timeout(TestTimeouts.Short)]
     public void StateStacking()
     {
+        if (!AssertIsStackable()) return;
+
         const string FirstKey = "a", SecondKey = "b", ThirdKey = "c";
         const string TestData = $@"{{
     ""{FirstKey}"": true,
@@ -392,7 +468,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
 
         using var r = new SJReader(FromString(TestData));
         const string PushKey = SecondKey, PopKey = ThirdKey;
-        string? expectedPostPopKey = null;
+        string? expectedKey = null;
         bool postPop = false;
 
         // Pop after second key entry and expect second key again.
@@ -400,6 +476,9 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         {
             switch (v.type)
             {
+                case SJType.End:
+                    break;
+
                 default:
                     Assert.Fail($"Did not expect type {v.type} on root");
                     return;
@@ -410,11 +489,19 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
                         var keySlice = ok.Slice();
                         if (postPop)
                         {
-                            Assert.That.AreEqual(expectedPostPopKey, keySlice);
+                            Assert.That.AreEqual(expectedKey, keySlice);
                             break;
                         }
 
-                        if (keySlice.SequenceEqual(PushKey)) { Assert.AreEqual(0, r.PushState()); expectedPostPopKey = new string(keySlice); }
+                        // When the key is read and the state is to be pushed into, we are already on the next key.
+                        // So set the expectedKey to be the next value.
+                        if (keySlice.SequenceEqual(PushKey))
+                        {
+                            Assert.AreEqual(0, r.PushState());
+                            // .. to the next key. IterateObject will use the last key found
+                            r.DiscardUntil(v.objectDepth);
+                            expectedKey = new string(r.Read().Slice());
+                        }
                         else if (keySlice.SequenceEqual(PopKey)) { Assert.AreEqual(0, r.PopState()); postPop = true; }
                     }
                     break;
@@ -430,32 +517,31 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
         if (!AssertIsStackable()) return;
 
         // TODO : This is off by a little bit
-        using var r = new SJReader(FromString(CreateMaxRecursiveString("{}", count)))
+        using var r = new SJReader(FromString(CreateMaxRecursiveString("{}", count - 1)))
         {
-            maxDepth = 0,               // Disable depth checks
-            MaxStateCount = count + 1   // Count inclusive (error case handling is done in seperate method and usually occurs in full push or empty pop)
+            maxDepth = 0,         // Disable depth checks
+            MaxStateCount = count // Count inclusive (error case handling is done in seperate method and usually occurs in full push or empty pop)
         };
 
         // Pop after second key entry and expect second key again.
-        for (var root = r.Read(); !r.S.ended; root = r.Read())
+        var root = r.Read();
+        switch (root.type)
         {
-            switch (root.type)
-            {
-                default:
-                    Assert.Fail($"Did not expect type {root.type}");
-                    return;
+            default:
+                Assert.Fail($"Did not expect type {root.type}");
+                return;
 
-                case SJType.Object:
-                    // Assuming parameter evaluation in C# is deterministic and is left to right.
-                    // https://stackoverflow.com/a/7360045
-                    Assert.AreEqual(r.StateCount, r.PushState());     // depth = 1
-                    while (r.IterateObject(root, out _, out var ov))
-                    {
-                        Assert.AreEqual(r.StateCount, r.PushState()); // depth = ..count
-                        root = ov;                                    // to move into reading the next value
-                    }
-                    break;
-            }
+            // We realistically can't reach "End" now
+            case SJType.Object:
+                // Assuming parameter evaluation in C# is deterministic and is left to right.
+                // https://stackoverflow.com/a/7360045
+                Assert.AreEqual(r.StateCount, r.PushState(), "");     // depth = 1
+                while (r.IterateObject(root, out _, out var ov))
+                {
+                    Assert.AreEqual(r.StateCount, r.PushState(), "Expected push to be valid"); // depth = ..count
+                    root = ov;                                                                 // to move into reading the next value
+                }
+                break;
         }
 
         while (r.StateCount > 0)
@@ -565,6 +651,7 @@ public abstract class ReaderUnitTests<TData> where TData : ISJDataReader
                     break;
                 case SJType.End:
                     break;
+                case SJType.Type:
                 case SJType.Null:
                 case SJType.String:
                 case SJType.Number:

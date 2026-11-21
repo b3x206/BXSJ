@@ -228,7 +228,7 @@ public sealed class ValueStackUnitTests
     //    foreach (var v in ints) ints.Peek();        // Peeking is RO
     //    foreach (var v in ints) ints.PeekValue();   // Peeking is RO
 
-    //    foreach (var v in ints) ints.Capacity *= 2; // Capacity does not throw
+    //    foreach (var v in ints) ints.Capacity *= 2; // Modifying capacity does not throw (because the array value is by ref and shouldn't modify outside of size)
     //}
 
     [TestMethod]
@@ -426,6 +426,7 @@ public sealed class ValueStackUnitTests
     public void ValueKeptOnNonClearPush(int count)
     {
         if (count <= 0) throw new ArgumentException("Count must be larger than 0", nameof(count));
+
         const int Value = 1;
         var ints = SJValueStack<int>.Create();
         for (int i = 0; i < count; i++)
@@ -512,6 +513,17 @@ public sealed class ValueStackUnitTests
             if (containOne) Assert.AreSequenceEqual(Enumerable.Concat([Value], sView), s2);
             else Assert.AreSequenceEqual(sView, s2);
         }
+    }
+
+    [TestMethod]
+    public void StackCopyToWithNullAction()
+    {
+        const int Value = -1;
+        SJValueStack<int> s = default;
+        SJValueStack<int> s2 = default;
+        s2.Push(Value);
+
+        Assert.Throws<ArgumentNullException>(() => s.CopyTo(ref s2, action: null));
     }
 
     [TestMethod]

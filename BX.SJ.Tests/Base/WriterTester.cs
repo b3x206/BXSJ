@@ -53,8 +53,8 @@ public static class WriterTester
             // common
             if (value is null) return writer.WriteNull();
             else if (value is string str) return writer.WriteString(str);
-            else if (value is uint ui) return !string.IsNullOrEmpty(fmt) ? writer.WriteULong(ui, fmt) : writer.WriteULong(ui);
-            else if (value is int i) return !string.IsNullOrEmpty(fmt) ? writer.WriteLong(i, fmt) : writer.WriteLong(i);
+            else if (value is uint ui) return !string.IsNullOrEmpty(fmt) ? writer.WriteUInt(ui, fmt) : writer.WriteUInt(ui);
+            else if (value is int i) return !string.IsNullOrEmpty(fmt) ? writer.WriteInt(i, fmt) : writer.WriteInt(i);
             else if (value is double d) return !string.IsNullOrEmpty(fmt) ? writer.WriteNumber(d, fmt) : writer.WriteNumber(d);
             else if (value is float f) return !string.IsNullOrEmpty(fmt) ? writer.WriteNumber(f, fmt) : writer.WriteNumber(f);
             else if (value is bool @bool) return writer.WriteBool(@bool);

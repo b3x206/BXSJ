@@ -431,7 +431,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     {
         writer.BeginObject();
 
-        writer.WriteKey("Fun fact : ");
+        writer.WriteKeyString("Fun fact : ");
 
         writer.BeginArray();
         bool result = !(bool)writer.EndObject(); // whoops
@@ -485,18 +485,18 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         // Start writing
         using (writer.Object())
         {
-            writer.WriteKey("Hello").WriteString(write);
+            writer.WriteKeyString("Hello").WriteString(write);
 
             // Me thinks this next code can do a mistake
             Assert.AreEqual(0, writer.PushState(), "Must push state at index 0");
             {
-                writer.WriteKey(write); // Do this for lulz
-                writer.WriteKey("");    // This may help flush it, so write empty
+                writer.WriteKeyString(write); // Do this for lulz
+                writer.WriteKeyString("");    // This may help flush it, so write empty
             }
             Assert.AreEqual(0, writer.PopState(), "Must pop state at index 0");
             Assert.That.IsNullOrEmpty(writer.Error, "Error must be null");
 
-            Assert.IsTrue((bool)writer.WriteKey(Key2).WriteLong(Val2, Val2Fmt), "Write must be successful.");
+            Assert.IsTrue((bool)writer.WriteKeyString(Key2).WriteLong(Val2, Val2Fmt), "Write must be successful.");
         }
         Assert.That.IsNullOrEmpty(writer.Error, "Error must be null");
 
@@ -549,8 +549,8 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
             writer.BeginObject();
 
             // Test WriteKey twice
-            writer.WriteKey("aaa");
-            writer.WriteKey("bbb");
+            writer.WriteKeyString("aaa");
+            writer.WriteKeyString("bbb");
             Assert.That.IsNotNullOrEmpty(writer.Error);
             writer.BeginObject();
             Assert.That.IsNotNullOrEmpty(writer.Error);
@@ -558,10 +558,10 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
             // Test WriteKey on array
             writer.Reset();
             writer.BeginObject();
-            writer.WriteKey("array");
+            writer.WriteKeyString("array");
             using (writer.Array())
             {
-                writer.WriteKey("keys on my array? it's more likely than you think");
+                writer.WriteKeyString("keys on my array? it's more likely than you think");
                 Assert.That.IsNotNullOrEmpty(writer.Error);
             }
 

@@ -54,7 +54,7 @@ namespace BX.SJ.Tests.Examples
                 writer.WriteLong(3);
                 using (writer.Object())
                 {
-                    writer.WriteKey("don't").WriteString("mind me");
+                    writer.WriteKeyString("don't").WriteString("mind me");
                     writer.WriteComment("yeah don't it's normal", hasNextValue: true);
                 }
                 writer.WriteLong(4);
@@ -111,12 +111,12 @@ namespace BX.SJ.Tests.Examples
             {
                 // Custom types:
                 // ↓ "smolNumber": (Int16)-32767
-                writer.WriteKey("smolNumber");
+                writer.WriteKeyString("smolNumber");
                 writer.WriteType(nameof(Int16));
                 writer.WriteLong(ushort.MinValue);
 
                 // ↓ "prettyColor": (Color)[81, 43, 212]
-                writer.WriteKey("prettyColor");
+                writer.WriteKeyString("prettyColor");
                 writer.WriteType("Color");
                 using (writer.Array())
                 {
@@ -127,13 +127,13 @@ namespace BX.SJ.Tests.Examples
 
                 // Assume that there's a type enum with type codes
                 // ↓ "mappedType": (0xC0DE){ ... }
-                writer.WriteKey("mappedType");
+                writer.WriteKeyString("mappedType");
                 writer.WriteType(0xC0DE, "X");
                 using (writer.Object())
                 {
-                    writer.WriteKey("privateKey").Write(4);
-                    writer.WriteKey("security").Write(true);
-                    writer.WriteKey("dontHack").Write("yes on");
+                    writer.WriteKeyString("privateKey").Write(4);
+                    writer.WriteKeyString("security").Write(true);
+                    writer.WriteKeyString("dontHack").Write("yes on");
                 }
 
                 // Types can be applied to keys and values as well
@@ -144,7 +144,7 @@ namespace BX.SJ.Tests.Examples
                 writer.WriteNumber(1e+24);
 
                 // Types with invalid characters can be stringified (with escapes)
-                writer.WriteKey("cSharpObject");
+                writer.WriteKeyString("cSharpObject");
                 writer.WriteType(typeof(object).AssemblyQualifiedName, true);
                 writer.WriteNull(); // :shrug:
             }

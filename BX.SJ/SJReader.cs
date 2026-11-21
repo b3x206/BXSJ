@@ -124,23 +124,29 @@ namespace BX.SJ
                 get => end - start;
             }
 
+            public readonly bool TrySlice(out ReadOnlySpan<char> s)
+            {
+                s = default;
+                if (Length < 0) return false;
+                if (reader?.disposedValue ?? true) return false;
+
+                try
+                {
+                    s = reader.Data.SliceU16(start, end - start);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice()
             {
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
+                if (reader?.disposedValue ?? true) throw new InvalidOperationException("Value's owner is disposed or null.");
+
                 return reader.Data.SliceU16(start, end - start);
-            }
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> Slice(int start)
-            {
-                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.Data.SliceU16(this.start + start, Length - start);
-            }
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> Slice(int start, int length)
-            {
-                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                return reader.Data.SliceU16(this.start + start, length);
             }
 
             public override readonly string ToString()
@@ -162,7 +168,7 @@ namespace BX.SJ
             public struct Stacked
             {
                 public readonly SJType type;
-                public int valueCount;
+                public int count;
                 public Expect expect;
                 public readonly bool Invalid => type switch
                 {
@@ -180,13 +186,13 @@ namespace BX.SJ
                         _ => throw new ArgumentException("Supplied stateful type must be Object or Array only", nameof(type))
                     };
                     this.expect = expect;
-                    valueCount = 0;
+                    count = 0;
                 }
 
                 public override readonly string ToString()
                 {
                     if (Invalid) return "invalid";
-                    return $"type={type}, valueCount={valueCount}, expect={expect}";
+                    return $"type={type}, valueCount={count}, expect={expect}";
                 }
             }
 
@@ -342,6 +348,7 @@ namespace BX.SJ
             get => _Data;
             set
             {
+                CheckDisposed();
                 if (ReferenceEquals(_Data, value)) return;
 
                 _Data = value ?? throw new ArgumentNullException(nameof(value));
@@ -420,10 +427,10 @@ namespace BX.SJ
         public const string TrueLiteral = "true";
         public const string FalseLiteral = "false";
         public const string NullLiteral = "null";
-        public const int TrueLiteralId = 0;
-        public const int FalseLiteralId = 1;
-        public const int NullLiteralId = 2;
-        public static readonly string[] readerLiterals = new string[]
+        private const int TrueLiteralId = 0;
+        private const int FalseLiteralId = 1;
+        private const int NullLiteralId = 2;
+        private static readonly string[] readerLiterals = new string[]
         {
             /* TrueLiteralId  */ TrueLiteral,
             /* FalseLiteralId */ FalseLiteral,
@@ -461,7 +468,7 @@ namespace BX.SJ
                     default:
                         // Match the rest
                         if (ci < l.Length && l[ci++] != c) return -1; // Current character does not match
-                        if (ci >= l.Length)                return mc; // Must stop before going to the next character.
+                        if (ci >= l.Length) return mc; // Must stop before going to the next character.
                         break;
                 }
             }
@@ -703,13 +710,13 @@ namespace BX.SJ
                     }
                     else
                     {
-                        cs.valueCount++;
+                        cs.count++;
                         cs.expect &= ~Expect.Colon;
                         cs.expect |= Expect.Comma | Expect.Key;
                     }
                     break;
                 case SJType.Array:
-                    cs.valueCount++;
+                    cs.count++;
                     cs.expect |= Expect.Comma;
                     break;
                 default:
@@ -749,7 +756,7 @@ namespace BX.SJ
         }
         private void CheckDisposed()
         {
-            if (disposedValue) throw new InvalidOperationException("Attempt to read from a disposed SJReader.");
+            if (disposedValue) throw new InvalidOperationException("Attempt to use a disposed SJReader.");
         }
         public void CheckVersion()
         {
@@ -926,7 +933,7 @@ namespace BX.SJ
                     Error = (ch == '}') ? "Stray '}'" : "Stray ']'";
                     goto _Top;
                 }
-                if (st.valueCount > 0)
+                if (st.count > 0)
                 {
                     if ((st.expect & Expect.Comma) != Expect.Comma && !allowTrailingComma)
                     {
@@ -1136,7 +1143,7 @@ namespace BX.SJ
                 case SJType.Comment:
                     return true;
                 default:
-                    stHandle.Value.valueCount++;
+                    stHandle.Value.count++;
                     return true;
             }
         }
@@ -1203,7 +1210,7 @@ namespace BX.SJ
                 case SJType.Comment:
                     return true;
                 default:
-                    stHandle.Value.valueCount++;
+                    stHandle.Value.count++;
                     return true;
             }
         }
@@ -1339,13 +1346,15 @@ namespace BX.SJ
         /// </summary>
         /// <returns>
         /// The index of the pushed state.
-        /// For any other SJReader with it's own state, this can be used to write it into it's own index like:
+        /// For any other thing with it's own state managing a SJReader, this can be used to write it into it's own index like:
         /// <br><c>result := <see cref="PushState"/>; myStack[result] = otherState;</c></br>
         /// </returns>
         /// <exception cref="ReaderException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
         public int PushState()
         {
+            CheckDisposed();
+
             if (_StData == null)
             {
                 Error = "Data source does not support stacking, it must implement stackability interface.";
@@ -1357,7 +1366,7 @@ namespace BX.SJ
             // Immutability would be "great", but then there is the problem of being able to
             // reuse the data, which is what I want rather than to allocate objects every read.
             CheckVersion();
-            CheckDisposed();
+
             var handle = _stateStack.Push(false);
             if (handle.IsStub) return -1;
 
@@ -1374,13 +1383,15 @@ namespace BX.SJ
         /// </summary>
         /// <returns>
         /// The index of the loaded state.
-        /// For any other SJReader with it's own state, this can be used to read from it's own index like:
+        /// For any other thing with it's own state managing a SJReader, this can be used to read from it's own index like:
         /// <br><c>result := <see cref="PopState"/>; otherState = myStack[result];</c></br>
         /// </returns>
         /// <exception cref="ReaderException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
         public int PopState()
         {
+            CheckVersion();
+
             if (_StData == null)
             {
                 Error = "Data source does not support stacking, it must implement stackability interface.";
@@ -1389,7 +1400,6 @@ namespace BX.SJ
 
             // This can reset the state. If that is the case, popping state should also perhaps roll back to the previous data?
             // Currently, the state stack will reset and nothing will be popped instead.
-            CheckVersion();
             CheckDisposed();
             if (_stateStack.Count <= 0) return -1;
             _stateStack.PopValue().CopyTo(ref S);

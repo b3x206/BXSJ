@@ -249,7 +249,7 @@ public static class ReaderTester
         };
     }
 
-    public static void IterateWithHandler(SJReader reader, SJReader.Value root, Action<SJReader, SJReader.Value>? valueHandler, bool throwError = true)
+    public static bool ReadWithHandler(SJReader reader, SJReader.Value root, Func<SJReader, SJReader.Value, bool>? valueHandler, bool throwError = true)
     {
         switch (root.type)
         {
@@ -279,7 +279,7 @@ public static class ReaderTester
                 {
                     while (reader.IterateArrayEntries(root, out var v))
                     {
-                        IterateWithHandler(reader, v, valueHandler, throwError);
+                        if (!ReadWithHandler(reader, v, valueHandler, throwError)) return false;
                     }
                     if (!string.IsNullOrEmpty(reader.Error))
                     {
@@ -291,7 +291,7 @@ public static class ReaderTester
                 {
                     while (reader.IterateObjectEntries(root, out var v))
                     {
-                        IterateWithHandler(reader, v, valueHandler, throwError);
+                        if (!ReadWithHandler(reader, v, valueHandler, throwError)) return false;
                     }
                     if (!string.IsNullOrEmpty(reader.Error))
                     {
@@ -335,11 +335,11 @@ public static class ReaderTester
                 }
         }
 
-        valueHandler?.Invoke(reader, root);
+        return valueHandler?.Invoke(reader, root) ?? true;
     }
-    public static void IterateWithHandler(SJReader reader, Action<SJReader, SJReader.Value>? valueHandler, bool throwError = true)
+    public static void ReadWithHandler(SJReader reader, Func<SJReader, SJReader.Value, bool>? valueHandler, bool throwError = true)
     {
-        for (var v = reader.Read(); !reader.S.ended; v = reader.Read()) IterateWithHandler(reader, v, valueHandler, throwError);
+        for (var v = reader.Read(); !reader.S.ended; v = reader.Read()) ReadWithHandler(reader, v, valueHandler, throwError);
     }
 
     public static void ReadInnerTokens(StringBuilder sb, SJReader reader, SJReader.Value root, bool throwError = true)

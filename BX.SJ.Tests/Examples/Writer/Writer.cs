@@ -48,7 +48,7 @@
             {
                 // You must write key the following way:
                 // 1 (recommended) :
-                writer.WriteKey("key");
+                writer.WriteKeyString("key");
                 // 2 (does the same thing as WriteKey if a key is needed):
                 // writer.WriteString("key");
                 // 3 (not recommended, if your key is null object you will get an error instead):
@@ -60,7 +60,7 @@
                 writer.Write("my nice value");
                 // If you end your object without writing a "value" after a "key" was written, you will cause an error so beware.
                 // You can also alternatively use:
-                writer.WriteKey("other key").WriteString("other nice value");
+                writer.WriteKeyString("other key").WriteString("other nice value");
                 // ↑ Though you should make sure that you are in a object or
                 //   not expecting a value before doing this.
 
@@ -77,7 +77,7 @@
                     }
 
                     // Now I fail math. But dw I don't hate it, because I'm not a mathmetician
-                    writer.WriteKey("currently");
+                    writer.WriteKeyString("currently");
                     writer.WriteNull();
                 }
             } // writer.EndObject();

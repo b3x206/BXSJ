@@ -27,10 +27,12 @@ namespace BX.SJ.Tests.Examples
             private SJReader.Value _Value;
             public SJReader.Value Value => _Value;
             private readonly Lazy<List<SJReader.Value>> _Values = new Lazy<List<SJReader.Value>>();
-            public SJReader.Value NonMetaValue => this.FirstOrDefault(v => v.type
-                switch
-            { SJType.Comment => false, SJType.Type => false, _ => true }
-            );
+            public SJReader.Value NonMetaValue => this.FirstOrDefault(v => v.type switch
+            {
+                SJType.Comment => false,
+                SJType.Type => false,
+                _ => true
+            });
 
             public int Count { get; private set; }
 

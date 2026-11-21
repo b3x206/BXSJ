@@ -191,6 +191,8 @@ namespace BX.SJ
         }
 
         public const int DefaultMaxDepth = 128;
+        public const string DefaultNumberFormat = "G";
+
         // settings
         /// <summary>
         /// The indent size to use. If this is 0 or less, no pretty printing is done.
@@ -859,55 +861,59 @@ namespace BX.SJ
         /// Write a key, while <see cref="s.expect"/> has <see cref="Expect.Key"/>.
         /// </summary>
         /// <remarks>
-        /// Base implementation <b>does not check duplicate keys for the time being within the depth..</b>
+        /// Current implementation <b>does not check duplicate keys for the time being within the depth..</b>
         /// </remarks>
         /// <param name="name">Name of the key entry.</param>
         /// <returns>Whether if the write was successful.</returns>
-        public SJWriter WriteKey(ReadOnlySpan<char> name) => WriteLiteralKey(name, stringify: true);
+        public SJWriter WriteKeyString(ReadOnlySpan<char> name) => WriteLiteralKey(name, stringify: true);
         /// <summary>
         /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
         /// </summary>
-        public SJWriter WriteKeyNumber(float number, string format = "G")
+        public SJWriter WriteKeyNumber(float number, string format = DefaultNumberFormat)
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             // Leaving prefix empty string will disable prefixes
             return WriteFormattedNumber(WriteTarget.Key, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        /// <summary>
-        /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
-        /// </summary>
-        public SJWriter WriteKeyNumber(double number, string format = "G")
+        /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
+        public SJWriter WriteKeyNumber(double number, string format = DefaultNumberFormat)
         {
             static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        /// <summary>
-        /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
-        /// </summary>
-        public SJWriter WriteKeyLong(long number, string format = "G", string prefix = null)
+        /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
+        public SJWriter WriteKeyInt(int number, string format = DefaultNumberFormat, string prefix = null)
+        {
+            static bool TryFormat(int n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
+        }
+        /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
+        public SJWriter WriteKeyUInt(uint number, string format = DefaultNumberFormat, string prefix = null)
+        {
+            static bool TryFormat(uint n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
+        }
+        /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
+        public SJWriter WriteKeyLong(long number, string format = DefaultNumberFormat, string prefix = null)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
-        /// <summary>
-        /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
-        /// </summary>
-        public SJWriter WriteKeyULong(ulong number, string format = "G", string prefix = null)
+        /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
+        public SJWriter WriteKeyULong(ulong number, string format = DefaultNumberFormat, string prefix = null)
         {
             static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
-        /// <summary>
-        /// Write custom boolean key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
-        /// </summary>
+        /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
         public SJWriter WriteKeyBool(bool value) => WriteLiteralKey(value ? SJReader.TrueLiteral : SJReader.FalseLiteral, stringify: false);
-        /// <summary>
-        /// Write custom null key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
-        /// </summary>
+        /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
         public SJWriter WriteKeyNull() => WriteLiteralKey(SJReader.NullLiteral, stringify: false);
 
         /// <summary>
@@ -967,25 +973,37 @@ namespace BX.SJ
             return Self();
         }
         public SJWriter WriteString(ReadOnlySpan<char> value) => WriteLiteralValue(value, stringify: true);
-        public SJWriter WriteNumber(float number, string format = "G")
+        public SJWriter WriteNumber(float number, string format = DefaultNumberFormat)
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        public SJWriter WriteNumber(double number, string format = "G")
+        public SJWriter WriteNumber(double number, string format = DefaultNumberFormat)
         {
             static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        public SJWriter WriteLong(long number, string format = "G", string prefix = null)
+        public SJWriter WriteInt(int number, string format = DefaultNumberFormat, string prefix = null)
+        {
+            static bool TryFormat(int n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
+        }
+        public SJWriter WriteUInt(uint number, string format = DefaultNumberFormat, string prefix = null)
+        {
+            static bool TryFormat(uint n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
+        }
+        public SJWriter WriteLong(long number, string format = DefaultNumberFormat, string prefix = null)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
         }
-        public SJWriter WriteULong(ulong number, string format = "G", string prefix = null)
+        public SJWriter WriteULong(ulong number, string format = DefaultNumberFormat, string prefix = null)
         {
             static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
@@ -995,7 +1013,7 @@ namespace BX.SJ
         public SJWriter WriteNull() => WriteLiteralValue(SJReader.NullLiteral);
 
         /// <summary>
-        /// Write a type prefix.
+        /// Write a type prefix. This is only allowed if <see cref="allowTypes"/> is <see langword="true"/>.
         /// </summary>
         /// <param name="type">Type literal or id. Should be a valid character matching <see cref="SJReader.IsTypeLiteralContinuation(char)"/>.</param>
         /// <param name="stringify">Write it as a string value (with '"' quotes) instead of a literal.</param>
@@ -1030,7 +1048,19 @@ namespace BX.SJ
 
             return Self();
         }
-        public SJWriter WriteType(long typeCode, string format = "G")
+        /// <summary>
+        /// <inheritdoc cref="WriteType(ReadOnlySpan{char}, bool)"/>
+        /// </summary>
+        public SJWriter WriteType(int typeCode, string format = DefaultNumberFormat)
+        {
+            static bool TryFormat(int n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
+                n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
+            return WriteFormattedNumber(WriteTarget.Type, typeCode, format, null, TryFormat);
+        }
+        /// <summary>
+        /// <inheritdoc cref="WriteType(ReadOnlySpan{char}, bool)"/>
+        /// </summary>
+        public SJWriter WriteType(long typeCode, string format = DefaultNumberFormat)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
@@ -1038,15 +1068,15 @@ namespace BX.SJ
         }
 
         /// <summary>
-        /// Write a comment for JSON, starting with /* and ending with */.
+        /// Write a comment for JSON, starting with /* and ending with */. This is only allowed if <see cref="allowComments"/> is <see langword="true"/>.
         /// </summary>
         /// <param name="data">Data inside the comment to write. It is padded with spaces by default.</param>
         /// <param name="pad">Padding left and right character to use. Pass 0 to not pad the <paramref name="data"/> with anything. Invalid characters (like '\n') also avoids padding.</param>
         /// <param name="hasNextValue">
         /// <br>To print "prettier", add a trailing comma or colon to the previous value. This will look nicer like</br>
-        /// <c><br>"value": // ...\n</br></c>
-        /// <br>instead of the usual but always valid <c>"value" // ...\n:</c></br>
-        /// <br><b>Set this <see langword="true"/> with caution, as you can produce "invalid" JSC with it.</b></br>
+        /// <c><br>"value": /* ... */\n</br></c>
+        /// <br>instead of the usual but always valid <c>"value" /* ... */\n:</c></br>
+        /// <br><b>Set this <see langword="true"/> with caution, as you can produce invalid results (trailing commas) with it if there is no next value.</b></br>
         /// </param>
         /// <param name="newlineImmediately">Append a \n character after writing multiline comment. Only works with pretty printing.</param>
         /// <returns>Whether if the write was successful.</returns>
@@ -1099,17 +1129,17 @@ namespace BX.SJ
             return this;
         }
         /// <summary>
-        /// Write a comment for JSON, starting with // and ending with newline character
+        /// Write a comment for JSON, starting with // and ending with newline character. This is only allowed if <see cref="allowComments"/> is <see langword="true"/>.
         /// </summary>
         /// <remarks>
-        /// If no pretty printing and writing inside, this calls <see cref="WriteComment"/> instead.
-        /// <br>If no pretty printing, but not writing inside, this will do a new line.</br>
+        /// If not pretty printing and writing inside, this will call <see cref="WriteComment"/> instead. This is because it requires newlines.
+        /// <br>If not pretty printing, but not writing inside, this will add a new line to the root.</br>
         /// </remarks>
         /// <param name="hasNextValue">
         /// <br>To print "prettier", add a trailing comma or colon to the previous value. This will look nicer like</br>
         /// <c><br>["value", // ...\n ... </br></c>
         /// <br>instead of the usual <c>["value" // ...\n,</c></br>
-        /// <br><b>Set this <see langword="true"/> with caution, as you can produce invalid Json (trailing commas) with it.</b></br>
+        /// <br><b>Set this <see langword="true"/> with caution, as you can produce invalid results (trailing commas) with it if there is no next value.</b></br>
         /// </param>
         /// <param name="data">Data inside the comment to write. It is padded with spaces by default.</param>
         /// <param name="prefixPad">Padding prefix character to use. Pass 0 to not pad the <paramref name="data"/> with anything. Invalid characters (like '\n') also avoids padding.</param>
@@ -1159,35 +1189,45 @@ namespace BX.SJ
 
         // These are like "extensions"
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(float number, string format = "R") => WriteNumber(number, format);
+        public SJWriter WriteKey(float number, string format = DefaultNumberFormat) => WriteKeyNumber(number, format);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(double number, string format = "R") => WriteNumber(number, format);
+        public SJWriter WriteKey(double number, string format = DefaultNumberFormat) => WriteKeyNumber(number, format);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(long number, string format = "G", string prefix = null) => WriteLong(number, format, prefix);
+        public SJWriter WriteKey(int number, string format = DefaultNumberFormat, string prefix = null) => WriteKeyInt(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(ulong number, string format = "G", string prefix = null) => WriteULong(number, format, prefix);
+        public SJWriter WriteKey(uint number, string format = DefaultNumberFormat, string prefix = null) => WriteKeyUInt(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(ReadOnlySpan<char> value) => WriteString(value);
-        public SJWriter Write(string value)
-        {
-            // For the case of "Write" without any "info", the string overload is called for `null`
-            // There will be an explicit check only for this. For anything else, null is treated as `default` or `string.Empty`
-            // Because of this, it is suggested not to use `Write` for keys and strings. For anything else, it will work fine.
-            if (value is null)
-            {
-                return WriteNull();
-            }
+        public SJWriter WriteKey(long number, string format = DefaultNumberFormat, string prefix = null) => WriteKeyLong(number, format, prefix);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter WriteKey(ulong number, string format = DefaultNumberFormat, string prefix = null) => WriteKeyULong(number, format, prefix);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter WriteKey(bool value) => WriteKeyBool(value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter WriteKey(ReadOnlySpan<char> value) => WriteKeyString(value);
 
-            return WriteString(value);
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter Write(float number, string format = DefaultNumberFormat) => WriteNumber(number, format);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter Write(double number, string format = DefaultNumberFormat) => WriteNumber(number, format);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter Write(int number, string format = DefaultNumberFormat, string prefix = null) => WriteInt(number, format, prefix);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter Write(uint number, string format = DefaultNumberFormat, string prefix = null) => WriteUInt(number, format, prefix);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter Write(long number, string format = DefaultNumberFormat, string prefix = null) => WriteLong(number, format, prefix);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter Write(ulong number, string format = DefaultNumberFormat, string prefix = null) => WriteULong(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public SJWriter Write(bool value) => WriteBool(value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter Write(ReadOnlySpan<char> value) => WriteString(value);
 
+        // Object/Array scope
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ArrayScope Array() => new ArrayScope(this);
         public ArrayScope ArrayKV(ReadOnlySpan<char> key)
         {
-            WriteKey(key);
+            WriteKeyString(key);
             if (HasError)
             {
                 // No operation is done if key fails.
@@ -1201,7 +1241,7 @@ namespace BX.SJ
         public ObjectScope Object() => new ObjectScope(this);
         public ObjectScope ObjectKV(ReadOnlySpan<char> key)
         {
-            WriteKey(key);
+            WriteKeyString(key);
             if (HasError)
             {
                 // No operation is done if key fails.
