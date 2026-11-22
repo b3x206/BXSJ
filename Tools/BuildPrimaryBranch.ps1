@@ -47,7 +47,7 @@ Param (
     ),
     [string] $TargetDir = '../sj',
     [string] $TargetBranch = 'master|main',
-    [switch] $DryRun
+    [switch] $DryRun,
 )
 
 $ErrorActionPreference = 'Stop'

@@ -6,17 +6,18 @@ namespace BX.SJ.Tests.Impl;
 [TestClass]
 public sealed class EscapeUnitTests
 {
-    static void TestEscapeUnescape(string content)
+    static void TestEscapeUnescape(string? content)
     {
         // The mojibake may occur if "sb" has other chars that may mean something else in the context that it's writing.
         // Make the conditions more realistic in that regard as how it's used, rather than to create the string in isolation.
         const char Pad = '"';
+        int contentLength = content?.Length ?? 0;
         // Content with prefix and postfix
-        var comparedContent = new StringBuilder(content.Length + 2);
+        var comparedContent = new StringBuilder(contentLength + 2);
         comparedContent.Append(Pad).Append(content).Append(Pad);
 
-        var sb = new StringBuilder(content.Length * 2);
-        var sbUnescaped = new StringBuilder(content.Length);
+        var sb = new StringBuilder(contentLength * 2);
+        var sbUnescaped = new StringBuilder(contentLength);
         foreach (var asciiOnly in new[] { false, true })
         {
             sb.Clear(); sbUnescaped.Clear(); // Clear to avoid invalid length
@@ -47,9 +48,10 @@ public sealed class EscapeUnitTests
 
     [TestMethod]
     [DataRow("")]
+    [DataRow(null)]
     [DataRow(EscapeContent)]
     [Timeout(TestTimeouts.Short)]
-    public void TestBasic(string data) => TestEscapeUnescape(data);
+    public void TestBasic(string? data) => TestEscapeUnescape(data);
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
@@ -71,6 +73,27 @@ public sealed class EscapeUnitTests
     public void TestTruncated(string data) => TestEscapeUnescape(data);
 
     [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestNullAppender()
+    {
+        Assert.Throws<ArgumentNullException>(() => SJEscape.Unescape<object?>(null, null, ""));
+        Assert.Throws<ArgumentNullException>(() => SJEscape.Escape<object?>(null, null, ""));
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestAcceptNullSelf()
+    {
+        SJEscape.Unescape<object?>(null, (_, c) => { }, "a");
+        SJEscape.Escape<object?>(null, (_, c) => { }, "a");
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(InvalidEscapeDatas), typeof(TestData))]
+    public void TestInvalid(string data) => TestEscapeUnescape(data);
+
+    [TestMethod]
     [DataRow(EscapeInvalidUnescape)]
     [Timeout(TestTimeouts.Short)]
     public void TestInvalidUnescape(string data)
@@ -79,8 +102,8 @@ public sealed class EscapeUnitTests
     }
 
     [TestMethod]
-    [DataRow(EscapeInvalidUnescape)]
     [Timeout(TestTimeouts.Short)]
+    [DynamicData(nameof(InvalidEscapeDatas), typeof(TestData))]
     public void TestInvalidUnescapeThrows(string data) => 
         Assert.Throws<ArgumentException>(() => SJEscape.Unescape(data, allowInvalidEscapes: false));
 }

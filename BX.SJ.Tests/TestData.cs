@@ -69,11 +69,16 @@ public static class TestData
     // - Escape Data
     public const string EscapeContent = "Quote: \", Backslash: \\, Tab: \t, Newline: \n, Pizza: \uD83C\uDF55, The 🅱 variant: \uD83C\uDD71\uFE0F";
     public const string EscapeInvalidUnescape = "Oh wow, I'm escaping things I shouldn't! : \\a\\b\\c\\d\\e\\f\\g\\h\\i\\j\\k\\l\\m\\n\\o\\p\\q\\r\\s\\t\\u\\v\\w\\x\\y\\z\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O\\P\\Q\\R\\S\\T\\U\\V\\W\\X\\Y\\Z'";
+    public const string EscapeInvalidTrailingBackslash = "Text 1 \\ Some text 2 \\ Third text \\";
     public const string EscapeInvalidSurrogate = "\uDF55\uD83C\uDD71\uD83C\uFE0F In C++, surrogate escape you!";
     public static readonly string EscapeContentAsciiSequence = string.Join("", Enumerable.Range(0, 255).Select(Convert.ToChar));
-    public static readonly string EscapeContentEmojiTest = string.Join('\n', Enumerable.Range(0x2700, 0xBF).Select((v, i) => 
+    public static readonly string EscapeContentEmojiTest = string.Join('\n', Enumerable.Range(0x2700, 0xBF).Select((v, i) =>
         string.Concat(char.ToString((char)v), ((i & 1) == 0) ? "ABCDEFGHIJKLMNOPQRSTUVWXYZ" : "abcdefghijklmnopqrstuvwxyz"))
     );
+    public static IEnumerable<string[]> InvalidEscapeDatas => [
+        [EscapeInvalidUnescape], [EscapeInvalidTrailingBackslash],
+        ["Some text \\u🔥😂©️🟢"], ["\\uGHIJ"], ["\\uG012"], ["\\u0/12"],
+    ];
 
     public const string JsonData1 = @"{
         ""num"":42,

@@ -170,10 +170,11 @@ namespace BX.SJ
                 char cur = content[i];
                 if (cur == '\\')
                 {
-                    i++;
-                    if (i >= content.Length)
+                    if (++i >= content.Length)
                     {
-                        appendAction(self, cur);
+                        if (!allowInvalidEscapes) throw new ArgumentException("Invalid escape sequence, expected a control character.", nameof(content));
+
+                        appendAction(self, '\\');
                         count++;
                         break;
                     }
@@ -220,16 +221,10 @@ namespace BX.SJ
                                 {
                                     cur = content[i];
                                     // Character is within the range
-                                    if (cur >= hex2IntTable.Length)
-                                    {
-                                        break;
-                                    }
+                                    if (cur >= hex2IntTable.Length) break;
                                     // whether if digit is valid
                                     int digit = hex2IntTable[cur];
-                                    if (digit > 0xF)
-                                    {
-                                        break;
-                                    }
+                                    if (digit > 0xF) break;
 
                                     result = (char)((result << 4) | digit);
                                     i++;
@@ -246,14 +241,10 @@ namespace BX.SJ
                                 // otherwise escape \u to u
                                 else
                                 {
-                                    if (!allowInvalidEscapes)
-                                    {
-                                        throw new ArgumentException("Invalid unicode escape sequence", nameof(content));
-                                    }
+                                    if (!allowInvalidEscapes) throw new ArgumentException("Invalid unicode escape sequence", nameof(content));
 
                                     i = start;
-
-                                    appendAction(self, 'u');
+                                    appendAction(self, 'u'); // cur isn't guaranteed to be 'u'
                                     count++;
                                 }
 
@@ -261,10 +252,8 @@ namespace BX.SJ
                             }
 
                         default:
-                            if (!allowInvalidEscapes)
-                            {
-                                throw new ArgumentException($"Bad control character '{cur}'", nameof(content));
-                            }
+                            if (!allowInvalidEscapes) throw new ArgumentException($"Bad control character '{cur}'", nameof(content));
+
                             appendAction(self, cur);
                             count++;
                             continue;

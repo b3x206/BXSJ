@@ -37,7 +37,8 @@ namespace BX.SJ
     {
         // TODO :
         // * (3.1.x) More variant infers
-        //   * Empty = Used for empty object, array and string. ! : This can automate skipping the object, so maybe not
+        //   * Empty = Used for empty object, array and string.
+        //             {!} This can automate skipping the object/array, so use Peek
         //   * More numbers
         None,
 
@@ -84,15 +85,10 @@ namespace BX.SJ
             public SJTypeVariant variant;
             public int start, end;
             /// <summary>
-            /// Object typed value depth of this value. This is used for <see cref="DiscardUntil(int)"/>.
-            /// <br><b>Only applicable when type is <see cref="SJType.Object"/>, 
-            /// <see cref="SJType.Array"/> or <see cref="SJType.End"/>, otherwise it's 0.</b></br>
+            /// <see cref="State.depth"/> of the <see cref="reader"/> while this Value was being created.
+            /// <br>If this is a <see cref="SJType.Object"/> or <see cref="SJType.Array"/>, this is one higher than the actual depth.</br>
             /// </summary>
-            public ushort objectDepth;
-            /// <summary>
-            /// <see cref="SJReader.s.depth"/> of the <see cref="reader"/> while this Value was being created.
-            /// </summary>
-            public readonly ushort depth;
+            public ushort depth;
 
             public Value(SJReader reader)
             {
@@ -100,7 +96,6 @@ namespace BX.SJ
                 type = prevType = SJType.Error;
                 variant = SJTypeVariant.None;
                 start = end = 0;
-                objectDepth = 0;
                 depth = (ushort)(reader?.S.depth ?? 0);
             }
             private Value(SJType stubType, SJReader reader = null)
@@ -109,7 +104,6 @@ namespace BX.SJ
                 type = prevType = stubType;
                 variant = SJTypeVariant.None;
                 start = end = 0;
-                objectDepth = 0;
                 depth = (ushort)(reader?.S.depth ?? 0);
             }
 
@@ -140,6 +134,22 @@ namespace BX.SJ
                     return false;
                 }
             }
+            public readonly ReadOnlySpan<char> TrySlice(ReadOnlySpan<char> fallback) // Reduce codepaths with this simple trick:
+            {
+                if (Length < 0) return fallback;
+                if (reader?.disposedValue ?? true) return fallback;
+
+                try
+                {
+                    return reader.Data.SliceU16(start, end - start);
+                }
+                catch
+                {
+                    return fallback;
+                }
+            }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<char> TrySlice() => TrySlice(fallback: type.ToString()); // Hope enum ToString is interned
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice()
             {
@@ -151,7 +161,7 @@ namespace BX.SJ
 
             public override readonly string ToString()
             {
-                return $"[SJReader.Value] type:{type}, start:{start}, end:{end}, depth:{objectDepth}";
+                return $"[SJReader.Value] type:{type}, start:{start}, end:{end}, depth:{depth}";
             }
         }
 
@@ -299,8 +309,7 @@ namespace BX.SJ
             set
             {
                 _ThrowOnError = value;
-
-                if (_ThrowOnError && !string.IsNullOrEmpty(Error))
+                if (_ThrowOnError && HasError)
                 {
                     ThrowError();
                 }
@@ -704,6 +713,7 @@ namespace BX.SJ
                         }
                         v.prevType = v.type;
                         v.type = SJType.Key;
+                        S.lastEntryKey = v;
 
                         cs.expect &= ~Expect.Key;
                         cs.expect |= Expect.Colon;
@@ -775,13 +785,13 @@ namespace BX.SJ
             CheckVersion();
             ref var s = ref S;
             var result = new Value(this);
-            s.ended = !string.IsNullOrEmpty(Error);
+            s.ended = HasError;
         _Top:
-            if (!string.IsNullOrEmpty(Error))
+            if (HasError)
             {
                 result.type = SJType.Error;
                 result.start = result.end = 0;
-                result.objectDepth = 0;
+                result.depth = 0;
                 return result;
             }
             if (maxDepth > 0 && s.depth > maxDepth)
@@ -800,7 +810,7 @@ namespace BX.SJ
 
                 result.type = SJType.Error;
                 result.start = result.end = Data.Index;
-                result.objectDepth = 0;
+                result.depth = 0;
                 s.ended = true;
                 if (s.depth > 0)
                 {
@@ -841,7 +851,7 @@ namespace BX.SJ
 
                 result.type = SJType.Comment;
                 (result.start, result.end) = GetCommentRange(out result.variant);
-                if (!string.IsNullOrEmpty(Error) || result.start < 0 || result.end <= 0)
+                if (HasError || result.start < 0 || result.end <= 0)
                 {
                     goto _Top;
                 }
@@ -864,7 +874,7 @@ namespace BX.SJ
                 (result.start, result.end) = GetTypeRange(out result.variant);
                 s.notExpectingType = true;
                 s.lastEntryType = result;
-                if (!string.IsNullOrEmpty(Error) || result.start < 0 || result.end <= 0)
+                if (HasError || result.start < 0 || result.end <= 0)
                 {
                     goto _Top;
                 }
@@ -960,7 +970,7 @@ namespace BX.SJ
                 s.stack.PushValue(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
                 prevHandle = prevHandle.Renew(ref s.stack);
 
-                result.objectDepth = (ushort)s.depth;
+                result.depth = (ushort)s.depth;
                 s.notExpectingType = false; // Technically a value entry, just does not update last state.
 
                 if (!UpdateState(ref prevHandle.Value, ref result))
@@ -1087,6 +1097,7 @@ namespace BX.SJ
             s.totalValueCount++;
             return result;
         }
+        // [!] Do not assign any state value on any below method as it's being inferred on Read() and other state management methods.
         /// <summary>
         /// Moves <see cref="State.depth"/> and <see cref="State.current"/> until a depth.
         /// </summary>
@@ -1118,12 +1129,8 @@ namespace BX.SJ
                 return false;
             }
 
-            DiscardUntil(value.objectDepth);
-            // * Must peek before Read()
-            // * Must retain a handle for handling resize cases
-            var stHandle = S.stack.Peek();
+            DiscardUntil(value.depth);
             result = Read();
-            stHandle = stHandle.Renew(ref S.stack);
 
             if (result.type == SJType.Comment)
             {
@@ -1137,13 +1144,7 @@ namespace BX.SJ
                     result = Value.Error(this);
                     return false;
 
-                case SJType.Type:
-                    S.lastEntryType = result;
-                    return true;
-                case SJType.Comment:
-                    return true;
                 default:
-                    stHandle.Value.count++;
                     return true;
             }
         }
@@ -1190,12 +1191,8 @@ namespace BX.SJ
                 return false;
             }
 
-            DiscardUntil(value.objectDepth);
-            // * Must peek before Read()
-            // * Must retain a handle for handling resize cases
-            var stHandle = S.stack.Peek();
+            DiscardUntil(value.depth);
             result = Read();
-            stHandle = stHandle.Renew(ref S.stack);
 
             switch (result.type)
             {
@@ -1204,15 +1201,10 @@ namespace BX.SJ
                     result = Value.Error(this);
                     return false;
 
-                case SJType.Type:
-                    S.lastEntryType = result;
-                    return true;
-                case SJType.Comment:
-                    return true;
                 default:
-                    stHandle.Value.count++;
-                    return true;
+                    break;
             }
+            return true;
         }
         /// <summary>
         /// Iterate <see cref="SJType.Object"/> typed <paramref name="object"/> value.
@@ -1233,13 +1225,15 @@ namespace BX.SJ
             bool gotKey = false; key = default;
             while (IterateObjectEntries(@object, out Value result))
             {
-                if (!string.IsNullOrEmpty(Error)) goto _Fail;
+                if (HasError) goto _Fail;
 
                 switch (result.type)
                 {
                     case SJType.Error:
                     case SJType.End:
                         goto _Fail;
+
+                    // Ignored
                     case SJType.Comment:
                     case SJType.Type:
                         continue;
@@ -1250,10 +1244,7 @@ namespace BX.SJ
                         continue;
 
                     default:
-                        if (!gotKey)
-                        {
-                            key = S.lastEntryKey;
-                        }
+                        if (!gotKey) key = S.lastEntryKey;
                         value = result;
                         return true;
                 }
@@ -1284,7 +1275,9 @@ namespace BX.SJ
         /// <exception cref="InvalidOperationException"></exception>
         public bool PeekEntryCount(Value v, out int values, out int other, int expectCount = -1, bool popStateEvenIfError = false)
         {
+            CheckDisposed();
             CheckVersion();
+
             switch (v.type)
             {
                 case SJType.Array:
@@ -1299,39 +1292,42 @@ namespace BX.SJ
 
             PushState();
             bool result = true;
-
-            DiscardUntil(v.objectDepth);
-            Value innerValue = Read();
-            for (; innerValue.type != SJType.End; DiscardUntil(v.objectDepth), innerValue = Read())
+            try
             {
-                switch (innerValue.type)
+                DiscardUntil(v.depth);
+                Value innerValue = Read();
+                for (; innerValue.type != SJType.End; DiscardUntil(v.depth), innerValue = Read())
                 {
-                    case SJType.Error:
-                        return false;
+                    switch (innerValue.type)
+                    {
+                        case SJType.Error:
+                            return false;
 
-                    case SJType.Type:
-                    case SJType.Comment:
-                        other++;
-                        break;
+                        case SJType.Type:
+                        case SJType.Comment:
+                            other++;
+                            break;
 
-                    case SJType.Key:
-                        // just keys++;
-                        // could write expected count, but if SJ is functioning
-                        // as intended this should not have any problems.
-                        break;
-                    default:
-                        values++;
-                        break;
-                }
+                        case SJType.Key:
+                            // could write expected count, but if SJ is functioning
+                            // as intended this should not have any problems.
+                            break;
+                        default:
+                            values++;
+                            break;
+                    }
 
-                if (expectCount >= 0 && (values > expectCount))
-                {
-                    result = false;
-                    break;
+                    if (expectCount >= 0 && (values > expectCount))
+                    {
+                        result = false;
+                        break;
+                    }
                 }
             }
-
-            if (popStateEvenIfError || !HasError) PopState();
+            finally
+            {
+                if (popStateEvenIfError || !HasError) PopState();
+            }
 
             return result;
         }
@@ -1390,7 +1386,7 @@ namespace BX.SJ
         /// <exception cref="InvalidOperationException"></exception>
         public int PopState()
         {
-            CheckVersion();
+            CheckDisposed();
 
             if (_StData == null)
             {
@@ -1398,9 +1394,8 @@ namespace BX.SJ
                 return -1;
             }
 
-            // This can reset the state. If that is the case, popping state should also perhaps roll back to the previous data?
-            // Currently, the state stack will reset and nothing will be popped instead.
-            CheckDisposed();
+            CheckVersion();
+
             if (_stateStack.Count <= 0) return -1;
             _stateStack.PopValue().CopyTo(ref S);
 
@@ -1452,6 +1447,7 @@ namespace BX.SJ
                 _SlaData = null;
                 S = default;
                 _stateStack = default;
+
                 disposedValue = true;
             }
         }

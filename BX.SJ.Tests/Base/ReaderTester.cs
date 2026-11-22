@@ -270,7 +270,7 @@ public static class ReaderTester
                     // Something distinct to actual "end" is that the depth is set negative though.
                     if (reader.S.ended)
                     {
-                        Assert.IsLessThanOrEqualTo(0, root.objectDepth, "Depth must be zero if ended");
+                        Assert.IsLessThanOrEqualTo(0, root.depth, "Depth must be zero if ended");
                     }
                     break;
                 }
@@ -363,7 +363,7 @@ public static class ReaderTester
                     // Something distinct to actual "end" is that the depth is set negative though.
                     if (reader.S.ended)
                     {
-                        Assert.IsLessThanOrEqualTo(0, root.objectDepth, "Depth must be zero if ended");
+                        Assert.IsLessThanOrEqualTo(0, root.depth, "Depth must be zero if ended");
                     }
                     break;
                 }
@@ -512,7 +512,7 @@ public static class ReaderTester
                     // This can happen if a comment is returned on the root object like "] // a" or "} // a"
                     if (reader.S.ended)
                     {
-                        Assert.IsLessThanOrEqualTo(0, root.objectDepth, "Depth must be zero if ended");
+                        Assert.IsLessThanOrEqualTo(0, root.depth, "Depth must be zero if ended");
                     }
                     break;
                 }

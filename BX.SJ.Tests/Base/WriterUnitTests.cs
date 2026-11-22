@@ -4,13 +4,13 @@ namespace BX.SJ.Tests;
 
 public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
 {
-    // TODO : Organize this better.
+    // TODO : Organize this better and copy it from the ReaderUnitTests.
     public abstract TWriter CreateData();
 
     // Data / State
     private static readonly Type[] _ReadDataConsistencyExceptionTypes = [typeof(NotSupportedException), typeof(InvalidOperationException)];
     /// <summary>
-    /// Exception types expected from your variety of Writer.
+    /// Exception types expected from your variety of Writer if it cannot be read.
     /// </summary>
     public virtual Type[] ReadDataConsistencyExceptionTypes => _ReadDataConsistencyExceptionTypes;
     [TestMethod]
@@ -511,13 +511,6 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         {
             Console.WriteLine($"[!] Did not validate the data, cannot read data from {writer}.");
         }
-    }
-
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public void TestLargeState()
-    {
-        throw new NotImplementedException();
     }
 
     [TestMethod]
