@@ -1,5 +1,5 @@
-﻿using System.Globalization;
-using static BX.SJ.SJReader;
+﻿using Microsoft.Testing.Platform.Extensions.Messages;
+using System.Globalization;
 
 namespace BX.SJ.Tests;
 
@@ -7,13 +7,21 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
 {
     // TODO : Organize this better and copy it from the ReaderUnitTests.
     public abstract TWriter CreateData();
+    public virtual bool CheckIsStackable() => typeof(TWriter).IsAssignableTo(typeof(ISJStateStackable));
+    public virtual bool AssertIsStackable()
+    {
+        bool r = CheckIsStackable();
+        if (!r) Assert.Inconclusive(@$"Cannot test stack related tests on type {typeof(TWriter)} as it does not implement {typeof(ISJStateStackable)}.
+If this warning isn't desired, override this method to return false and remove this line.");
+        return r;
+    }
 
     // Write
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
-    public void TestRootWrite(int indent)
+    public void RootWrite(int indent)
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
@@ -25,7 +33,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
-    public void TestWrite(int indent)
+    public void Write(int indent)
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
@@ -62,7 +70,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Mid)]
-    public void TestWriteEmojiSpam()
+    public void WriteEmojiSpam()
     {
         using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = true;
@@ -79,7 +87,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     // Invalid Write
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestInvalidWrite()
+    public void InvalidWrite()
     {
         // The codepaths are generally the same so I will only test WriteLiteralValue and WriteKey instead
         using var writer = new SJWriter(CreateData());
@@ -131,7 +139,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDefaultNoCustomKey()
+    public void DefaultNoCustomKey()
     {
         const string Message = "Error must exist on default state of writing custom key with a writer";
         using var writer = new SJWriter(CreateData());
@@ -146,7 +154,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDefaultNoTypes()
+    public void DefaultNoTypes()
     {
         const string Message = "Error must exist on default state of writing custom type with a writer";
         using var writer = new SJWriter(CreateData());
@@ -161,7 +169,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDefaultNoComments()
+    public void DefaultNoComments()
     {
         using var writer = new SJWriter(CreateData());
         const string Message = "Error must exist on default state of writing comments with a writer";
@@ -174,10 +182,11 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         writer.WriteCommentLine("A");
         Assert.That.IsNotNullOrEmpty(writer.Error, Message);
     }
+
     // Custom values (WrittenCustomValue) which is checked only by number literals for now are accepted by default.
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestCustomNumberLiterals()
+    public void CustomNumberLiterals()
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = 0;
@@ -208,7 +217,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestCustomKeys()
+    public void CustomKeys()
     {
         using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = true;
@@ -246,7 +255,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestTypes()
+    public void Types()
     {
         using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = false;
@@ -302,13 +311,11 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         writer.WriteType("");
         Assert.That.IsNotNullOrEmpty(writer.Error);
     }
-
-    // JSC
     [TestMethod]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
     [Timeout(TestTimeouts.Short)]
-    public void TestRootJSCWrite(int indent)
+    public void RootComments(int indent)
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
@@ -321,7 +328,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
-    public void TestJSCWrite(int indent)
+    public void Comments(int indent)
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
@@ -358,7 +365,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     [Timeout(TestTimeouts.Short)]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
-    public void TestJSCMatrix(int indent)
+    public void CommentsMatrix(int indent)
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = indent;
@@ -389,10 +396,9 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
             Assert.Inconclusive("[!] Skipping validation of write data as this writer type does not support reading data. If the test has reached here, writing ended without any errors.");
         }
     }
-
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestJSCPadCharacters()
+    public void CommentsPadCharacters()
     {
         using var writer = new SJWriter(CreateData());
         if (!writer.Data.CanRead)
@@ -433,7 +439,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     // Depth / Stacking
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDepth()
+    public void Depth()
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = 4;
@@ -444,7 +450,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestMaxDepth()
+    public void MaxDepth()
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = 4;
@@ -454,7 +460,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestMaxDepthNoExcept()
+    public void MaxDepthNoExcept()
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = 4;
@@ -478,7 +484,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestStack()
+    public void Stack()
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = 3;
@@ -488,7 +494,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestStackNoExcept()
+    public void StackNoExcept()
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = 4;
@@ -505,7 +511,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     public virtual Type[] ReadDataConsistencyExceptionTypes => _ReadDataConsistencyExceptionTypes;
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestReadDataConsistency()
+    public void ReadDataConsistency()
     {
         using var writer = new SJWriter(CreateData());
         // Buffered objects may struggle with converting representation to string.
@@ -636,5 +642,67 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         {
             Console.WriteLine($"[!] Did not validate the data, cannot read data from {writer}. Otherwise completed w/o errors.");
         }
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(16)]
+    [DataRow(SJWriter.DefaultMaxDepth)]
+    public void MaxStateStacking(int count)
+    {
+        using var writer = new SJWriter(CreateData())
+        {
+            maxDepth = 0,           // Disable depth checks
+            MaxStateCount = count,
+        };
+
+        for (int i = 0; i < count; i++)
+        {
+            Assert.AreEqual(i, writer.PushState());
+            writer.BeginArray(); // Object needs keys
+        }
+        for (int i = count - 1; i >= 0; i--)
+        {
+            Assert.AreEqual(i, writer.S.depth);
+            Assert.AreEqual(i, writer.PopState());
+        }
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    [DataRow(1)]
+    [DataRow(16)]
+    [DataRow(SJReader.DefaultMaxDepth)]
+    public void InvalidStateStacking(int count)
+    {
+        if (!AssertIsStackable()) return;
+
+        using var r = new SJWriter(CreateData())
+        {
+            MaxStateCount = count,
+        };
+
+        // Stacking does not set error.
+        for (int i = 0; i < count; i++) r.PushState();
+        Assert.AreNotEqual(count, r.PushState(), "Expected to return an error value that isn't equal to the next expected value.");
+
+        for (int i = 0; i < count; i++) r.PopState();
+        Assert.AreNotEqual(0, r.PopState(), "Expected to return an error value that isn't equal to the next expected value.");
+    }
+    public virtual void WithUnstackableType()
+    {
+        if (CheckIsStackable())
+        {
+            // Technically inconclusive, but should "pass".
+            Assert.Inconclusive($"Cannot test as type {typeof(TWriter)} is stackable.");
+            return;
+        }
+
+        using var r = new SJWriter(CreateData())
+        {
+            ThrowOnError = true
+        };
+        Assert.Throws<SJReader.ReaderException>(() => r.PushState());
+        Assert.Throws<SJReader.ReaderException>(() => r.PopState());
     }
 }

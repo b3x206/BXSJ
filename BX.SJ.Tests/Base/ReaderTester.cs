@@ -623,12 +623,12 @@ public static class ReaderTester
     }
 
     // With data provider
-    public static StringBuilder ReadWithTokens<TData>(TData data, bool jsc = false)
+    public static StringBuilder ReadWithTokens<TData>(TData data, bool jsc = false, bool throwError = true)
         where TData : ISJDataReader
     {
         using var r = new SJReader(data);
         r.allowComments = jsc;
-        return ReadWithTokens(r);
+        return ReadWithTokens(r, throwError);
     }
     public static StringBuilder Read<TData>(TData data, bool jsc = false, bool indents = false, bool typePrefix = false)
         where TData : ISJDataReader
