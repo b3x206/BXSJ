@@ -65,9 +65,9 @@
                 //   not expecting a value before doing this.
 
                 // It is possible to nest objects. It will also be auto indented too with pretty printing:
-                using (writer.ObjectKV("numbers that i like"))
+                using (writer.ObjectWithKey("numbers that i like"))
                 {
-                    using (writer.ArrayKV("in childhood"))
+                    using (writer.ArrayWithKey("in childhood"))
                     {
                         writer
                             .Write(3.141592) // Larp ~~pro max~~ duo

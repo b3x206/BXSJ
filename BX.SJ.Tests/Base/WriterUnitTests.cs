@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using static BX.SJ.SJReader;
 
 namespace BX.SJ.Tests;
 
@@ -6,99 +7,6 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
 {
     // TODO : Organize this better and copy it from the ReaderUnitTests.
     public abstract TWriter CreateData();
-
-    // Data / State
-    private static readonly Type[] _ReadDataConsistencyExceptionTypes = [typeof(NotSupportedException), typeof(InvalidOperationException)];
-    /// <summary>
-    /// Exception types expected from your variety of Writer if it cannot be read.
-    /// </summary>
-    public virtual Type[] ReadDataConsistencyExceptionTypes => _ReadDataConsistencyExceptionTypes;
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public void TestReadDataConsistency()
-    {
-        using var writer = new SJWriter(CreateData());
-        // Buffered objects may struggle with converting representation to string.
-        writer.ThrowOnError = true;
-        using (writer.Object())
-        {
-            Assert.IsTrue(WriterTester.WriteTest(writer), "Writing must go without any errors");
-
-            using (writer.ArrayKV("array"))
-            {
-                Assert.IsTrue(WriterTester.WriteTest(writer), "Writing must go without any errors");
-            }
-        }
-
-        if (!writer.Data.CanRead)
-        {
-            try
-            {
-                writer.Data.ReadWritten();
-            }
-            catch (Exception ex) when (ReadDataConsistencyExceptionTypes.Contains(ex.GetType()))
-            {
-                Console.WriteLine($"Caught false Data.CanRead exception '{ex}'");
-            }
-        }
-        else
-        {
-            // Reading written data must equal written count
-            Assert.AreEqual(writer.Data.Count, writer.Data.ReadWritten().Length);
-        }
-    }
-
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public virtual void TestResetClearsState()
-    {
-        static void ValidateResetState(SJWriter w)
-        {
-            Assert.That.IsNullOrEmpty(w.Error, "Error state must reset on Reset");
-            Assert.AreEqual(0, w.Data.Count, "Writer count must be zero after reset");
-            Assert.AreEqual(0, w.S.depth, "Writer depth must be zero after reset");
-            Assert.AreEqual(SJWriter.Expect.None, w.S.expect, "Writer expectation must be none for root");
-            Assert.AreEqual(SJWriter.FormatExpect.None, w.S.fmtExpect, "Writer format expectation must be none for root");
-            Assert.IsFalse(w.S.ended, "Writer finish state must be false");
-            Assert.IsFalse(w.S.WrittenComment, "Writer comment state must be false");
-            Assert.IsFalse(w.S.WrittenCustomKey, "Writer custom key state must be false");
-            Assert.IsFalse(w.S.WrittenCustomValue, "Writer custom value state must be false");
-            Assert.IsFalse(w.S.WrittenType, "Writer custom value state must be false");
-        }
-
-        using var writer = new SJWriter(CreateData());
-        writer.ThrowOnError = false;
-        writer.allowComments = true;
-        writer.allowOtherKeyTypes = true;
-        writer.indentSize = 4;
-
-        using (writer.Object())
-        {
-            using (writer.ArrayKV("What is the private key?"))
-            {
-                // TODO : Add other keys and write in 384 bit format :)
-                writer.WriteLong(4, format: "x");
-                Assert.IsTrue(writer.S.WrittenCustomValue, "Custom value was written, but the state hasn't changed.");
-                writer.WriteString("Just pick your favourite numbers <= 256! byte.MaxValue is plenty safe.");
-            }
-
-            writer.WriteCommentLine("Is it true?", hasNextValue: true);
-            Assert.IsTrue(writer.S.WrittenComment, "Comment was written, but the state hasn't changed.");
-
-            writer.WriteKeyBool(true);
-            writer.WriteBool(true);
-            Assert.IsTrue(writer.S.WrittenCustomKey, "Custom key was written, but the state hasn't changed.");
-        }
-
-        // Cause error
-        writer.WriteNumber(123);
-        Assert.That.IsNotNullOrEmpty(writer.Error);
-
-        // Reset and validate anything that could have potentially changed
-        writer.Reset();
-        ValidateResetState(writer);
-
-    }
 
     // Write
     [TestMethod]
@@ -129,7 +37,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
             // Though ThrowOnError is true, so :shrug:
             Assert.IsTrue(WriterTester.WriteTest(writer), "Writing must go without any errors");
 
-            using (writer.ArrayKV("test on le array"))
+            using (writer.ArrayWithKey("test on le array"))
             {
                 Assert.IsTrue(WriterTester.WriteTest(writer), "Writing must go without any errors");
             }
@@ -171,19 +79,105 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     // Invalid Write
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDefaultNoCustomKey()
+    public void TestInvalidWrite()
     {
+        // The codepaths are generally the same so I will only test WriteLiteralValue and WriteKey instead
         using var writer = new SJWriter(CreateData());
-        const string Message = "Error must exist on default state of writing custom key with a writer";
         writer.ThrowOnError = false;
 
-        using (writer.Object()) { writer.WriteKeyNumber(1.2424f); writer.Write("yes"); }
+        using (writer.Object())
+        {
+            // Mess up the KV order
+            writer.Write(3.141592);
+            Assert.That.IsNotNullOrEmpty(writer.Error);
+
+            writer.Reset(); // Resetting within an object scope that is successful will call "EndObject" and fail the object.
+            writer.BeginObject(); // So start an object to not cause that
+                                  // ?? : Perhaps each scope can hold "version" (which changes with every write)
+                                  //      of the writer to avoid this footgun? (the versions are checked in the writer as well?)
+                                  //      To avoid this, I need to store the version on the scope and the stack and then match the versions (or whether if the version is present on the stack at all. Which is more code so meh).
+
+            // ↓ This one will completely fail, unlike the object that has partially succeeded.
+            using (writer.Array()) { }
+            Assert.That.IsNotNullOrEmpty(writer.Error);
+
+            // And it will error out with EndObject. Not that it matters
+            writer.Reset();
+            writer.BeginObject();
+
+            // Test WriteKey twice
+            writer.WriteKey("aaa");
+            writer.WriteKey("bbb");
+            Assert.That.IsNotNullOrEmpty(writer.Error);
+            writer.BeginObject();
+            Assert.That.IsNotNullOrEmpty(writer.Error);
+
+            // Test WriteKey on array
+            writer.Reset();
+            writer.BeginObject();
+            writer.WriteKey("array");
+            using (writer.Array())
+            {
+                writer.WriteKey("keys on my array? it's more likely than you think");
+                Assert.That.IsNotNullOrEmpty(writer.Error);
+            }
+
+            writer.Reset();
+        }
+
+        Console.WriteLine($"Error present : {writer.Error}");
+        writer.Reset();
+        Assert.That.IsNullOrEmpty(writer.Error);
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestDefaultNoCustomKey()
+    {
+        const string Message = "Error must exist on default state of writing custom key with a writer";
+        using var writer = new SJWriter(CreateData());
+        writer.ThrowOnError = false;
+
+        using (writer.Object())
+        {
+            writer.WriteKey(1.2424f);
+            writer.Write("yes");
+        }
+        Assert.That.IsNotNullOrEmpty(writer.Error, Message);
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestDefaultNoTypes()
+    {
+        const string Message = "Error must exist on default state of writing custom type with a writer";
+        using var writer = new SJWriter(CreateData());
+        writer.ThrowOnError = false;
+
+        using (writer.Object())
+        {
+            writer.WriteKey("Foo");
+            writer.WriteType("YesType").Write("yes");
+        }
+        Assert.That.IsNotNullOrEmpty(writer.Error, Message);
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestDefaultNoComments()
+    {
+        using var writer = new SJWriter(CreateData());
+        const string Message = "Error must exist on default state of writing comments with a writer";
+        writer.ThrowOnError = false;
+
+        writer.WriteComment("A");
+        Assert.That.IsNotNullOrEmpty(writer.Error, Message);
+
+        writer.Reset();
+        writer.WriteCommentLine("A");
         Assert.That.IsNotNullOrEmpty(writer.Error, Message);
     }
     // Custom values (WrittenCustomValue) which is checked only by number literals for now are accepted by default.
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public virtual void TestCustomNumberLiterals()
+    public void TestCustomNumberLiterals()
     {
         using var writer = new SJWriter(CreateData());
         writer.indentSize = 0;
@@ -214,7 +208,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public virtual void TestCustomKeys()
+    public void TestCustomKeys()
     {
         using var writer = new SJWriter(CreateData());
         writer.ThrowOnError = true;
@@ -250,23 +244,66 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
             writer.Reset();
         }
     }
-
-    // JSC
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public void TestDefaultNoComments()
+    public void TestTypes()
     {
         using var writer = new SJWriter(CreateData());
-        const string Message = "Error must exist on default state of writing comments with a writer";
         writer.ThrowOnError = false;
+        writer.allowTypes = true;
+        writer.indentSize = 0;
 
-        writer.WriteComment("A");
-        Assert.That.IsNotNullOrEmpty(writer.Error, Message);
+        const string Type1 = "Hello", Type2 = "World", Type3 = "SJ", Type4 = "Escaped\"",
+            Key1 = "Lorem", Value1 = "Ipsum",
+            Key2 = "Dolor", Value2 = "Sit amet",
+            Key3 = "Consectetur", Value3 = "Adipiscing elit";
 
+        // * There cannot be two consecutive types
+        writer.WriteType(Type1);
+        writer.WriteType(Type2);
+        Assert.That.IsNotNullOrEmpty(writer.Error);
         writer.Reset();
-        writer.WriteCommentLine("A");
-        Assert.That.IsNotNullOrEmpty(writer.Error, Message);
+
+        // * Root can have type
+        writer.WriteType("Hello");
+        using (writer.Object())
+        {
+            // * Key can have type
+            Assert.IsTrue((bool)writer
+                .WriteType(Type1).WriteKey(Key1)
+                .Write(Value1)
+            );
+            // * Value can have type
+            Assert.IsTrue((bool)writer
+                .WriteKey(Key2).WriteType(Type2)
+                .Write(Value2)
+            );
+            // * Both can have type
+            Assert.IsTrue((bool)writer
+                .WriteType(Type3).WriteKey(Key3)
+                .WriteType(Type4, true).Write(Value3)
+            );
+        }
+
+        // Assert data to equal:
+        static string E(string s) => SJEscape.Escape(s);
+        string expectedData =
+            $"(Hello){{({Type1})\"{E(Key1)}\":\"{E(Value1)}\"," +
+            $"\"{E(Key2)}\":({Type2})\"{Value2}\"," +
+            $"({Type3})\"{E(Key3)}\":(\"{E(Type4)}\")\"{E(Value3)}\"" +
+            $"}}";
+        if (writer.Data.CanRead)
+        {
+            Assert.AreEqual(expectedData, writer.Data.ReadWritten());
+        }
+
+        // * Cannot write type after ended
+        Assert.That.HasFlag(writer.S.expect, SJWriter.Expect.NotType);
+        writer.WriteType("");
+        Assert.That.IsNotNullOrEmpty(writer.Error);
     }
+
+    // JSC
     [TestMethod]
     [DataRow(0, DisplayName = "Indent 0 (No pretty print)")]
     [DataRow(4, DisplayName = "Indent 4")]
@@ -295,7 +332,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         {
             Assert.IsTrue(WriterTester.WriteTestComments(writer), "Writing must go without any errors");
 
-            using (writer.ArrayKV("array"))
+            using (writer.ArrayWithKey("array"))
             {
                 Assert.IsTrue(WriterTester.WriteTestComments(writer), "Writing must go without any errors");
             }
@@ -332,7 +369,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         {
             WriterTester.WriteTestJSCMatrix(writer);
 
-            using (writer.ArrayKV("array"))
+            using (writer.ArrayWithKey("array"))
             {
                 WriterTester.WriteTestJSCMatrix(writer);
             }
@@ -431,7 +468,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
     {
         writer.BeginObject();
 
-        writer.WriteKeyString("Fun fact : ");
+        writer.WriteKey("Fun fact : ");
 
         writer.BeginArray();
         bool result = !(bool)writer.EndObject(); // whoops
@@ -459,8 +496,98 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         Assert.IsTrue(TestStackWith(writer), "Stack test must fail");
         Assert.That.IsNotNullOrEmpty(writer.Error, "Writer should have an error set after failing");
     }
-    public TestContext? TestContext { get; set; }
+
     // State
+    private static readonly Type[] _ReadDataConsistencyExceptionTypes = [typeof(NotSupportedException), typeof(InvalidOperationException)];
+    /// <summary>
+    /// Exception types expected from your variety of Writer if it cannot be read.
+    /// </summary>
+    public virtual Type[] ReadDataConsistencyExceptionTypes => _ReadDataConsistencyExceptionTypes;
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void TestReadDataConsistency()
+    {
+        using var writer = new SJWriter(CreateData());
+        // Buffered objects may struggle with converting representation to string.
+        writer.ThrowOnError = true;
+        using (writer.Object())
+        {
+            Assert.IsTrue(WriterTester.WriteTest(writer), "Writing must go without any errors");
+
+            using (writer.ArrayWithKey("array"))
+            {
+                Assert.IsTrue(WriterTester.WriteTest(writer), "Writing must go without any errors");
+            }
+        }
+
+        if (!writer.Data.CanRead)
+        {
+            try
+            {
+                writer.Data.ReadWritten();
+            }
+            catch (Exception ex) when (ReadDataConsistencyExceptionTypes.Contains(ex.GetType()))
+            {
+                Console.WriteLine($"Caught false Data.CanRead exception '{ex}'");
+            }
+        }
+        else
+        {
+            // Reading written data must equal written count
+            Assert.AreEqual(writer.Data.Count, writer.Data.ReadWritten().Length);
+        }
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public virtual void TestResetClearsState()
+    {
+        static void ValidateResetState(SJWriter w)
+        {
+            Assert.That.IsNullOrEmpty(w.Error, "Error state must reset on Reset");
+            Assert.AreEqual(0, w.Data.Count, "Writer count must be zero after reset");
+            Assert.AreEqual(0, w.S.depth, "Writer depth must be zero after reset");
+            Assert.AreEqual(SJWriter.Expect.None, w.S.expect, "Writer expectation must be none for root");
+            Assert.AreEqual(SJWriter.FormatExpect.None, w.S.fmtExpect, "Writer format expectation must be none for root");
+            Assert.IsFalse(w.S.ended, "Writer finish state must be false");
+            Assert.IsFalse(w.S.WrittenComment, "Writer comment state must be false");
+            Assert.IsFalse(w.S.WrittenCustomKey, "Writer custom key state must be false");
+            Assert.IsFalse(w.S.WrittenCustomValue, "Writer custom value state must be false");
+            Assert.IsFalse(w.S.WrittenType, "Writer custom value state must be false");
+        }
+
+        using var writer = new SJWriter(CreateData());
+        writer.ThrowOnError = false;
+        writer.allowComments = true;
+        writer.allowOtherKeyTypes = true;
+        writer.indentSize = 4;
+
+        using (writer.Object())
+        {
+            using (writer.ArrayWithKey("What is the private key?"))
+            {
+                // TODO : Add other keys and write in 384 bit format :)
+                writer.WriteLong(4, format: "x");
+                Assert.IsTrue(writer.S.WrittenCustomValue, "Custom value was written, but the state hasn't changed.");
+                writer.WriteString("Just pick your favourite numbers <= 256! byte.MaxValue is plenty safe.");
+            }
+
+            writer.WriteCommentLine("Is it true?", hasNextValue: true);
+            Assert.IsTrue(writer.S.WrittenComment, "Comment was written, but the state hasn't changed.");
+
+            writer.WriteKeyBool(true);
+            writer.WriteBool(true);
+            Assert.IsTrue(writer.S.WrittenCustomKey, "Custom key was written, but the state hasn't changed.");
+        }
+
+        // Cause error
+        writer.WriteNumber(123);
+        Assert.That.IsNotNullOrEmpty(writer.Error);
+
+        // Reset and validate anything that could have potentially changed
+        writer.Reset();
+        ValidateResetState(writer);
+    }
+
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(
@@ -468,10 +595,8 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         DynamicDataDisplayName = nameof(TestData.StringDatasDisplayName),
         DynamicDataDisplayNameDeclaringType = typeof(TestData)
     )]
-    public void TestState(string write)
+    public void StateStacking(string write)
     {
-        Console.WriteLine($"TestContext : {TestContext?.ResultsDirectory}");
-
         // Test this with many strings (including emoji spam,
         // to check for stuff like whether if the StreamWriter has
         // resetted it's state correctly, well as correct as it can be.)
@@ -485,18 +610,18 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         // Start writing
         using (writer.Object())
         {
-            writer.WriteKeyString("Hello").WriteString(write);
+            writer.WriteKey("Hello").WriteString(write);
 
             // Me thinks this next code can do a mistake
             Assert.AreEqual(0, writer.PushState(), "Must push state at index 0");
             {
-                writer.WriteKeyString(write); // Do this for lulz
-                writer.WriteKeyString("");    // This may help flush it, so write empty
+                writer.WriteKey(write); // Do this for lulz
+                writer.WriteKey("");    // This may help flush any underlying buffers, so write empty
             }
             Assert.AreEqual(0, writer.PopState(), "Must pop state at index 0");
             Assert.That.IsNullOrEmpty(writer.Error, "Error must be null");
 
-            Assert.IsTrue((bool)writer.WriteKeyString(Key2).WriteLong(Val2, Val2Fmt), "Write must be successful.");
+            Assert.IsTrue((bool)writer.WriteKey(Key2).WriteLong(Val2, Val2Fmt), "Write must be successful.");
         }
         Assert.That.IsNullOrEmpty(writer.Error, "Error must be null");
 
@@ -509,60 +634,7 @@ public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
         }
         else
         {
-            Console.WriteLine($"[!] Did not validate the data, cannot read data from {writer}.");
+            Console.WriteLine($"[!] Did not validate the data, cannot read data from {writer}. Otherwise completed w/o errors.");
         }
-    }
-
-    [TestMethod]
-    [Timeout(TestTimeouts.Short)]
-    public void TestNegativeWrite()
-    {
-        // The codepaths are generally the same so I will only test WriteLiteralValue and WriteKey instead
-        using var writer = new SJWriter(CreateData());
-        writer.ThrowOnError = false;
-
-        using (writer.Object())
-        {
-            // Mess up the KV order
-            writer.Write(3.141592);
-            Assert.That.IsNotNullOrEmpty(writer.Error);
-
-            writer.Reset(); // Resetting within an object scope that is successful will call "EndObject" and fail the object.
-            writer.BeginObject(); // So start an object to not cause that
-                                  // ?? : Perhaps each scope can hold "version" (which changes with every write)
-                                  //      of the writer to avoid this footgun? (the versions are checked in the writer as well?)
-                                  //      To avoid this, I need to store the version on the scope and the stack and then match the versions (or whether if the version is present on the stack at all. Which is more code so meh).
-
-            // ↓ This one will completely fail, unlike the object that has partially succeeded.
-            using (writer.Array()) { }
-            Assert.That.IsNotNullOrEmpty(writer.Error);
-
-            // And it will error out with EndObject. Not that it matters
-            writer.Reset();
-            writer.BeginObject();
-
-            // Test WriteKey twice
-            writer.WriteKeyString("aaa");
-            writer.WriteKeyString("bbb");
-            Assert.That.IsNotNullOrEmpty(writer.Error);
-            writer.BeginObject();
-            Assert.That.IsNotNullOrEmpty(writer.Error);
-
-            // Test WriteKey on array
-            writer.Reset();
-            writer.BeginObject();
-            writer.WriteKeyString("array");
-            using (writer.Array())
-            {
-                writer.WriteKeyString("keys on my array? it's more likely than you think");
-                Assert.That.IsNotNullOrEmpty(writer.Error);
-            }
-
-            writer.Reset();
-        }
-
-        Console.WriteLine($"Error present : {writer.Error}");
-        writer.Reset();
-        Assert.That.IsNullOrEmpty(writer.Error);
     }
 }

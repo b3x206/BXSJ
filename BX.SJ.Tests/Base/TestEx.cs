@@ -24,7 +24,7 @@ public static class TestEx
                 for (int j = 0; j < truncArgs.Length; j++)
                 {
                     string arg = args[j];
-                    truncArgs[j] = arg[..Math.Max(arg.Length - i, 0)]; // tung tung args
+                    truncArgs[j] = arg[..Math.Max(arg.Length - i, 0)]; // tung tung tung args
                     allEmpty = allEmpty && string.IsNullOrEmpty(truncArgs[j]);
                 }
 

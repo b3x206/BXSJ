@@ -105,12 +105,12 @@ If this warning isn't desired, override this method to return false and remove t
 
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(BXSJRootDatas), typeof(TestData))]
+    [DynamicData(nameof(BxsjRootDatas), typeof(TestData))]
     public void TestBXSJRootLiterals(string data, string expected) =>
         Assert.AreEqual(expected, ReadBXSJ(FromString(data)).ToString());
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    [DynamicData(nameof(BXSJTruncatedRootDatas), typeof(TestData))]
+    [DynamicData(nameof(BxsjTruncatedRootDatas), typeof(TestData))]
     public void TestTruncatedBXSJRootLiterals(string data) =>
         Assert.Throws<SJReader.ReaderException>(() => ReadWithTokens(FromString(data)));
 
@@ -136,7 +136,7 @@ If this warning isn't desired, override this method to return false and remove t
     public void TestRootWithTypes(string data, string _)
     {
         Assert.AreEqual(data, ReadBXSJWithTokens(FromString(data)).ToString());
-        foreach (string type in BXSJTypeDatas.Select(v => v[0]))
+        foreach (string type in BxsjTypeDatas.Select(v => v[0]))
         {
             string readerData = $"{type}{data}"; // Read with tokens ignores whitespace
             Assert.AreEqual(readerData, ReadBXSJWithTokens(FromString(readerData)).ToString());
@@ -279,7 +279,6 @@ If this warning isn't desired, override this method to return false and remove t
         ReadWithTokens(reader);
         Assert.AreEqual(JsonData1.Length, reader.Data.Index);
     }
-
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DynamicData(nameof(BxsjValidatedDatas), typeof(TestData))]
@@ -288,83 +287,107 @@ If this warning isn't desired, override this method to return false and remove t
         // Validator fetches any value entry that is contained on the target type through reflection.
         static bool AssertValidation(SJReader reader, SJReader.Value v)
         {
-            // @"assert=\s*(top.)?([^=]+)=(.*)"
             Assert.AreEqual(SJType.Comment, v.type);
 
             const string start = "assert=";
-            ReadOnlySpan<char> s = v.Slice();
-            if (!s.StartsWith(start)) return false; // Not an assertion
-            s = s[start.Length..];
-
             const string sep = "=";
             const string stackable = "top.";
+            const char asSep = '&';
 
-            int sepIdx = s.IndexOf(sep);
-            ReadOnlySpan<char> sMemberName = s[..sepIdx];
-            int stackedIndex = sMemberName.IndexOf(stackable);
+            // RegExp's are to make it more understandable and are not 100% accurate.
+            // Pass 1:
+            // @"(.+)\s*&\s*"
+            ReadOnlySpan<char> comment = v.Slice();
+            int assertionsCount = comment.Count(asSep);
+            Span<Range> slices = assertionsCount > 16 ? new Range[assertionsCount] : stackalloc Range[assertionsCount];
+            comment.Split(slices, asSep, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
-            Type type = typeof(SJReader.State);
-            object state = reader.S;
-
-            switch (stackedIndex)
+            // Pass 2:
+            //   ├─ Declaration
+            //   │          ├─ Use State's State.Stacked top
+            //   │          │     ├─ Name of the field
+            //   │          │     │        ├─ Value expected from it's ToString                            
+            // @"(assert=\s*(top.)?([^=]+)=(.*))"g
+            bool anyAssertions = false;
+            foreach (Range slice in slices)
             {
-                // Must be prefix, but is ignored if not..
-                case 0:
-                    sMemberName = sMemberName[stackable.Length..];
-                    type = typeof(SJReader.State.Stacked);
-                    state = reader.S.stack.PeekValue();
-                    break;
-            }
+                ReadOnlySpan<char> s = comment[slice];
+                if (!s.StartsWith(start)) continue; // Not an assertion
+                s = s[start.Length..];
+                anyAssertions = true;
 
-            string memberName = new(sMemberName.Trim());
-            ReadOnlySpan<char> value = s[(sepIdx + sep.Length)..].Trim();
+                int sepIdx = s.IndexOf(sep);
+                ReadOnlySpan<char> sMemberName = s[..sepIdx];
+                int stackedIndex = sMemberName.IndexOf(stackable);
 
-            // We can compare ToString representation (invariant one)
-            CultureInfo prevCulture = CultureInfo.CurrentCulture;
-            try
-            {
-                CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-                const BindingFlags bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-                var f = type.GetField(memberName, bf);
-                if (f is not null)
+                Type type = typeof(SJReader.State);
+                object state = reader.S;
+
+                switch (stackedIndex)
                 {
-                    Assert.That.AreEqual(value, f.GetValue(state)?.ToString());
-                    return true;
-                }
-                var p = type.GetProperty(memberName, bf);
-                if (p is not null)
-                {
-                    Assert.That.AreEqual(value, p.GetValue(state)?.ToString());
-                    return true;
+                    // Must be prefix, but is ignored if not..
+                    case 0:
+                        sMemberName = sMemberName[stackable.Length..];
+                        type = typeof(SJReader.State.Stacked);
+                        state = reader.S.stack.PeekValue();
+                        break;
                 }
 
-                string fieldsAndProperties = "";
+                string memberName = new(sMemberName.Trim());
+                ReadOnlySpan<char> value = s[(sepIdx + sep.Length)..].Trim();
+
+                // We can compare ToString representation (invariant one)
+                CultureInfo prevCulture = CultureInfo.CurrentCulture;
                 try
                 {
-                    var members = type.GetMembers(bf);
-                    fieldsAndProperties = string.Join(", ",
-                        members
-                            .Where(v => v is FieldInfo)
-                            .Select(v => $"{(v as FieldInfo)?.FieldType} {v.Name}")
-                        .Concat(
-                        members
-                            .Where(v => v is PropertyInfo)
-                            .Select(v => $"{(v as PropertyInfo)?.PropertyType} {v.Name}"))
-                    );
-                }
-                catch
-                {
-                    fieldsAndProperties = "";
-                }
+                    CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+                    const BindingFlags bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+                    do
+                    {
+                        var f = type.GetField(memberName, bf);
+                        if (f is not null)
+                        {
+                            Assert.That.AreEqual(value, f.GetValue(state)?.ToString());
+                            break;
+                        }
+                        var p = type.GetProperty(memberName, bf);
+                        if (p is not null)
+                        {
+                            Assert.That.AreEqual(value, p.GetValue(state)?.ToString());
+                            break;
+                        }
 
-                Assert.Fail(@$"Field or Property to assert '{memberName}' does not exist on type '{type}'
+                        string fieldsAndProperties = "";
+                        try
+                        {
+                            var members = type.GetMembers(bf);
+                            fieldsAndProperties = string.Join(", ",
+                                members
+                                    .Where(v => v is FieldInfo)
+                                    .Select(v => $"{(v as FieldInfo)?.FieldType} {v.Name}")
+                                .Concat(
+                                members
+                                    .Where(v => v is PropertyInfo)
+                                    .Select(v => $"{(v as PropertyInfo)?.PropertyType} {v.Name}"))
+                            );
+                        }
+                        catch
+                        {
+                            fieldsAndProperties = "";
+                        }
+
+                        Assert.Fail(@$"Field or Property to assert '{memberName}' does not exist on type '{type}'
 Fields + Properties available : {fieldsAndProperties}");
-                return false;
+                        return false;
+                    }
+                    while (false);
+                }
+                finally
+                {
+                    CultureInfo.CurrentCulture = prevCulture;
+                }
             }
-            finally
-            {
-                CultureInfo.CurrentCulture = prevCulture;
-            }
+            return anyAssertions;
         }
 
         using var r = new SJReader(FromString(s))
@@ -392,7 +415,6 @@ Fields + Properties available : {fieldsAndProperties}");
         Read(reader);
         for (int i = 0; i < n; i++) reader.Dispose();
     }
-
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void TestAfterDispose()
@@ -444,12 +466,22 @@ Fields + Properties available : {fieldsAndProperties}");
     [Timeout(TestTimeouts.Short)]
     public void TestResetClearsState()
     {
+        static void ValidateResetState(SJReader r)
+        {
+            Assert.That.IsNullOrEmpty(r.Error, "Error state must reset on Reset");
+            Assert.AreEqual(0, r.Data.Position, "Reader position must be zero after reset");
+            Assert.AreEqual(0, r.S.depth, "Reader depth must be zero after reset");
+            Assert.AreEqual(0U, r.S.totalValueCount, "Total value count must be zero after reset");
+            Assert.IsFalse(r.S.notExpectingType, "Reader expectation must be none for root");
+            Assert.IsFalse(r.S.ended, "Reader finish state must be false");
+            Assert.IsFalse(r.S.HasStackValues, "Reader must not have any stack values after reset");
+        }
+
         using SJReader reader = new(FromString(JsonDataInvalid));
         ReadWithTokens(reader, throwError: false);
 
         reader.Reset();
-        Assert.That.IsNullOrEmpty(reader.Error, "Error state must reset on Reset");
-        Assert.AreEqual(0, reader.Data.Position, "Reader position must be zero after reset");
+        ValidateResetState(reader);
     }
 
     // Other functionality
@@ -798,18 +830,18 @@ Fields + Properties available : {fieldsAndProperties}");
     [TestMethod]
     [Timeout(TestTimeouts.Mid)]
     [DataRow(JsonFileValidName)]
-    public void TestFile(string name) => ReadWithTokens(FromStream(LoadAsmFile(name), JsonFileEncoding));
+    public void FromFile(string name) => ReadWithTokens(FromStream(LoadAsmFile(name), JsonFileEncoding));
     [TestMethod]
     [Timeout(TestTimeouts.Long)]
     [DataRow(JsonFileLargeName)]
     [DataRow(JsonFileLargeMinName)]
-    public void TestVeryLarge(string name) => ReadWithTokens(FromStream(LoadAsmFile(name), JsonFileEncoding));
+    public void FromVeryLargeFile(string name) => ReadWithTokens(FromStream(LoadAsmFile(name), JsonFileEncoding));
     [TestMethod]
     [Timeout(TestTimeouts.Mid)]
     [DataRow(JsonFileInvalidBinary)]
     [DataRow(JsonFileInvalidNoColon)]
     [DataRow(JsonFileInvalidUnterminated)]
-    public void TestInvalidFile(string name) => Assert.Throws<SJReader.ReaderException>(() =>
+    public void FromInvalidFile(string name) => Assert.Throws<SJReader.ReaderException>(() =>
         ReadWithTokens(FromStream(LoadAsmFile(name), JsonFileEncoding))
     );
 }

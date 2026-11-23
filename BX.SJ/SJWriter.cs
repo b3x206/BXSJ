@@ -562,23 +562,27 @@ namespace BX.SJ
                 char c = literal[i];
                 switch (checkSt)
                 {
-                    case 0:
-                        if (SJReader.IsTypeLiteralContinuation(c) || c == '"') checkSt = 1;
+                    case 0: // before string
+                        if (SJReader.IsTypeLiteralContinuation(c) || c == '"') checkSt = c == '"' ? 2 : 1;
                         else if (!char.IsWhiteSpace(c))
                         {
                             invalid = c;
                             return false;
                         }
                         break;
-                    case 1:
-                        if (char.IsWhiteSpace(c) || c == '"' && (literal[i - 1] != '\\')) checkSt = 2;
+                    case 1: // inside literal
+                        if (char.IsWhiteSpace(c)) checkSt = 3;
                         else if (!SJReader.IsTypeLiteralContinuation(c))
                         {
                             invalid = c;
                             return false;
                         }
                         break;
-                    case 2:
+                    // why check string? string is already checked in SJEscape
+                    case 2: // inside string
+                        if (c == '"' && (literal[i - 1] != '\\')) checkSt = 3;
+                        break;
+                    case 3: // outside string
                         if (!char.IsWhiteSpace(c))
                         {
                             invalid = c;
@@ -592,9 +596,10 @@ namespace BX.SJ
                 }
             }
 
-            bool r = checkSt <= 0;
-            invalid = r ? ' ' : '\0';
-            return r; // empty literals / spaces aren't valid
+            // empty literals / spaces aren't valid
+            bool r = literal.Length > 0 && checkSt <= 0;
+            invalid = r ? '\0' : ' ';
+            return r;
         }
         private static int CleanupCharacters(ref Span<char> s, ReadOnlySpan<char> cs)
         {
@@ -1204,6 +1209,12 @@ namespace BX.SJ
         public SJWriter WriteKey(bool value) => WriteKeyBool(value);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public SJWriter WriteKey(ReadOnlySpan<char> value) => WriteKeyString(value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter WriteKey(string value)
+        {
+            if (value is null) return WriteNull();
+            else return WriteString(value);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public SJWriter Write(float number, string format = DefaultNumberFormat) => WriteNumber(number, format);
@@ -1221,11 +1232,17 @@ namespace BX.SJ
         public SJWriter Write(bool value) => WriteBool(value);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public SJWriter Write(ReadOnlySpan<char> value) => WriteString(value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SJWriter Write(string value)
+        {
+            if (value is null) return WriteNull();
+            else return WriteString(value);
+        }
 
         // Object/Array scope
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ArrayScope Array() => new ArrayScope(this);
-        public ArrayScope ArrayKV(ReadOnlySpan<char> key)
+        public ArrayScope ArrayWithKey(ReadOnlySpan<char> key)
         {
             WriteKeyString(key);
             if (HasError)
@@ -1239,7 +1256,7 @@ namespace BX.SJ
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ObjectScope Object() => new ObjectScope(this);
-        public ObjectScope ObjectKV(ReadOnlySpan<char> key)
+        public ObjectScope ObjectWithKey(ReadOnlySpan<char> key)
         {
             WriteKeyString(key);
             if (HasError)

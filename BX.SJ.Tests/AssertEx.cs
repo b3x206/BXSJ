@@ -17,4 +17,11 @@ public static class AssertEx
     {
         Assert.IsTrue(MemoryExtensions.SequenceEqual(expected, actual), $"Expected string data to equal '{expected}', got '{actual}'");
     }
+
+    public static void HasFlag<T>(this Assert _, T @enum, T flag) where T : Enum =>
+        HasFlag(_, @enum, flag, null);
+    public static void HasFlag<T>(this Assert _, T @enum, T flag, string? message) where T : Enum
+    {
+        Assert.IsTrue(@enum.HasFlag(flag), message);
+    }
 }

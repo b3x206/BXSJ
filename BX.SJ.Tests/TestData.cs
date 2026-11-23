@@ -14,14 +14,14 @@ public static class TestData
         JsonDataStringContent = "Hello world!",
         JsonDataEmptyObject = @"{}", JsonDataEmptyArray = @"[]", JsonDataString = $@"""{JsonDataStringContent}""",
         JsonDataNumber = @"42.42", JsonDataBoolFalse = @"false", JsonDataBoolTrue = @"true", JsonDataNull = @"null",
-        // Special BXSJ data
-        BXSJDataType = $@"(HelloWorld)", BXSJDataRootStringType = $@"(""{JsonDataStringContent} () \"""")",
-        BXSJDataSingleComment = $@"// {JsonDataStringContent}", BXSJDataNewlineSingleComment = $"// {JsonDataStringContent}\r\n",
-        BXSJDataMultiComment = $@"/* {JsonDataStringContent} */",
+        // Special Bxsj data
+        BxsjDataType = $@"(HelloWorld)", BxsjDataRootStringType = $@"(""{JsonDataStringContent} () \"""")",
+        BxsjDataSingleComment = $@"// {JsonDataStringContent}", BxsjDataNewlineSingleComment = $"// {JsonDataStringContent}\r\n",
+        BxsjDataMultiComment = $@"/* {JsonDataStringContent} */",
         // Other
         DataEmpty = "";
     public static IEnumerable<string[]> JsonRootDatas => [
-        // Data, ExpectedCapture (if not using the tokenized output that gives BXSJ-adjacent output)
+        // Data, ExpectedCapture (if not using the tokenized output that gives Bxsj-adjacent output)
         [JsonDataEmptyObject, ""], [JsonDataEmptyArray, ""],
         [JsonDataString, JsonDataStringContent], [JsonDataNumber, JsonDataNumber],
         [JsonDataBoolFalse, JsonDataBoolFalse], [JsonDataBoolTrue, JsonDataBoolTrue],
@@ -31,18 +31,18 @@ public static class TestData
         JsonRootDatas.Where(v => v.Length > 0 && v[0] != JsonDataNumber),
         argc: 1
     );
-    // BXSJ root data assumes all tolerances are allowed.
-    public static IEnumerable<string[]> BXSJRootDatas => [
+    // Bxsj root data assumes all tolerances are allowed.
+    public static IEnumerable<string[]> BxsjRootDatas => [
         // Data, ExpectedCapture
-        [BXSJDataType, BXSJDataType.Trim('(', ')')], [BXSJDataRootStringType, BXSJDataRootStringType.Trim('(', ')').Trim()[1..^1]],
-        [BXSJDataSingleComment, BXSJDataSingleComment.TrimStart('/').Trim()], [BXSJDataNewlineSingleComment, BXSJDataNewlineSingleComment.TrimStart('/').Trim()],
-        [BXSJDataMultiComment, BXSJDataMultiComment.Trim('/', '*', ' ')],
+        [BxsjDataType, BxsjDataType.Trim('(', ')')], [BxsjDataRootStringType, BxsjDataRootStringType.Trim('(', ')').Trim()[1..^1]],
+        [BxsjDataSingleComment, BxsjDataSingleComment.TrimStart('/').Trim()], [BxsjDataNewlineSingleComment, BxsjDataNewlineSingleComment.TrimStart('/').Trim()],
+        [BxsjDataMultiComment, BxsjDataMultiComment.Trim('/', '*', ' ')],
     ];
-    public static IEnumerable<string[]> BXSJTruncatedRootDatas() => TestEx.CreateTruncatedStringData(
-        BXSJRootDatas.Where(v => v.Length > 0),
+    public static IEnumerable<string[]> BxsjTruncatedRootDatas() => TestEx.CreateTruncatedStringData(
+        BxsjRootDatas.Where(v => v.Length > 0),
         argc: 1
     );
-    public static IEnumerable<string[]> BXSJTypeDatas => [
+    public static IEnumerable<string[]> BxsjTypeDatas => [
         // Literals
         ["(Foo)"], ["(Bar)"], ["(Interesting_Type)"], [$"({AZaz09})"], ["(-_.=)"], ["(IsValid-Wow_Yep.ItReallyIs=Valid)"],
         // Strings
@@ -141,20 +141,33 @@ public static class TestData
 } // Our line ends with */";
     // Validations available are anything inside S.
     // Flag syntax is not yet parsed beyond ToString, which is whitespace sensitive..
-    public const string BxsjCommentDataWithValidations = $@"{{
+    public const string BxsjCommentDataWithValidations1 = $@"{{
     ""{DepthMaxxKey}"": [[[[[[[/* assert=depth=8 */]]]]]]],
     ""{ObjectTwisterKey}"": {{ ""[0]"": [{{}}, 8, [], {{}}, [], [], {{}}, [], {{ ""[0][8][0]"": [{{}}, [], [], []/* assert=top.count=4 */] }}], ""[1]"": 41 }},
     ""{SciNumsKey}"": [-24, 24, -24.24, 24.24, -1e+206, 1e+206, -1e-206, 1e+206]
 }}";
+    public const string BxsjCommentDataWithValidations2 = @"{
+    ""DepthMaxx2"": {""a"":{""b"":{""c"":{""d"":{""e"":{""f"":{/* assert=depth=8 & assert=top.count=0 */}}}}}}},
+    // Keys are not considered towards value count
+    ""Hmm"": { ""[0]"": [{}, [], null, true, false, { ""[0][5][0]"": {
+        ""xxccd"":                                     /* assert=top.count=0 */ {
+            ""locate"": ""cu"", ""resultSchema"": {""found"": ""bool""}
+        },                                                                          /* assert=top.count=1 */
+        ""ahhh i'm turning into palm knee"":           /* assert=top.count=1 */ [], /* assert=top.count=2 */
+        ""why am i so hell bent on not using claude"": /* assert=top.count=2 */ []  /* assert=top.count=3 */,
+        ""ts why i stay unemployed xd"":               /* assert=top.count=3 */ []  /* assert=top.count=4 */
+    }, null, ""string"" }], ""[1]"": 41 },
+    ""WeCouldTechnicallyQueryPrevValue"": [""mov %eax, 0xB0B"", ""mov %ebx, 0x2345678c"", ""int 0x80"", ""larp""]
+}";
 
     public static IEnumerable<string[]> JsonDatas => [
         [JsonData1], [JsonData2], [JsonDataFireSpam], [JsonDataDiscard]
     ];
     public static IEnumerable<string[]> BxsjDatas => [
-        [BxsjCommentData], [BxsjCommentDataWithValidations]
+        [BxsjCommentData], [BxsjCommentDataWithValidations1]
     ];
     public static IEnumerable<string[]> BxsjValidatedDatas => [
-        [BxsjCommentDataWithValidations]
+        [BxsjCommentDataWithValidations1], [BxsjCommentDataWithValidations2]
     ];
 
     // Invalid
