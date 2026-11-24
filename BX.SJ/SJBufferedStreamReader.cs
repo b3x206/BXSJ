@@ -1,11 +1,32 @@
-﻿#if false
-using System;
+﻿using System;
 using System.Buffers;
 using System.IO;
 using System.Text;
 
 namespace BX.SJ
 {
+    public enum SJBufferStorageMode
+    {
+        // Refer to
+        // * https://learn.microsoft.com/en-us/dotnet/standard/base-types/character-encoding-introduction#endianness
+        // * https://learn.microsoft.com/en-us/dotnet/api/system.text.utf32encoding
+        // I think UTF-32 also generally has endianness, but whatever.
+
+        /// <summary>
+        /// Store / treat buffer as &lt;current endianness&gt; UTF-16.
+        /// <br>If SJ is running on a big-endian system, </br>
+        /// </summary>
+        Utf16,
+        /// <summary>
+        /// Store / treat buffer as byte sequenced UTF-8.
+        /// </summary>
+        Utf8,
+        /// <summary>
+        /// Store / treat buffer as byte sequenced UTF-32.
+        /// </summary>
+        Utf32,
+    }
+
     /// <summary>
     /// Provides a "reused" region of memory to read string from a stream.
     /// <br>Has a <b>hard size limit</b> (not truly streamed) as SJ's lazy evaluation requires an in memory buffer.</br>
@@ -19,42 +40,39 @@ namespace BX.SJ
     /// freed pool elements are always "nulled" (either dispose or resize operations change the ArrayPool reference,
     /// but the reader reference within the <see cref="SJReader.Value"/> does not, making this scenario much less likely)
     /// </remarks>
-    public sealed class SJStreamReader : SJReader, IDisposable
+    public sealed class SJBufferedStreamReader : SJBufferReader<char>
     {
-        // Also the conversion overhead to char..
-        // Future SJ update should add ReadOnlySpan or some other arbitrary means of reading from an in-disk resource rather than this
-        // But for my usage of small payloads, this is overkill. It only exists to "simplify file management" and allocate less GC.
-        private byte[] streamData;
-        private char[] data;
-        private int dataLength;
-        private readonly int maxCapacity = DefaultMaxCapacity;
-
-        private bool disposed;
-
-        public const int DefaultStreamBufferCapacity = 16384; // 16 KB
+        // For my usage of generally small payloads, this is overkill.
+        // It only exists to "simplify file reading/writing with a live stream
+        // handle that gets commited when done" and allocate less GC.
+        public const int DefaultReadingBufferCapacity = 16384; // 16 KB
         public const int DefaultCapacity = 16384;             // 16 KB
         public const int DefaultMaxCapacity = 16777216;       // 16 MB
 
-        public override int Length => dataLength;
+        public readonly bool rented;
+        private byte[] readBuffer;
+        // dataU8 can be reinterpret_cast<u16*>(), although that Span view
+        // must be done with caution and must truncate the leading byte
+        private byte[] dataU8;
 
-        public SJStreamReader()
+        private int dataLength;
+        private readonly int maxCapacity = DefaultMaxCapacity;
+
+        public int Length => dataLength;
+
+        public SJBufferedStreamReader()
         {
-            data = ArrayPool<char>.Shared.Rent(DefaultCapacity)!;
+            dataU8 = ArrayPool<char>.Shared.Rent(DefaultCapacity)!;
             // This one can't be resized.
             // If processing in 16 KB chunks is slow, I may add resizing. (technically, custom size can be defined)
-            streamData = ArrayPool<byte>.Shared.Rent(DefaultStreamBufferCapacity)!;
+            readBuffer = ArrayPool<byte>.Shared.Rent(DefaultReadingBufferCapacity)!;
         }
-        public SJStreamReader(int capacity)
-        {
-            if (capacity <= 0)
-            {
-                throw new ArgumentException("Stream reader capacity must not be negative or zero", nameof(capacity));
-            }
+        public static SJBufferedStreamReader Rented(int capacity = DefaultCapacity, int maxCapacity = DefaultMaxCapacity, int readBufferCapacity = DefaultReadingBufferCapacity) =>
+            new SJBufferedStreamReader(true, capacity, maxCapacity, readBufferCapacity);
+        public static SJBufferedStreamReader Allocated(int capacity = DefaultCapacity, int maxCapacity = DefaultMaxCapacity, int readBufferCapacity = DefaultReadingBufferCapacity) =>
+            new SJBufferedStreamReader(false, capacity, maxCapacity, readBufferCapacity);
 
-            data = ArrayPool<char>.Shared.Rent(capacity)!;
-            streamData = ArrayPool<byte>.Shared.Rent(DefaultStreamBufferCapacity)!;
-        }
-        public SJStreamReader(int capacity, int maxCapacity)
+        private SJBufferedStreamReader(bool rented, int capacity, int maxCapacity, int readBufferCapacity)
         {
             if (capacity <= 0)
             {
@@ -64,31 +82,29 @@ namespace BX.SJ
             {
                 throw new ArgumentException("Max capacity must not be negative or zero", nameof(maxCapacity));
             }
-
-            data = ArrayPool<char>.Shared.Rent(capacity)!;
-            this.maxCapacity = maxCapacity;
-            streamData = ArrayPool<byte>.Shared.Rent(DefaultStreamBufferCapacity)!;
-        }
-        public SJStreamReader(int capacity, int maxCapacity, int streamDataCapacity)
-        {
-            if (capacity <= 0)
-            {
-                throw new ArgumentException("Stream reader capacity must not be negative or zero", nameof(capacity));
-            }
-            if (maxCapacity <= 0)
-            {
-                throw new ArgumentException("Max capacity must not be negative or zero", nameof(maxCapacity));
-            }
-            if (streamDataCapacity <= 0)
+            if (readBufferCapacity <= 0)
             {
                 throw new ArgumentException("Stream reading buffer capacity must not be negative or zero", nameof(maxCapacity));
             }
 
-            data = ArrayPool<char>.Shared.Rent(capacity)!;
+            this.rented = rented;
             this.maxCapacity = maxCapacity;
-            streamData = ArrayPool<byte>.Shared.Rent(streamDataCapacity)!;
+            if (rented)
+            {
+                dataU8 = ArrayPool<char>.Shared.Rent(capacity)!;
+                readBuffer = ArrayPool<byte>.Shared.Rent(readBufferCapacity)!;
+            }
+            else
+            {
+                dataU8 = new char[capacity];
+                readBuffer = new byte[readBufferCapacity];
+            }
         }
 
+        protected override void CheckDisposed()
+        {
+            if (disposed) throw new InvalidOperationException("Attempt to use a disposed SJStreamReader.");
+        }
         private static bool EnsureRemainingFor<T>(int current, int count, int maxCapacity, ref T[] buf)
         {
             if (buf == null)
@@ -97,11 +113,11 @@ namespace BX.SJ
             }
             if (count < 0)
             {
-                throw new ArgumentException("Cannot ensure negative size");
+                throw new ArgumentException("Cannot ensure negative size", nameof(count));
             }
             if (maxCapacity <= 0)
             {
-                throw new ArgumentException("Max capacity invalid");
+                throw new ArgumentException("Max capacity invalid", nameof(maxCapacity));
             }
 
             int targetSize = current + count;
@@ -133,22 +149,17 @@ namespace BX.SJ
             return false;
         }
 
-        public override char At(int i) => i >= 0 && i < dataLength ? data[i] : '\0';
-        public override ReadOnlySpan<char> Slice(int start, int length) => data.AsSpan(start, length);
+        public override ReadOnlySpan<char> SliceU8(int start, int length) => dataU8.AsSpan(start, length);
+        public override ReadOnlySpan<char> SliceU16(int start, int length) => dataU8.AsSpan(start, length);
         /// <summary>
         /// Reads and stores all text from given stream <paramref name="s"/>.
         /// <br>Data can be discarded with <see cref="DiscardData"/> or <see cref="Dispose"/></br>
         /// </summary>
         public void LoadDataFrom(TextReader tr)
         {
-            if (disposed || data == null || streamData == null)
-            {
-                Error = "Attempt to read a stream into disposed StreamReader";
-                ThrowError();
-                return;
-            }
+            CheckDisposed();
 
-            Span<char> currentDataView = data;
+            Span<char> currentDataView = dataU8;
             int count = tr.Read(currentDataView);
             int current = 0;
             while (count > 0)
@@ -157,8 +168,8 @@ namespace BX.SJ
                 if (count >= currentDataView.Length)
                 {
                     // Double the capacity and move the "currentDataView"
-                    EnsureRemainingFor(current, count, maxCapacity, ref data);
-                    currentDataView = data.AsSpan(current);
+                    EnsureRemainingFor(current, count, maxCapacity, ref dataU8);
+                    currentDataView = dataU8.AsSpan(current);
                 }
 
                 count = tr.Read(currentDataView);
@@ -168,6 +179,8 @@ namespace BX.SJ
         }
         public void LoadDataFrom(Stream s)
         {
+            CheckDisposed();
+
             LoadDataFrom(s, SJEncoding.DetectEncoding(s, out _));
         }
         /// <summary>
@@ -176,26 +189,21 @@ namespace BX.SJ
         /// </summary>
         public void LoadDataFrom(Stream s, Encoding encoding)
         {
-            if (disposed || data == null || streamData == null)
-            {
-                Error = "Attempt to read a stream into disposed StreamReader";
-                ThrowError();
-                return;
-            }
+            CheckDisposed();
 
             var decoder = encoding.GetDecoder();
-            int count = s.Read(streamData);
-            ReadOnlySpan<byte> streamDataView = streamData.AsSpan(0, count);
+            int count = s.Read(readBuffer);
+            ReadOnlySpan<byte> streamDataView = readBuffer.AsSpan(0, count);
 
             int current = 0, decodeCount;
             while (count > 0)
             {
                 decodeCount = decoder.GetCharCount(streamDataView, false);
-                EnsureRemainingFor(current, decodeCount, maxCapacity, ref data);
-                current += decoder.GetChars(streamDataView, data.AsSpan(current), false);
+                EnsureRemainingFor(current, decodeCount, maxCapacity, ref dataU8);
+                current += decoder.GetChars(streamDataView, dataU8.AsSpan(current), false);
 
-                count = s.Read(streamData);
-                streamDataView = streamData.AsSpan(0, count);
+                count = s.Read(readBuffer);
+                streamDataView = readBuffer.AsSpan(0, count);
             }
 
             // Flush the last remaining bytes, if it's malformed UTF-8 sequence for example
@@ -204,8 +212,8 @@ namespace BX.SJ
             decodeCount = decoder.GetCharCount(e, false);
             if (decodeCount > 0)
             {
-                EnsureRemainingFor(current, decodeCount, maxCapacity, ref data);
-                decoder.GetChars(e, data.AsSpan(current), true);
+                EnsureRemainingFor(current, decodeCount, maxCapacity, ref dataU8);
+                decoder.GetChars(e, dataU8.AsSpan(current), true);
             }
 
             dataLength = current;
@@ -216,59 +224,48 @@ namespace BX.SJ
         /// </summary>
         public void DiscardData()
         {
-            if (disposed)
-            {
-                Error = "Attempt to discard a disposed stream reader";
-                ThrowError();
-                return;
-            }
+            CheckDisposed();
 
             dataLength = 0;
         }
 
-        private void Dispose(bool disposing)
+        protected override void Dispose(bool disposing)
         {
             // ArrayPool is not unmanaged, but MemoryPool is.
-            // No need to handle override the destructor it seems.
+            // No need to handle  the destructor it seems.
             if (!disposed)
             {
-                if (data != null)
+                if (dataU8 != null)
                 {
                     try
                     {
                         if (disposing)
                         {
-                            ArrayPool<char>.Shared.Return(data, true);
+                            ArrayPool<char>.Shared.Return(dataU8, true);
                         }
                     }
                     finally
                     {
-                        data = null;
+                        dataU8 = null;
                     }
                 }
-                if (streamData != null)
+                if (readBuffer != null)
                 {
                     try
                     {
                         if (disposing)
                         {
-                            ArrayPool<byte>.Shared.Return(streamData, true);
+                            ArrayPool<byte>.Shared.Return(readBuffer, true);
                         }
                     }
                     finally
                     {
-                        streamData = null;
+                        readBuffer = null;
                     }
                 }
 
                 disposed = true;
             }
         }
-        public void Dispose()
-        {
-            Dispose(disposing: true);
-            GC.SuppressFinalize(this);
-        }
     }
 }
-#endif

@@ -5,8 +5,12 @@ using System.Diagnostics;
 namespace BX.SJ
 {
     /// <summary>
-    /// Provides the basic JSON string escaping algorithm. (since JSON escapes are UTF-16 and the code is somewhat trivial)
+    /// Provides the basic Json string escaping algorithm.
     /// </summary>
+    /// <remarks>
+    /// It is designed for quote strings like <c>"Hello world \b\f\n\r\t, &lt;=\u001F (control chars), \\ and \"."</c>
+    /// <br>Allows ascii only escapes like <c>"Merhaba d\\u00FCnya! \\uD83D\\uDFE2, \\u00A9\\uFE0F"</c></br>
+    /// </remarks>
     public static class SJEscape
     {
         private static readonly byte[] hex2IntTable;
@@ -31,7 +35,7 @@ namespace BX.SJ
             // EscapeTable
             escapeTable = new EscapeTableAction[AsciiTableMax];
             // JSON only cares escaping certain control ranges, not the unicode stuff
-            for (int i = 0; i < 0x1F; i++) escapeTable[i] = EscapeTableAction.Hex;
+            for (int i = 0; i <= 0x1F; i++) escapeTable[i] = EscapeTableAction.Hex;
             // The other escapes
             escapeTable[(byte)'\\'] = EscapeTableAction.Self;
             escapeTable[(byte)'"'] = EscapeTableAction.Self;
@@ -42,6 +46,8 @@ namespace BX.SJ
             escapeTable[(byte)'\t'] = (EscapeTableAction)'t';
 
             // For now, Unescape doesn't seem to need table outside of the hex2int
+            // Batch processing multiple chars (like 4) at once from a ROSpan<char> could be faster,
+            // but it would make this code less comprehensible.
         }
 
         private static void To4DigitHex(char c, int index, ref Span<char> chars)
@@ -152,6 +158,7 @@ namespace BX.SJ
         /// <remarks>
         /// This is more permissive on what it accepts, as it will accept invalid escapes like "\\k" and unescape it like "k".
         /// <br>If you want to reject invalid escapes, you can use <paramref name="allowInvalidEscapes"/> as false.</br>
+        /// <br>By default, this ignores any control characters within the string.</br>
         /// </remarks>
         /// <param name="appendAction">Action called when a character is to be appended into the arbitrary buffer.</param>
         /// <param name="content">Content to unescape.</param>

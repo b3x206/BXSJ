@@ -51,23 +51,24 @@ public static class WriterTester
             if (fmtOpt.type == WriteOptions.Type.Format) fmt = Convert.ToString(fmtOpt.value)!;
 
             // common
-            if (value is null) return writer.WriteNull();
-            else if (value is string str) return writer.WriteString(str);
-            else if (value is uint ui) return !string.IsNullOrEmpty(fmt) ? writer.WriteUInt(ui, fmt) : writer.WriteUInt(ui);
-            else if (value is int i) return !string.IsNullOrEmpty(fmt) ? writer.WriteInt(i, fmt) : writer.WriteInt(i);
-            else if (value is double d) return !string.IsNullOrEmpty(fmt) ? writer.WriteNumber(d, fmt) : writer.WriteNumber(d);
-            else if (value is float f) return !string.IsNullOrEmpty(fmt) ? writer.WriteNumber(f, fmt) : writer.WriteNumber(f);
-            else if (value is bool @bool) return writer.WriteBool(@bool);
-            // less common
-            else if (value is ulong ul) return !string.IsNullOrEmpty(fmt) ? writer.WriteULong(ul, fmt) : writer.WriteULong(ul);
-            else if (value is long l) return !string.IsNullOrEmpty(fmt) ? writer.WriteLong(l, fmt) : writer.WriteLong(l);
-            else if (value is ushort us) return !string.IsNullOrEmpty(fmt) ? writer.WriteULong(us, fmt) : writer.WriteULong(us);
-            else if (value is short s) return !string.IsNullOrEmpty(fmt) ? writer.WriteLong(s, fmt) : writer.WriteLong(s);
-            else if (value is byte b) return !string.IsNullOrEmpty(fmt) ? writer.WriteULong(b, fmt) : writer.WriteULong(b);
-            else if (value is sbyte sb) return !string.IsNullOrEmpty(fmt) ? writer.WriteLong(sb, fmt) : writer.WriteLong(sb);
-            // else if (value is ReadOnlySpan<char> c) return writer.WriteString(str); // must be where T : allows ref struct
-            // + upper values can't be matched with "is"
-            else throw new ArgumentException($"Value with type {value.GetType()} does not have a supported method on writer", nameof(value));
+            return value switch
+            {
+                null => writer.WriteNull(),
+                string str => writer.WriteString(str),
+                uint ui => !string.IsNullOrEmpty(fmt) ? writer.WriteUInt(ui, fmt) : writer.WriteUInt(ui),
+                int i => !string.IsNullOrEmpty(fmt) ? writer.WriteInt(i, fmt) : writer.WriteInt(i),
+                double d => !string.IsNullOrEmpty(fmt) ? writer.WriteNumber(d, fmt) : writer.WriteNumber(d),
+                float f => !string.IsNullOrEmpty(fmt) ? writer.WriteNumber(f, fmt) : writer.WriteNumber(f),
+                bool @bool => writer.WriteBool(@bool),
+                ulong ul => !string.IsNullOrEmpty(fmt) ? writer.WriteULong(ul, fmt) : writer.WriteULong(ul),
+                long l => !string.IsNullOrEmpty(fmt) ? writer.WriteLong(l, fmt) : writer.WriteLong(l),
+                ushort us => !string.IsNullOrEmpty(fmt) ? writer.WriteULong(us, fmt) : writer.WriteULong(us),
+                short s => !string.IsNullOrEmpty(fmt) ? writer.WriteLong(s, fmt) : writer.WriteLong(s),
+                byte b => !string.IsNullOrEmpty(fmt) ? writer.WriteULong(b, fmt) : writer.WriteULong(b),
+                sbyte sb => !string.IsNullOrEmpty(fmt) ? writer.WriteLong(sb, fmt) : writer.WriteLong(sb),
+                // ReadOnlySpan<char> isn't supported
+                _ => throw new ArgumentException($"Value with type {value.GetType()} does not have a supported method on writer", nameof(value))
+            };
         }
         finally
         {
@@ -390,7 +391,7 @@ public static class WriterTester
 
         return success;
     }
-    public static void WriteTestJSCMatrix(SJWriter writer, int writeCount = 3)
+    public static void WriteTestCommentMatrix(SJWriter writer, int writeCount = 3)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
@@ -465,26 +466,29 @@ public static class WriterTester
 
     public static bool WriteMaxTestDepth(SJWriter writer)
     {
-        writer.maxDepth = (ushort)(writer.maxDepth > 128 ? writer.maxDepth : 128);
+        writer.maxDepth = Math.Max((ushort)SJWriter.DefaultMaxDepth, writer.maxDepth);
         return WriteTestDepth(writer, writer.maxDepth + 1);
     }
     public static bool WriteTestDepth(SJWriter writer, int depth)
     {
-        for (int i = 0; i < depth; i++)
+        if (depth <= 0) throw new ArgumentException("Depth must be greater than 0", nameof(depth));
+
+        int i;
+        for (i = 0; i < depth; i++)
         {
             if ((i % 2) == 0)
             {
-                if (!(bool)writer.BeginObject()) return true;
+                // {"a":
+                if (!(bool)writer.BeginObject()) return false;
+                if (depth > 0) writer.WriteKey("a");
             }
             else
             {
-                // Previous entry was Object, which should be "valid" if it didn't fail
-                if (!(bool)writer.WriteKey("a")) return false;
-                if (!(bool)writer.BeginArray()) return true;
+                if (!(bool)writer.BeginArray()) return false;
             }
         }
 
-        return false;
+        return i >= depth;
     }
     public static void WriteTestRoot(SJWriter writer)
     {
@@ -543,7 +547,7 @@ public static class WriterTester
             WrittenEquals(TestContent, $"\"{SJEscape.Escape(TestContent, asciiOnly)}\"", WriteOptions.Ascii(asciiOnly));
         }
     }
-    public static void WriteTestRootJSC(SJWriter writer)
+    public static void WriteTestRootComments(SJWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
 

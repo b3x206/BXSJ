@@ -263,7 +263,7 @@ If this warning isn't desired, override this method to return false and remove t
     [DataRow(@"[ 1, 2, 3 /* trailing array */]")]
     public void TrickyComments(string data) => ReadWithTokens(FromString(data), jsc: true);
 
-    // Code Validation
+    // Validation
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void ResetRetainsData()
@@ -296,9 +296,9 @@ If this warning isn't desired, override this method to return false and remove t
 
             // RegExp's are to make it more understandable and are not 100% accurate.
             // Pass 1:
-            // @"(.+)\s*&\s*"
+            // @"(.+)\s*&\s*"g
             ReadOnlySpan<char> comment = v.Slice();
-            int assertionsCount = comment.Count(asSep);
+            int assertionsCount = comment.Count(asSep) + 1;
             Span<Range> slices = assertionsCount > 16 ? new Range[assertionsCount] : stackalloc Range[assertionsCount];
             comment.Split(slices, asSep, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
@@ -306,7 +306,7 @@ If this warning isn't desired, override this method to return false and remove t
             //   ├─ Declaration
             //   │          ├─ Use State's State.Stacked top
             //   │          │     ├─ Name of the field
-            //   │          │     │        ├─ Value expected from it's ToString                            
+            //   │          │     │        ├─ Value expected from it's ToString
             // @"(assert=\s*(top.)?([^=]+)=(.*))"g
             bool anyAssertions = false;
             foreach (Range slice in slices)
@@ -398,7 +398,7 @@ Fields + Properties available : {fieldsAndProperties}");
         {
             if (v.type == SJType.Comment)
             {
-                if (!AssertValidation(self, v)) Console.WriteLine($"Comment with content <{v.Slice()}> does not have an assertion on any state.");
+                if (!AssertValidation(self, v)) Console.WriteLine($"Comment with content <{v.Slice()}> does not have an assertion.");
             }
             return true;
         });

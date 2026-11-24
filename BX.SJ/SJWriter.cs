@@ -306,7 +306,7 @@ namespace BX.SJ
         /// <param name="size">Size to get the buffer in.</param>
         private bool GetFormatBuffer(ref Span<char> chars, out char[] rented, int size)
         {
-            if (maxFormatBufferSize > 0 && size > maxFormatBufferSize)
+            if (maxFormatBufferSize >= 0 && size > maxFormatBufferSize)
             {
                 chars = rented = ArrayPool<char>.Shared.Rent(size);
                 return true;
@@ -330,6 +330,7 @@ namespace BX.SJ
             get => _Data;
             set
             {
+                CheckDisposed();
                 if (ReferenceEquals(value, _Data)) return;
 
                 _Data = value ?? throw new ArgumentNullException(nameof(value));
@@ -354,7 +355,7 @@ namespace BX.SJ
         }
         private void CheckDisposed()
         {
-            if (disposedValue) throw new InvalidOperationException("Attempt to write to a disposed SJWriter.");
+            if (disposedValue) throw new InvalidOperationException("Attempt to use a disposed SJWriter.");
         }
         private bool CheckState()
         {
@@ -1212,8 +1213,8 @@ namespace BX.SJ
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public SJWriter WriteKey(string value)
         {
-            if (value is null) return WriteNull();
-            else return WriteString(value);
+            if (value is null) return WriteKeyNull();
+            else return WriteKeyString(value);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1288,6 +1289,7 @@ namespace BX.SJ
         /// </returns>
         public int PushState()
         {
+            CheckDisposed();
             if (_StData == null)
             {
                 Error = "Data source does not support stacking, it must implement stackability interface.";
@@ -1295,7 +1297,6 @@ namespace BX.SJ
             }
 
             CheckVersion();
-            CheckDisposed();
             var handle = _stateStack.Push(false);
             if (handle.IsStub) return -1;
 
@@ -1317,6 +1318,7 @@ namespace BX.SJ
         /// </returns>
         public int PopState()
         {
+            CheckDisposed();
             if (_StData == null)
             {
                 Error = "Data source does not support stacking, it must implement stackability interface.";
@@ -1324,7 +1326,6 @@ namespace BX.SJ
             }
 
             CheckVersion();
-            CheckDisposed();
             if (_stateStack.Count <= 0) return -1;
             _stateStack.PopValue().CopyTo(ref S);
 
@@ -1344,6 +1345,8 @@ namespace BX.SJ
         /// </remarks>
         public void Reset()
         {
+            CheckDisposed();
+
             S.Reset();
             _Data.Reset();
             LastDataVersion = _Data.Version;

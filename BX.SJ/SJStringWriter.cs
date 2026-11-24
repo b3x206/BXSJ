@@ -33,7 +33,11 @@ namespace BX.SJ
         public int Count => sb.Length;
         public int Version { get; private set; } = 0;
         public bool CanRead => true; // Is in memory
-        public int MaxStateCount { get => _states.maxSize; set => _states.maxSize = value; }
+        private SJValueStack<int> _states = SJValueStack<int>.CreateWithMaxSize(SJWriter.DefaultMaxDepth);
+        int ISJStateStackable.MaxStateCount
+        {
+            get => _states.maxSize; set => _states.maxSize = value;
+        }
 
         public string ReadWritten() => sb.ToString();
         public int ReadWritten(in Span<char> data)
@@ -54,14 +58,13 @@ namespace BX.SJ
         public void Dispose()
         { }
 
-        private SJValueStack<int> _states = SJValueStack<int>.CreateWithMaxSize(SJWriter.DefaultMaxDepth);
-        public int PushState()
+        int ISJStateStackable.PushState()
         {
             var handle = _states.Push(sb.Length);
             if (handle.IsStub) return -1;
             return _states.Count - 1;
         }
-        public int PopState()
+        int ISJStateStackable.PopState()
         {
             if (_states.Count <= 0) return -1;
             sb.Length = _states.PopValue();

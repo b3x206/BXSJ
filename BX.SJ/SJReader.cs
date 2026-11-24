@@ -1335,7 +1335,6 @@ namespace BX.SJ
         public static explicit operator bool(SJReader r) => !r.HasError;
 
         private SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(DefaultMaxDepth);
-
         public int StateCount => _stateStack.Count;
         /// <summary>
         /// Pushes a loadable stacked state.

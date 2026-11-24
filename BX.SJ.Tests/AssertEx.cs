@@ -22,6 +22,6 @@ public static class AssertEx
         HasFlag(_, @enum, flag, null);
     public static void HasFlag<T>(this Assert _, T @enum, T flag, string? message) where T : Enum
     {
-        Assert.IsTrue(@enum.HasFlag(flag), message);
+        Assert.IsTrue(@enum.HasFlag(flag), message ?? $"Expected enum <{@enum}> to have flag(s) <{flag}>");
     }
 }

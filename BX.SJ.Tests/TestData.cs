@@ -68,15 +68,19 @@ public static class TestData
     public const string JsonDataDiscardKey = "secretInfo";
     // - Escape Data
     public const string EscapeContent = "Quote: \", Backslash: \\, Tab: \t, Newline: \n, Pizza: \uD83C\uDF55, The 🅱 variant: \uD83C\uDD71\uFE0F";
-    public const string EscapeInvalidUnescape = "Oh wow, I'm escaping things I shouldn't! : \\a\\b\\c\\d\\e\\f\\g\\h\\i\\j\\k\\l\\m\\n\\o\\p\\q\\r\\s\\t\\u\\v\\w\\x\\y\\z\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O\\P\\Q\\R\\S\\T\\U\\V\\W\\X\\Y\\Z'";
+    public const string InvalidEscapesData = "Oh wow, I'm escaping things I shouldn't! : \\a\\b\\c\\d\\e\\f\\g\\h\\i\\j\\k\\l\\m\\n\\o\\p\\q\\r\\s\\t\\u\\v\\w\\x\\y\\z\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O\\P\\Q\\R\\S\\T\\U\\V\\W\\X\\Y\\Z'";
     public const string EscapeInvalidTrailingBackslash = "Text 1 \\ Some text 2 \\ Third text \\";
     public const string EscapeInvalidSurrogate = "\uDF55\uD83C\uDD71\uD83C\uFE0F In C++, surrogate escape you!";
     public static readonly string EscapeContentAsciiSequence = string.Join("", Enumerable.Range(0, 255).Select(Convert.ToChar));
     public static readonly string EscapeContentEmojiTest = string.Join('\n', Enumerable.Range(0x2700, 0xBF).Select((v, i) =>
         string.Concat(char.ToString((char)v), ((i & 1) == 0) ? "ABCDEFGHIJKLMNOPQRSTUVWXYZ" : "abcdefghijklmnopqrstuvwxyz"))
     );
+    public static IEnumerable<string[]> EscapeDatas => [
+        [EscapeContent], [EscapeInvalidSurrogate], [EscapeContentAsciiSequence], [InvalidEscapesData]
+    ];
+    public static IEnumerable<string[]> TruncatedEscapeDatas => TestEx.CreateTruncatedStringData(EscapeDatas);
     public static IEnumerable<string[]> InvalidEscapeDatas => [
-        [EscapeInvalidUnescape], [EscapeInvalidTrailingBackslash],
+        [InvalidEscapesData], [EscapeInvalidTrailingBackslash],
         ["Some text \\u🔥😂©️🟢"], ["\\uGHIJ"], ["\\uG012"], ["\\u0/12"],
     ];
 
@@ -156,7 +160,7 @@ public static class TestData
         ""ahhh i'm turning into palm knee"":           /* assert=top.count=1 */ [], /* assert=top.count=2 */
         ""why am i so hell bent on not using claude"": /* assert=top.count=2 */ []  /* assert=top.count=3 */,
         ""ts why i stay unemployed xd"":               /* assert=top.count=3 */ []  /* assert=top.count=4 */
-    }, null, ""string"" }], ""[1]"": 41 },
+    }}, null, ""string"" ], ""[1]"": 41 },
     ""WeCouldTechnicallyQueryPrevValue"": [""mov %eax, 0xB0B"", ""mov %ebx, 0x2345678c"", ""int 0x80"", ""larp""]
 }";
 

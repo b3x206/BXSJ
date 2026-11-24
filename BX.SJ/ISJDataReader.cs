@@ -15,7 +15,7 @@ namespace BX.SJ
     public interface ISJDataReader : IEnumerator<byte>
     {
         int Version { get; }
-        byte CharSize { get; }
+        int CharSize { get; }
 
         int Position { get; }
         int Index => Position - 1;

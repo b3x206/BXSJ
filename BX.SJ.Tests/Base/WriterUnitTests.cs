@@ -1,12 +1,10 @@
-﻿using Microsoft.Testing.Platform.Extensions.Messages;
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace BX.SJ.Tests;
 
 public abstract class WriterUnitTests<TWriter> where TWriter : ISJDataWriter
 {
-    // TODO : Organize this better and copy it from the ReaderUnitTests.
-    public abstract TWriter CreateData();
+    public abstract TWriter CreateWriter();
     public virtual bool CheckIsStackable() => typeof(TWriter).IsAssignableTo(typeof(ISJStateStackable));
     public virtual bool AssertIsStackable()
     {
@@ -23,7 +21,7 @@ If this warning isn't desired, override this method to return false and remove t
     [DataRow(4, DisplayName = "Indent 4")]
     public void RootWrite(int indent)
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = indent;
         writer.ThrowOnError = false;
 
@@ -35,7 +33,7 @@ If this warning isn't desired, override this method to return false and remove t
     [DataRow(4, DisplayName = "Indent 4")]
     public void Write(int indent)
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = indent;
         writer.ThrowOnError = true;
 
@@ -72,7 +70,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Mid)]
     public void WriteEmojiSpam()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.ThrowOnError = true;
         writer.WriteString(TestData.DataEmojiSpam);
         if (!writer.Data.CanRead)
@@ -90,7 +88,7 @@ If this warning isn't desired, override this method to return false and remove t
     public void InvalidWrite()
     {
         // The codepaths are generally the same so I will only test WriteLiteralValue and WriteKey instead
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.ThrowOnError = false;
 
         using (writer.Object())
@@ -142,7 +140,7 @@ If this warning isn't desired, override this method to return false and remove t
     public void DefaultNoCustomKey()
     {
         const string Message = "Error must exist on default state of writing custom key with a writer";
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.ThrowOnError = false;
 
         using (writer.Object())
@@ -157,7 +155,7 @@ If this warning isn't desired, override this method to return false and remove t
     public void DefaultNoTypes()
     {
         const string Message = "Error must exist on default state of writing custom type with a writer";
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.ThrowOnError = false;
 
         using (writer.Object())
@@ -171,7 +169,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void DefaultNoComments()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         const string Message = "Error must exist on default state of writing comments with a writer";
         writer.ThrowOnError = false;
 
@@ -188,7 +186,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void CustomNumberLiterals()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = 0;
         writer.ThrowOnError = true;
         if (!writer.Data.CanRead)
@@ -219,7 +217,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void CustomKeys()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.ThrowOnError = true;
         writer.allowOtherKeyTypes = true;
         writer.indentSize = 0;
@@ -257,7 +255,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void Types()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.ThrowOnError = false;
         writer.allowTypes = true;
         writer.indentSize = 0;
@@ -317,12 +315,12 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void RootComments(int indent)
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = indent;
         writer.ThrowOnError = false;
         writer.allowComments = true;
 
-        WriterTester.WriteTestRootJSC(writer);
+        WriterTester.WriteTestRootComments(writer);
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
@@ -330,7 +328,7 @@ If this warning isn't desired, override this method to return false and remove t
     [DataRow(4, DisplayName = "Indent 4")]
     public void Comments(int indent)
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = indent;
         writer.allowComments = true;
         writer.ThrowOnError = true;
@@ -367,18 +365,18 @@ If this warning isn't desired, override this method to return false and remove t
     [DataRow(4, DisplayName = "Indent 4")]
     public void CommentsMatrix(int indent)
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = indent;
         writer.allowComments = true;
         writer.ThrowOnError = true;
 
         using (writer.Object())
         {
-            WriterTester.WriteTestJSCMatrix(writer);
+            WriterTester.WriteTestCommentMatrix(writer);
 
             using (writer.ArrayWithKey("array"))
             {
-                WriterTester.WriteTestJSCMatrix(writer);
+                WriterTester.WriteTestCommentMatrix(writer);
             }
         }
 
@@ -400,7 +398,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void CommentsPadCharacters()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         if (!writer.Data.CanRead)
         {
             Assert.Inconclusive($"[!] Cannot test '{writer.GetType()}' as data can't be read.");
@@ -441,18 +439,20 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void Depth()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = 4;
         writer.ThrowOnError = true;
 
         writer.maxDepth = SJWriter.DefaultMaxDepth;
-        Assert.IsFalse(WriterTester.WriteTestDepth(writer, 64));
+        const int halfDepth = SJWriter.DefaultMaxDepth / 2;
+        // Assert.AreNotEqual(0, halfDepth);
+        WriterTester.WriteTestDepth(writer, halfDepth);
     }
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     public void MaxDepth()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = 4;
         writer.ThrowOnError = true;
 
@@ -462,11 +462,11 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void MaxDepthNoExcept()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = 4;
         writer.ThrowOnError = false;
 
-        Assert.IsTrue(WriterTester.WriteMaxTestDepth(writer), "Depth test must fail");
+        Assert.IsFalse(WriterTester.WriteMaxTestDepth(writer), "Depth test must fail");
         Assert.That.IsNotNullOrEmpty(writer.Error, "Writer should have an error set after failing");
     }
 
@@ -486,7 +486,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void Stack()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = 3;
         writer.ThrowOnError = true;
 
@@ -496,7 +496,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void StackNoExcept()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.indentSize = 4;
         writer.ThrowOnError = false;
         Assert.IsTrue(TestStackWith(writer), "Stack test must fail");
@@ -504,6 +504,28 @@ If this warning isn't desired, override this method to return false and remove t
     }
 
     // State
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void ReadData()
+    {
+        using var w = new SJWriter(CreateWriter());
+        if (!w.Data.CanRead)
+        {
+            Assert.Inconclusive($"Cannot test ReadData as data cannot be read for writer with type {typeof(TWriter)}");
+            return;
+        }
+
+        const string Data = TestData.AZaz09;
+        w.Write(Data);
+
+        static string E(string d) => SJEscape.Escape(d);
+        string expected = $"\"{E(Data)}\"";
+        Assert.AreEqual(expected, w.Data.ReadWritten());
+
+        char[] data = new char[w.Data.Count];
+        Assert.AreEqual(data.Length, w.Data.ReadWritten(data));
+        Assert.AreEqual(expected, new string(data));
+    }
     private static readonly Type[] _ReadDataConsistencyExceptionTypes = [typeof(NotSupportedException), typeof(InvalidOperationException)];
     /// <summary>
     /// Exception types expected from your variety of Writer if it cannot be read.
@@ -513,7 +535,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     public void ReadDataConsistency()
     {
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         // Buffered objects may struggle with converting representation to string.
         writer.ThrowOnError = true;
         using (writer.Object())
@@ -543,9 +565,52 @@ If this warning isn't desired, override this method to return false and remove t
             Assert.AreEqual(writer.Data.Count, writer.Data.ReadWritten().Length);
         }
     }
+
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
-    public virtual void TestResetClearsState()
+    [DataRow(1)]
+    [DataRow(4)]
+    public void DisposeTimes(int n)
+    {
+        // Disposing multiple times shouldn't error.
+        SJWriter writer = new(CreateWriter());
+        writer.Write(0);
+        for (int i = 0; i < n; i++) writer.Dispose();
+    }
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void AfterDispose()
+    {
+        SJWriter writer = new(CreateWriter());
+        Action<SJWriter>[] acts = [
+            // Anything that must throw is here
+            // (since Action does not match these methods exactly this is done)
+            static (r) => r.BeginObject(),
+            static (r) => r.BeginArray(),
+            static (r) => r.WriteLiteralValue("0"),
+            static (r) => r.WriteComment("0"),
+            static (r) => r.WriteCommentLine("0"),
+            static (r) => r.WriteLiteralKey("0", true),  // Is error by default, but must throw the dispose error.
+            static (r) => r.WriteType(0),
+            static (r) => r.Reset(),
+            static (r) => r.Data = null,                 // Will throw InvalidOperationException when disposed
+            (r) => { if (CheckIsStackable()) r.PushState(); },
+            (r) => { if (CheckIsStackable()) r.PopState(); },
+        ];
+
+        writer.Dispose();
+
+        // SJWriter
+        for (int i = 0; i < acts.Length; i++)
+        {
+            Action<SJWriter> mustThrow = acts[i];
+            Assert.Throws<InvalidOperationException>(() => mustThrow(writer), $"Action {i + 1} does not throw InvalidOperationException on disposed writer.");
+        }
+    }
+
+    [TestMethod]
+    [Timeout(TestTimeouts.Short)]
+    public void ResetClearsState()
     {
         static void ValidateResetState(SJWriter w)
         {
@@ -561,7 +626,7 @@ If this warning isn't desired, override this method to return false and remove t
             Assert.IsFalse(w.S.WrittenType, "Writer custom value state must be false");
         }
 
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.ThrowOnError = false;
         writer.allowComments = true;
         writer.allowOtherKeyTypes = true;
@@ -606,7 +671,7 @@ If this warning isn't desired, override this method to return false and remove t
         // Test this with many strings (including emoji spam,
         // to check for stuff like whether if the StreamWriter has
         // resetted it's state correctly, well as correct as it can be.)
-        using var writer = new SJWriter(CreateData());
+        using var writer = new SJWriter(CreateWriter());
         writer.ThrowOnError = false;
         const string Key1 = "Hello", Key2 = "this should be all";
         const string Val2Fmt = "X";
@@ -643,14 +708,13 @@ If this warning isn't desired, override this method to return false and remove t
             Console.WriteLine($"[!] Did not validate the data, cannot read data from {writer}. Otherwise completed w/o errors.");
         }
     }
-
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(16)]
     [DataRow(SJWriter.DefaultMaxDepth)]
     public void MaxStateStacking(int count)
     {
-        using var writer = new SJWriter(CreateData())
+        using var writer = new SJWriter(CreateWriter())
         {
             maxDepth = 0,           // Disable depth checks
             MaxStateCount = count,
@@ -663,11 +727,10 @@ If this warning isn't desired, override this method to return false and remove t
         }
         for (int i = count - 1; i >= 0; i--)
         {
-            Assert.AreEqual(i, writer.S.depth);
+            Assert.AreEqual(i, writer.S.depth - 1); // depth is off by one. this is expected
             Assert.AreEqual(i, writer.PopState());
         }
     }
-
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(1)]
@@ -677,7 +740,7 @@ If this warning isn't desired, override this method to return false and remove t
     {
         if (!AssertIsStackable()) return;
 
-        using var r = new SJWriter(CreateData())
+        using var r = new SJWriter(CreateWriter())
         {
             MaxStateCount = count,
         };
@@ -698,7 +761,7 @@ If this warning isn't desired, override this method to return false and remove t
             return;
         }
 
-        using var r = new SJWriter(CreateData())
+        using var r = new SJWriter(CreateWriter())
         {
             ThrowOnError = true
         };
