@@ -1,7 +1,6 @@
 using BX.SJ.Collections;
 using System;
 using System.Collections;
-using System.Runtime.InteropServices;
 
 namespace BX.SJ
 {
@@ -11,19 +10,28 @@ namespace BX.SJ
     /// (if chunking) can be written, but is non-trivial and may reduce 
     /// performance if the chunks aren't POT.</br>
     /// </summary>
-    public abstract class SJBufferReader<T> : ISJDataReader, ISJStateStackable
-        where T : struct
+    /// <remarks>
+    /// The defined stride size (<see cref="CharSize"/>) does not effect how many units <see cref="Position"/> is moved.
+    /// <br>The defined length should be in how many <see cref="Position"/>s exist and is independent of <see cref="CharSize"/></br>
+    /// </remarks>
+    public abstract class SJBufferReader : ISJDataReader, ISJStateStackable
     {
-        public abstract ReadOnlySpan<T> Buffer { get; }
         public int Version { get; protected set; } = 0;
-        public virtual int CharSize => Marshal.SizeOf<T>();
         public int Position { get; protected set; } = 0;
         public byte Current { get; protected set; }
         object IEnumerator.Current => Current;
+        public abstract int Length { get; }
+        public abstract int CharSize { get; }
+        /// <summary>
+        /// Get the ASCII ranged (0-127) character data at <paramref name="position"/>.
+        /// <br>In most normal conditions, access to this indexer will be within range.</br>
+        /// </summary>
+        protected abstract byte this[int position] { get; }
         protected bool disposed;
 
-        private SJValueStack<int> _positions = SJValueStack<int>.CreateWithMaxSize(SJReader.DefaultMaxDepth);
-        bool ISJStateStackable.HasError => false;
+        private SJValueStack<int> _positions = SJValueStack<int>.CreateWithMaxSize(SJConstants.MaxDepth);
+        protected virtual bool HasError => false;
+        bool ISJStateStackable.HasError => HasError;
         int ISJStateStackable.MaxStateCount
         {
             get => _positions.Capacity; set => _positions.Count = value;
@@ -31,14 +39,13 @@ namespace BX.SJ
 
         // Love being off by one.
         protected virtual void CheckDisposed() { } // Default impl can be disposed and have no problems
-        protected abstract byte ToByte(T value);
         public virtual bool MoveNext()
         {
             CheckDisposed();
 
-            if (Position < Buffer.Length)
+            if (Position < Length)
             {
-                Current = ToByte(Buffer[Position]);
+                Current = this[Position];
                 Position++;
                 return true;
             }
@@ -46,7 +53,7 @@ namespace BX.SJ
         }
         private bool MoveNextRare()
         {
-            Position = Buffer.Length + 1;
+            Position = Length + 1;
             Current = default;
             return false;
         }
@@ -73,9 +80,9 @@ namespace BX.SJ
         {
             CheckDisposed();
 
-            if (Position < Buffer.Length)
+            if (Position < Length)
             {
-                return ToByte(Buffer[Position]);
+                return this[Position];
             }
             return 0;
         }
@@ -83,9 +90,9 @@ namespace BX.SJ
         {
             CheckDisposed();
 
-            if (Position < Buffer.Length)
+            if (Position < Length)
             {
-                b = ToByte(Buffer[Position]);
+                b = this[Position];
                 return true;
             }
             b = 0;
@@ -110,7 +117,7 @@ namespace BX.SJ
         }
 
         public abstract ReadOnlySpan<byte> SliceU8(int start, int length);
-        public abstract ReadOnlySpan<char> SliceU16(int start, int length);
+        public abstract ReadOnlySpan<char> Slice(int start, int length);
 
         protected virtual int PushState()
         {
@@ -125,7 +132,7 @@ namespace BX.SJ
             if (h.IsStub) return -1;
 
             Position = h.Value;
-            Current = Position >= Buffer.Length ? (byte)0 : Math.Min(/* ÿ */(byte)0xFF, ToByte(Buffer[Position]));
+            Current = Position >= Length ? (byte)0 : Math.Min(/* ÿ */(byte)0xFF, this[Position]);
             return _positions.Count;
         }
         int ISJStateStackable.PushState() => PushState();

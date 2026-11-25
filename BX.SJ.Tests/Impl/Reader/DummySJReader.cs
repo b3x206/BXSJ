@@ -8,7 +8,7 @@ namespace BX.SJ.Tests.Impl;
 internal sealed class DummySJReader : ISJDataReader
 {
     public int Version => default;
-    public byte CharSize => default;
+    public int CharSize => default;
     public int Position => default;
     public byte Current => default;
     object IEnumerator.Current => Current;
@@ -41,7 +41,7 @@ internal sealed class DummySJReader : ISJDataReader
         return default;
     }
 
-    public ReadOnlySpan<char> SliceU16(int start, int length)
+    public ReadOnlySpan<char> Slice(int start, int length)
     {
         return default;
     }

@@ -191,13 +191,13 @@ If this warning isn't desired, override this method to return false and remove t
 
     // Tricky conditions on the comma/colon state / Stacking
     [TestMethod]
-    [DataRow("[]", SJReader.DefaultMaxDepth - 1)]
-    [DataRow("{}", SJReader.DefaultMaxDepth - 1)]
+    [DataRow("[]", SJConstants.MaxDepth - 1)]
+    [DataRow("{}", SJConstants.MaxDepth - 1)]
     [Timeout(TestTimeouts.Short)]
     public void ValidDepth(string tks, int depth) => ReadWithTokens(FromString(CreateMaxRecursiveString(tks, depth)));
     [TestMethod]
-    [DataRow("[]", SJReader.DefaultMaxDepth)]
-    [DataRow("{}", SJReader.DefaultMaxDepth)]
+    [DataRow("[]", SJConstants.MaxDepth)]
+    [DataRow("{}", SJConstants.MaxDepth)]
     [Timeout(TestTimeouts.Short)]
     public void InvalidDepth(string tks, int depth) => Assert.Throws<SJReader.ReaderException>(() =>
         ReadWithTokens(FromString(CreateMaxRecursiveString(tks, depth)))
@@ -534,7 +534,7 @@ Fields + Properties available : {fieldsAndProperties}");
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(16)]
-    [DataRow(SJReader.DefaultMaxDepth)]
+    [DataRow(SJConstants.MaxDepth)]
     public void MaxStateStacking(int count)
     {
         if (!AssertIsStackable()) return;
@@ -584,7 +584,7 @@ Fields + Properties available : {fieldsAndProperties}");
     [Timeout(TestTimeouts.Short)]
     [DataRow(1)]
     [DataRow(16)]
-    [DataRow(SJReader.DefaultMaxDepth)]
+    [DataRow(SJConstants.MaxDepth)]
     public void InvalidStateStacking(int count)
     {
         if (!AssertIsStackable()) return;

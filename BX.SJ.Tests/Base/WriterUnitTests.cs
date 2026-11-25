@@ -443,8 +443,8 @@ If this warning isn't desired, override this method to return false and remove t
         writer.indentSize = 4;
         writer.ThrowOnError = true;
 
-        writer.maxDepth = SJWriter.DefaultMaxDepth;
-        const int halfDepth = SJWriter.DefaultMaxDepth / 2;
+        writer.maxDepth = SJConstants.MaxDepth;
+        const int halfDepth = SJConstants.MaxDepth / 2;
         // Assert.AreNotEqual(0, halfDepth);
         WriterTester.WriteTestDepth(writer, halfDepth);
     }
@@ -711,7 +711,7 @@ If this warning isn't desired, override this method to return false and remove t
     [TestMethod]
     [Timeout(TestTimeouts.Short)]
     [DataRow(16)]
-    [DataRow(SJWriter.DefaultMaxDepth)]
+    [DataRow(SJConstants.MaxDepth)]
     public void MaxStateStacking(int count)
     {
         using var writer = new SJWriter(CreateWriter())
@@ -735,7 +735,7 @@ If this warning isn't desired, override this method to return false and remove t
     [Timeout(TestTimeouts.Short)]
     [DataRow(1)]
     [DataRow(16)]
-    [DataRow(SJReader.DefaultMaxDepth)]
+    [DataRow(SJConstants.MaxDepth)]
     public void InvalidStateStacking(int count)
     {
         if (!AssertIsStackable()) return;

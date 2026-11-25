@@ -33,7 +33,7 @@ namespace BX.SJ
         public int Count => sb.Length;
         public int Version { get; private set; } = 0;
         public bool CanRead => true; // Is in memory
-        private SJValueStack<int> _states = SJValueStack<int>.CreateWithMaxSize(SJWriter.DefaultMaxDepth);
+        private SJValueStack<int> _states = SJValueStack<int>.CreateWithMaxSize(SJConstants.MaxDepth);
         int ISJStateStackable.MaxStateCount
         {
             get => _states.maxSize; set => _states.maxSize = value;

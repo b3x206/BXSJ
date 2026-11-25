@@ -190,9 +190,6 @@ namespace BX.SJ
             }
         }
 
-        public const int DefaultMaxDepth = 128;
-        public const string DefaultNumberFormat = "G";
-
         // settings
         /// <summary>
         /// The indent size to use. If this is 0 or less, no pretty printing is done.
@@ -201,7 +198,7 @@ namespace BX.SJ
         /// <summary>
         /// Maximum size for <see cref="writeStack"/>
         /// </summary>
-        public ushort maxDepth = DefaultMaxDepth;
+        public ushort maxDepth = SJConstants.MaxDepth;
         /// <summary>
         /// Maximum amount of stackable state. If set to zero or less, it can be stacked forever.
         /// </summary>
@@ -521,7 +518,6 @@ namespace BX.SJ
                 s.fmtExpect = FormatExpect.None;
             }
         }
-        public const int MaxNumberPrefixLength = 32;
         /// <summary>
         /// Convert supported <paramref name="format"/> types to a prefix used 
         /// to specify the <see cref="SJType.Number"/> values.
@@ -665,7 +661,7 @@ namespace BX.SJ
                     break;
             }
             if (prefix == null) prefix = FormatToPrefix(format);
-            int written = 0, offset = Math.Min(prefix.Length, MaxNumberPrefixLength);
+            int written = 0, offset = Math.Min(prefix.Length, SJConstants.MaxWriterPrefixLength);
             Span<char> data = stackalloc char[20 + offset], view = data.Slice(offset);
             char[] rented = null;
 
@@ -875,7 +871,7 @@ namespace BX.SJ
         /// <summary>
         /// Write custom number key. This is only allowed when <see cref="allowOtherKeyTypes"/> is set to <see langword="true"/>.
         /// </summary>
-        public SJWriter WriteKeyNumber(float number, string format = DefaultNumberFormat)
+        public SJWriter WriteKeyNumber(float number, string format = SJConstants.NumberFormat)
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
@@ -883,44 +879,44 @@ namespace BX.SJ
             return WriteFormattedNumber(WriteTarget.Key, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
         /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
-        public SJWriter WriteKeyNumber(double number, string format = DefaultNumberFormat)
+        public SJWriter WriteKeyNumber(double number, string format = SJConstants.NumberFormat)
         {
             static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
         /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
-        public SJWriter WriteKeyInt(int number, string format = DefaultNumberFormat, string prefix = null)
+        public SJWriter WriteKeyInt(int number, string format = SJConstants.NumberFormat, string prefix = null)
         {
             static bool TryFormat(int n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
         /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
-        public SJWriter WriteKeyUInt(uint number, string format = DefaultNumberFormat, string prefix = null)
+        public SJWriter WriteKeyUInt(uint number, string format = SJConstants.NumberFormat, string prefix = null)
         {
             static bool TryFormat(uint n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
         /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
-        public SJWriter WriteKeyLong(long number, string format = DefaultNumberFormat, string prefix = null)
+        public SJWriter WriteKeyLong(long number, string format = SJConstants.NumberFormat, string prefix = null)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
         /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
-        public SJWriter WriteKeyULong(ulong number, string format = DefaultNumberFormat, string prefix = null)
+        public SJWriter WriteKeyULong(ulong number, string format = SJConstants.NumberFormat, string prefix = null)
         {
             static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Key, number, format, prefix, TryFormat);
         }
         /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
-        public SJWriter WriteKeyBool(bool value) => WriteLiteralKey(value ? SJReader.TrueLiteral : SJReader.FalseLiteral, stringify: false);
+        public SJWriter WriteKeyBool(bool value) => WriteLiteralKey(value ? SJConstants.Literal.True.ToToken() : SJConstants.Literal.False.ToToken(), stringify: false);
         /// <inheritdoc cref="WriteKeyNumber(float, string)"/>
-        public SJWriter WriteKeyNull() => WriteLiteralKey(SJReader.NullLiteral, stringify: false);
+        public SJWriter WriteKeyNull() => WriteLiteralKey(SJConstants.Literal.Null.ToToken(), stringify: false);
 
         /// <summary>
         /// Writes a literal value with the rules for the top level object or array.
@@ -979,44 +975,44 @@ namespace BX.SJ
             return Self();
         }
         public SJWriter WriteString(ReadOnlySpan<char> value) => WriteLiteralValue(value, stringify: true);
-        public SJWriter WriteNumber(float number, string format = DefaultNumberFormat)
+        public SJWriter WriteNumber(float number, string format = SJConstants.NumberFormat)
         {
             static bool TryFormat(float n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        public SJWriter WriteNumber(double number, string format = DefaultNumberFormat)
+        public SJWriter WriteNumber(double number, string format = SJConstants.NumberFormat)
         {
             static bool TryFormat(double n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, ReadOnlySpan<char>.Empty, TryFormat);
         }
-        public SJWriter WriteInt(int number, string format = DefaultNumberFormat, string prefix = null)
+        public SJWriter WriteInt(int number, string format = SJConstants.NumberFormat, string prefix = null)
         {
             static bool TryFormat(int n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
         }
-        public SJWriter WriteUInt(uint number, string format = DefaultNumberFormat, string prefix = null)
+        public SJWriter WriteUInt(uint number, string format = SJConstants.NumberFormat, string prefix = null)
         {
             static bool TryFormat(uint n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
         }
-        public SJWriter WriteLong(long number, string format = DefaultNumberFormat, string prefix = null)
+        public SJWriter WriteLong(long number, string format = SJConstants.NumberFormat, string prefix = null)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
         }
-        public SJWriter WriteULong(ulong number, string format = DefaultNumberFormat, string prefix = null)
+        public SJWriter WriteULong(ulong number, string format = SJConstants.NumberFormat, string prefix = null)
         {
             static bool TryFormat(ulong n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
             return WriteFormattedNumber(WriteTarget.Value, number, format, prefix, TryFormat);
         }
-        public SJWriter WriteBool(bool value) => WriteLiteralValue(value ? SJReader.TrueLiteral : SJReader.FalseLiteral);
-        public SJWriter WriteNull() => WriteLiteralValue(SJReader.NullLiteral);
+        public SJWriter WriteBool(bool value) => WriteLiteralValue(value ? SJConstants.Literal.True.ToToken() : SJConstants.Literal.False.ToToken());
+        public SJWriter WriteNull() => WriteLiteralValue(SJConstants.Literal.Null.ToToken());
 
         /// <summary>
         /// Write a type prefix. This is only allowed if <see cref="allowTypes"/> is <see langword="true"/>.
@@ -1057,7 +1053,7 @@ namespace BX.SJ
         /// <summary>
         /// <inheritdoc cref="WriteType(ReadOnlySpan{char}, bool)"/>
         /// </summary>
-        public SJWriter WriteType(int typeCode, string format = DefaultNumberFormat)
+        public SJWriter WriteType(int typeCode, string format = SJConstants.NumberFormat)
         {
             static bool TryFormat(int n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
@@ -1066,7 +1062,7 @@ namespace BX.SJ
         /// <summary>
         /// <inheritdoc cref="WriteType(ReadOnlySpan{char}, bool)"/>
         /// </summary>
-        public SJWriter WriteType(long typeCode, string format = DefaultNumberFormat)
+        public SJWriter WriteType(long typeCode, string format = SJConstants.NumberFormat)
         {
             static bool TryFormat(long n, Span<char> dest, ReadOnlySpan<char> format, out int written) =>
                 n.TryFormat(dest, out written, format, CultureInfo.InvariantCulture);
@@ -1195,17 +1191,17 @@ namespace BX.SJ
 
         // These are like "extensions"
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter WriteKey(float number, string format = DefaultNumberFormat) => WriteKeyNumber(number, format);
+        public SJWriter WriteKey(float number, string format = SJConstants.NumberFormat) => WriteKeyNumber(number, format);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter WriteKey(double number, string format = DefaultNumberFormat) => WriteKeyNumber(number, format);
+        public SJWriter WriteKey(double number, string format = SJConstants.NumberFormat) => WriteKeyNumber(number, format);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter WriteKey(int number, string format = DefaultNumberFormat, string prefix = null) => WriteKeyInt(number, format, prefix);
+        public SJWriter WriteKey(int number, string format = SJConstants.NumberFormat, string prefix = null) => WriteKeyInt(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter WriteKey(uint number, string format = DefaultNumberFormat, string prefix = null) => WriteKeyUInt(number, format, prefix);
+        public SJWriter WriteKey(uint number, string format = SJConstants.NumberFormat, string prefix = null) => WriteKeyUInt(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter WriteKey(long number, string format = DefaultNumberFormat, string prefix = null) => WriteKeyLong(number, format, prefix);
+        public SJWriter WriteKey(long number, string format = SJConstants.NumberFormat, string prefix = null) => WriteKeyLong(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter WriteKey(ulong number, string format = DefaultNumberFormat, string prefix = null) => WriteKeyULong(number, format, prefix);
+        public SJWriter WriteKey(ulong number, string format = SJConstants.NumberFormat, string prefix = null) => WriteKeyULong(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public SJWriter WriteKey(bool value) => WriteKeyBool(value);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1218,17 +1214,17 @@ namespace BX.SJ
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(float number, string format = DefaultNumberFormat) => WriteNumber(number, format);
+        public SJWriter Write(float number, string format = SJConstants.NumberFormat) => WriteNumber(number, format);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(double number, string format = DefaultNumberFormat) => WriteNumber(number, format);
+        public SJWriter Write(double number, string format = SJConstants.NumberFormat) => WriteNumber(number, format);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(int number, string format = DefaultNumberFormat, string prefix = null) => WriteInt(number, format, prefix);
+        public SJWriter Write(int number, string format = SJConstants.NumberFormat, string prefix = null) => WriteInt(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(uint number, string format = DefaultNumberFormat, string prefix = null) => WriteUInt(number, format, prefix);
+        public SJWriter Write(uint number, string format = SJConstants.NumberFormat, string prefix = null) => WriteUInt(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(long number, string format = DefaultNumberFormat, string prefix = null) => WriteLong(number, format, prefix);
+        public SJWriter Write(long number, string format = SJConstants.NumberFormat, string prefix = null) => WriteLong(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SJWriter Write(ulong number, string format = DefaultNumberFormat, string prefix = null) => WriteULong(number, format, prefix);
+        public SJWriter Write(ulong number, string format = SJConstants.NumberFormat, string prefix = null) => WriteULong(number, format, prefix);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public SJWriter Write(bool value) => WriteBool(value);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

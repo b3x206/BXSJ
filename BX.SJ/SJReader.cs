@@ -57,7 +57,7 @@ namespace BX.SJ
     }
 
     /// <summary>
-    /// Base class for <i>most</i> Json compatible BXSJ readers.
+    /// Class for Json compatible BXSJ readers.
     /// </summary>
     /// <example>
     /// // Refer to file:///./SJStringReader.cs
@@ -126,7 +126,7 @@ namespace BX.SJ
 
                 try
                 {
-                    s = reader.Data.SliceU16(start, end - start);
+                    s = reader.Data.Slice(start, end - start);
                     return true;
                 }
                 catch
@@ -141,7 +141,7 @@ namespace BX.SJ
 
                 try
                 {
-                    return reader.Data.SliceU16(start, end - start);
+                    return reader.Data.Slice(start, end - start);
                 }
                 catch
                 {
@@ -156,7 +156,49 @@ namespace BX.SJ
                 if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
                 if (reader?.disposedValue ?? true) throw new InvalidOperationException("Value's owner is disposed or null.");
 
-                return reader.Data.SliceU16(start, end - start);
+                return reader.Data.Slice(start, end - start);
+            }
+
+            public readonly bool TrySliceU8(out ReadOnlySpan<byte> s)
+            {
+                s = default;
+                if (Length < 0) return false;
+                if (reader?.disposedValue ?? true) return false;
+
+                try
+                {
+                    s = reader.Data.SliceU8(start, end - start);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            public readonly ReadOnlySpan<byte> TrySliceU8(ReadOnlySpan<byte> fallback)
+            {
+                if (Length < 0) return fallback;
+                if (reader?.disposedValue ?? true) return fallback;
+
+                try
+                {
+                    return reader.Data.SliceU8(start, end - start);
+                }
+                catch
+                {
+                    return fallback;
+                }
+            }
+            // SJType fallback is hardcoded here as UTF-8 sequences.
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<byte> TrySliceU8() => TrySliceU8(fallback: type.ToStringU8());
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly ReadOnlySpan<byte> SliceU8()
+            {
+                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
+                if (reader?.disposedValue ?? true) throw new InvalidOperationException("Value's owner is disposed or null.");
+
+                return reader.Data.SliceU8(start, end - start);
             }
 
             public override readonly string ToString()
@@ -248,12 +290,11 @@ namespace BX.SJ
         }
 
         // - config
-        public const int DefaultMaxDepth = 128;
         /// <summary>
         /// Maximum read depth as generally recursion is used to read.
         /// <br>Set to zero to disable any depth checks.</br>
         /// </summary>
-        public ushort maxDepth = DefaultMaxDepth;
+        public ushort maxDepth = SJConstants.MaxDepth;
         /// <summary>
         /// Maximum amount of stackable state. If set to zero or less, it can be stacked forever.
         /// </summary>
@@ -433,57 +474,47 @@ namespace BX.SJ
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static string Tk(char c) => c == 0xFF ? "Any" : (c == '\0' ? "\\0/0" : $"{c}/{(int)c}");
 
-        public const string TrueLiteral = "true";
-        public const string FalseLiteral = "false";
-        public const string NullLiteral = "null";
-        private const int TrueLiteralId = 0;
-        private const int FalseLiteralId = 1;
-        private const int NullLiteralId = 2;
-        private static readonly string[] readerLiterals = new string[]
-        {
-            /* TrueLiteralId  */ TrueLiteral,
-            /* FalseLiteralId */ FalseLiteral,
-            /* NullLiteralId  */ NullLiteral
-        };
         /// <summary>
         /// * If a literal is a valid substring of other, the larger string will be attempted to be captured
         /// <br>* An exact match to any value within <paramref name="readerLiterals"/> is expected.</br>
         /// </summary>
-        private int GetLiteralType()
+        private SJConstants.Literal GetLiteralType()
         {
             // This assumes that all literals essentially start with a different
             // character and do not have any valid substrings within each other
-            int mc = -1, ci = 0;
+            SJConstants.Literal mc = SJConstants.Literal.None;
+            int ci = 0;
             char c = (char)Data.Current;
             string l = null;
             do
             {
-                switch (mc)
+                switch ((int)mc)
                 {
-                    case -1:
+                    case 0:
                         // Find first character
-                        for (int i = 0; i < readerLiterals.Length; i++)
+                        for (var i = SJConstants.Literal.False; i <= SJConstants.Literal.Null; i++)
                         {
-                            if (readerLiterals[i][ci] == c)
+                            string lit = i.ToToken();
+                            if (lit[ci] == c)
                             {
                                 mc = i;
-                                l = readerLiterals[i];
+                                l = lit;
                                 ci++;
                                 break;
                             }
                         }
-                        if (mc < 0) return mc;
+                        if (mc <= 0) return mc;
                         break;
                     default:
                         // Match the rest
-                        if (ci < l.Length && l[ci++] != c) return -1; // Current character does not match
+                        if (ci < l.Length && l[ci++] != c) return SJConstants.Literal.None; // Current character does not match
                         if (ci >= l.Length) return mc; // Must stop before going to the next character.
                         break;
                 }
             }
             while (Data.TryNext(out c));
 
-            return -1;
+            return SJConstants.Literal.None;
         }
 
         /// <summary>
@@ -1070,11 +1101,11 @@ namespace BX.SJ
                 // what in the strcmp()
                 switch (GetLiteralType())
                 {
-                    case TrueLiteralId:
-                    case FalseLiteralId:
+                    case SJConstants.Literal.True:
+                    case SJConstants.Literal.False:
                         result.type = SJType.Bool;
                         break;
-                    case NullLiteralId:
+                    case SJConstants.Literal.Null:
                         result.type = SJType.Null;
                         break;
 
@@ -1334,7 +1365,7 @@ namespace BX.SJ
 
         public static explicit operator bool(SJReader r) => !r.HasError;
 
-        private SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(DefaultMaxDepth);
+        private SJValueStack<State> _stateStack = SJValueStack<State>.CreateWithMaxSize(SJConstants.MaxDepth);
         public int StateCount => _stateStack.Count;
         /// <summary>
         /// Pushes a loadable stacked state.

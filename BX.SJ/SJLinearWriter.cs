@@ -3,6 +3,7 @@ using System;
 using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 
 namespace BX.SJ
 {
@@ -20,7 +21,7 @@ namespace BX.SJ
         public int Count => current;
         public int Version { get; private set; } = 0;
         public bool CanRead => true;
-        bool ISJStateStackable.HasError => false; // Errors immediately throw
+        bool ISJStateStackable.HasError => disposed; // Errors immediately throw
         int ISJStateStackable.MaxStateCount
         {
             get => _states.maxSize; set => _states.maxSize = value;

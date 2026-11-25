@@ -44,7 +44,9 @@ namespace BX.SJ
             return r;
         }
 
+        // ?? : Move this away from here? I will likely not implement much extensions to SJ
+        //      Byte based reading capability (because all SJ tokens are ascii) kinda justifies this though..
         ReadOnlySpan<byte> SliceU8(int start, int length);
-        ReadOnlySpan<char> SliceU16(int start, int length);
+        ReadOnlySpan<char> Slice(int start, int length);
     }
 }

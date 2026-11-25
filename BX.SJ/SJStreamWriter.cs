@@ -1,5 +1,4 @@
-﻿#if false
-using BX.SJ.Collections;
+﻿using BX.SJ.Collections;
 using System;
 using System.Buffers;
 using System.IO;
@@ -8,9 +7,9 @@ using System.Text;
 namespace BX.SJ
 {
     /// <summary>
-    /// Writes JSON to a <see cref="Stream"/> of any kind.
+    /// Writes BXSJ to a <see cref="Stream"/> of any kind.
     /// </summary>
-    public sealed class SJStreamWriter : SJWriter, IDisposable
+    public sealed class SJStreamWriter : ISJDataWriter, ISJStateStackable, IDisposable
     {
         // Stream has it's own buffers or something
         /// <summary>
@@ -33,8 +32,23 @@ namespace BX.SJ
         // Yo I heard you liked buffers so I put buffers inside your buffer.
         private char[] buffer;
         private int streamCurrent;
+        private int _Version = 0;
+        int ISJDataWriter.Version => _Version;
+        bool ISJStateStackable.HasError => disposed;
+        public int Count { get; private set; }
+
+        private SJValueStack<long> _positions = SJValueStack<long>.Create();
+        public int MaxStateCount
+        {
+            get => _positions.maxSize;
+            set => _positions.maxSize = value;
+        }
 
         private bool disposed;
+        private void CheckDisposed()
+        {
+            if (disposed) throw new InvalidOperationException("Attempt to use a disposed SJStreamWriter");
+        }
 
         public const int BufferSize = 1024, MinBufferSize = 1;
 
@@ -91,18 +105,14 @@ namespace BX.SJ
         public void Flush() => Flush(true, true, false); // Doesn't close the stream, so encoder will "stay"
         private void Flush(bool flushStream, bool flushBuffer, bool flushEncoder)
         {
-            if (disposed || stream == null)
-            {
-                Error = "Cannot flush after getting disposed";
-                ThrowError();
-                return;
-            }
+            CheckDisposed();
 
             if (flushBuffer)
             {
+                // [!] Does not count towards written count
                 if (!wrotePreamble)
                 {
-                    // UTF8 BOM is actually cringe. It's UTF8 or not here
+                    // UTF8 BOM is cringe. It's UTF8 or not here
                     if (!isUTF8)
                     {
                         var preamble = encoding.Preamble;
@@ -120,22 +130,22 @@ namespace BX.SJ
                 int length = encoder.GetByteCount(buffer, false);
                 if (length > 0)
                 {
-                    byte[] rentedTempBuffer = null;
-                    Span<byte> tempBuffer = length <= 128 ? stackalloc byte[length] : Span<byte>.Empty;
+                    byte[] rentedDataBuffer = null;
+                    Span<byte> dataBuffer = length <= 128 ? stackalloc byte[length] : Span<byte>.Empty;
                     try
                     {
-                        if (tempBuffer.Length != length)
+                        if (dataBuffer.Length != length)
                         {
-                            tempBuffer = rentedTempBuffer = ArrayPool<byte>.Shared.Rent(length);
+                            dataBuffer = rentedDataBuffer = ArrayPool<byte>.Shared.Rent(length);
                         }
 
-                        encoder.GetBytes(buffer, tempBuffer, flushEncoder);
-                        stream.Write(tempBuffer.Slice(0, length));
+                        encoder.GetBytes(buffer, dataBuffer, flushEncoder);
+                        stream.Write(dataBuffer.Slice(0, length));
                         streamCurrent = 0;
                     }
                     finally
                     {
-                        if (rentedTempBuffer != null) ArrayPool<byte>.Shared.Return(rentedTempBuffer, true);
+                        if (rentedDataBuffer != null) ArrayPool<byte>.Shared.Return(rentedDataBuffer, true);
                     }
                 }
             }
@@ -144,30 +154,21 @@ namespace BX.SJ
                 stream.Flush();
             }
         }
-        protected override void DoAppend(char c)
+        public void Write(char c)
         {
-            if (disposed || stream == null)
-            {
-                Error = "Cannot append after getting disposed";
-                ThrowError();
-                return;
-            }
+            CheckDisposed();
 
             if ((streamCurrent + 1) > buffer.Length)
             {
                 Flush(false, true, false);
             }
 
+            Count++;
             buffer[streamCurrent++] = c;
         }
-        protected override void DoAppend(ReadOnlySpan<char> s)
+        public void Write(ReadOnlySpan<char> s)
         {
-            if (disposed || stream == null)
-            {
-                Error = "Cannot append after getting disposed";
-                ThrowError();
-                return;
-            }
+            CheckDisposed();
 
             // Writes that are written to the base stream (which has it's own buffer)
             // It's a buffer matroshka
@@ -179,6 +180,8 @@ namespace BX.SJ
                 remaining = remaining.Slice(length);
                 streamCurrent = buffer.Length;
                 Flush(false, true, false);
+
+                Count += length;
             }
 
             // Last write that is buffered in this writer (and is not flushed).
@@ -186,6 +189,7 @@ namespace BX.SJ
             {
                 remaining.CopyTo(buffer.AsSpan(streamCurrent));
                 streamCurrent += remaining.Length;
+                Count += remaining.Length;
             }
         }
         /// <param name="resetStream">
@@ -196,13 +200,7 @@ namespace BX.SJ
         /// </param>
         public void Reset(bool resetStream)
         {
-            if (disposed || stream == null)
-            {
-                Error = "Cannot reset after getting disposed";
-                ThrowError();
-                return;
-            }
-            base.Reset();
+            CheckDisposed();
 
             if (resetStream)
             {
@@ -215,10 +213,11 @@ namespace BX.SJ
             }
             streamCurrent = 0;
             encoder.Reset();
+            unchecked { _Version++; }
         }
-        public override void Reset() => Reset(true);
+        public void Reset() => Reset(true);
 
-        public override bool CanReadData => stream.CanSeek;
+        public bool CanRead => stream.CanSeek;
         /// <summary>
         /// Read data from the stream writer.
         /// </summary>
@@ -226,7 +225,7 @@ namespace BX.SJ
         /// This calls <see cref="Flush"/> (to not truncate the existing data) to read 
         /// the data and creates a <see cref="StreamReader"/>, use it sparingly.
         /// </remarks>
-        public override string ReadData()
+        public string ReadWritten()
         {
             long sp = stream.Position;
             try
@@ -239,7 +238,9 @@ namespace BX.SJ
                 sp = stream.Position;     // Save flushed position (Stream position is generally modified)
 
                 stream.Position = 0;
-                using var sr = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true, BufferSize, leaveOpen: true);
+                using var sr = new StreamReader(
+                    stream, encoding, detectEncodingFromByteOrderMarks: true, BufferSize, leaveOpen: true
+                );
                 return sr.ReadToEnd();
             }
             finally
@@ -247,25 +248,44 @@ namespace BX.SJ
                 stream.Position = sp;
             }
         }
-        private SJValueStack<long> _positions = SJValueStack<long>.Create();
-        public override int PushState()
+        public int ReadWritten(in Span<char> chars)
         {
-            int baseResult = base.PushState();
+            long sp = stream.Position;
+            try
+            {
+                Flush(true, true, false);
+                sp = stream.Position;
+
+                stream.Position = 0;
+                using var sr = new StreamReader(
+                    stream, encoding, detectEncodingFromByteOrderMarks: true, BufferSize, leaveOpen: true
+                );
+                return sr.Read(chars);
+            }
+            finally
+            {
+                stream.Position = sp;
+            }
+        }
+
+        int ISJStateStackable.PushState()
+        {
             // We must flush buffer before saving state, this is to get the position accurately
             // I forgot that there's an encoding. Don't be silly like me and set the UTF-16 position.
-            if (baseResult >= 0)
+            int r = _positions.Count + 1;
+            if (_positions.maxSize <= 0 || r <= _positions.maxSize)
             {
                 // Technically, flushing the encoder is not needed as most rule-compliant
                 // strings are padded with ASCII characters which should prevent U+FEFF.
                 Flush(false, true, true);
                 _positions.PushValue(stream.Position);
             }
-            return baseResult;
+            return r;
         }
-        public override int PopState()
+        int ISJStateStackable.PopState()
         {
-            int baseResult = base.PopState();
-            if (baseResult >= 0)
+            int r = _positions.Count - 1;
+            if (r >= 0)
             {
                 encoder.Reset();
                 streamCurrent = 0; // Discard the stream writing buffer
@@ -275,7 +295,7 @@ namespace BX.SJ
                 stream.Position = pos;
                 stream.SetLength(pos);
             }
-            return baseResult;
+            return r;
         }
 
         private void Dispose(bool disposing = true)
@@ -328,4 +348,3 @@ namespace BX.SJ
         }
     }
 }
-#endif

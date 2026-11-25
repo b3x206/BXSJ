@@ -18,7 +18,7 @@ namespace BX.SJ.Collections
     /// using BX.SJ.Collections;
     /// 
     /// // `default`/`new ValueStack<int>()` init will also work, but lazy inits the array.
-    /// var vs = ValueStack<int>.Create();
+    /// var vs = SJValueStack<int>.Create();
     /// // Value pushed is default(T), if it wasn't previously modified and not cleared.
     /// // Default Push clears it.
     /// var myInt = vs.Push();
@@ -35,7 +35,7 @@ namespace BX.SJ.Collections
     /// // Retains 512, even though it should be 0. This is useful if you want to initialize the value with existing heap resources.
     /// vs.Push(clear: false);
     /// 
-    /// Console.WriteLine(string.Join(vs, ", ")); // 6, 42, 7, 42, 512
+    /// Console.WriteLine(string.Join(", ", vs)); // 6, 42, 7, 42, 512
     /// ]]>
     /// </example>
     /// <typeparam name="T">Struct type to store.</typeparam>

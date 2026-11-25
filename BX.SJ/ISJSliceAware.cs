@@ -1,4 +1,4 @@
-﻿namespace BX.SJ
+﻿ namespace BX.SJ
 {
     /// <summary>
     /// Opt-in hints for any <see cref="SJReader"/> data source for a 

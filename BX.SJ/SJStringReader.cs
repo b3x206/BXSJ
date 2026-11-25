@@ -7,7 +7,7 @@ namespace BX.SJ
     /// <summary>
     /// Uses <see cref="string"/> as JSON read resource.
     /// </summary>
-    public sealed class SJStringReader : SJBufferReader<char>
+    public sealed class SJStringReader : SJBufferReader
     {
         private string _Data;
         public string Data
@@ -25,7 +25,9 @@ namespace BX.SJ
                 Reset();
             }
         }
-        public override ReadOnlySpan<char> Buffer => _Data;
+        public override int CharSize => 2;
+        public override int Length => _Data?.Length ?? 0;
+        protected override byte this[int pos] => unchecked((byte)Math.Min((char)255U, Data[Position]));
         public bool Empty => string.IsNullOrEmpty(Data);
 
         public SJStringReader()
@@ -35,17 +37,15 @@ namespace BX.SJ
             _Data = data;
         }
 
-        protected override byte ToByte(char value) => unchecked((byte)Math.Min((char)255U, value));
         public override ReadOnlySpan<byte> SliceU8(int start, int length)
         {
             if (Empty) return ReadOnlySpan<byte>.Empty;
             return Encoding.UTF8.GetBytes(Data.Substring(start, length));
         }
-        public override ReadOnlySpan<char> SliceU16(int start, int length)
+        public override ReadOnlySpan<char> Slice(int start, int length)
         {
             if (Empty) return ReadOnlySpan<char>.Empty;
             return Data.AsSpan(start, length);
         }
     }
 }
-

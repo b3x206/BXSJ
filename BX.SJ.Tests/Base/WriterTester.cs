@@ -466,7 +466,7 @@ public static class WriterTester
 
     public static bool WriteMaxTestDepth(SJWriter writer)
     {
-        writer.maxDepth = Math.Max((ushort)SJWriter.DefaultMaxDepth, writer.maxDepth);
+        writer.maxDepth = Math.Max((ushort)SJConstants.MaxDepth, writer.maxDepth);
         return WriteTestDepth(writer, writer.maxDepth + 1);
     }
     public static bool WriteTestDepth(SJWriter writer, int depth)

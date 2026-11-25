@@ -111,7 +111,15 @@ public sealed class ReadmeUnitTests
     public void Migration1xTo2x_1()
     {
         // Check if the BX.SJ assembly has anything in the SJ namespace
-        Assert.DoesNotContain(v => v.Namespace?.StartsWith("SJ") ?? true, typeof(SJReader).Assembly.GetTypes(), "Must not have any namespace start with SJ or have null/root namespace");
+        foreach (var type in typeof(SJReader).Assembly.GetTypes())
+        {
+            // If it contains any "<>" tokens, it is a compiler generated name and should be skipped
+            if (type.FullName?.Any("<>/\\".Contains) ?? true) continue;
+
+            Console.WriteLine($"Check type : '{type}'");
+            Assert.That.IsNotNullOrEmpty(type.Namespace);
+            Assert.DoesNotStartWith("SJ", type.Namespace);
+        }
     }
     [TestMethod(DisplayName = "Migration 1.x -> 2.x | 2: Handle SJType.Key")]
     public void Migration1xTo2x_2()
