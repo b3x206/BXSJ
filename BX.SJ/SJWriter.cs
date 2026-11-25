@@ -15,7 +15,7 @@ namespace BX.SJ
     /// * Can write incompatible Json if not careful. This can be checked through <see cref="S"/> 
     /// or by validating against a strict <see cref="SJReader"/>.
     /// </remarks>
-    public sealed class SJWriter : ISJStateStackable, IDisposable
+    public sealed class SJWriter : IDisposable
     {
         /// <summary>
         /// Exception thrown on an error case while reading JSON.
@@ -211,7 +211,7 @@ namespace BX.SJ
         /// Limit for the built in writing buffer's.
         /// <br>Set to zero to always use <see cref="ArrayPool{T}"/>. Or less to disable limit for <see cref="_formatBuffer"/>.</br>
         /// </summary>
-        public int maxFormatBufferSize = 1024;
+        public int maxFormatBufferSize = SJConstants.MaxInterBufferSize;
         /// <summary>
         /// Whether to allow any <see cref="WriteComment"/>.
         /// </summary>
@@ -289,6 +289,7 @@ namespace BX.SJ
         public bool HasError => !string.IsNullOrEmpty(Error);
 
         // helper
+        // ------
         // To avoid using ArrayPool, which is maybe slower in case of small heap buffers.
         // Though resizing will allocate garbage and I will add a fallback.
         private const int LikelyMaxIntFormatSize = 66; // prefix + binary
@@ -317,29 +318,6 @@ namespace BX.SJ
             chars = _formatBuffer.AsSpan(0, size);
             rented = null;
             return true;
-        }
-
-        private ISJDataWriter _Data;
-        private ISJStateStackable _StData;
-        public int LastDataVersion { get; private set; }
-        public ISJDataWriter Data
-        {
-            get => _Data;
-            set
-            {
-                CheckDisposed();
-                if (ReferenceEquals(value, _Data)) return;
-
-                _Data = value ?? throw new ArgumentNullException(nameof(value));
-                _StData = _Data as ISJStateStackable;
-
-                Reset();
-            }
-        }
-
-        public SJWriter(ISJDataWriter writer)
-        {
-            Data = writer;
         }
 
         /// <summary>

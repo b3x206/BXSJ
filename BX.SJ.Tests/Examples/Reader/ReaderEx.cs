@@ -56,7 +56,7 @@ namespace BX.SJ.Tests.Examples
                 // SJReader.Value's are considered somewhat perishable ranges, but can be used with caution or be converted to strings.
                 foreach (var relatedEntries in values["/resolution"])
                 {
-                    switch (relatedEntries.type)
+                    switch (relatedEntries.i.type)
                     {
                         case SJType.Comment:
                             Console.WriteLine($"Comment (of resolution) says: <{new string(relatedEntries.Slice())}>");
@@ -103,11 +103,11 @@ namespace BX.SJ.Tests.Examples
             {
                 for (var value = reader.Read(); !reader.S.ended; value = reader.Read())
                 {
-                    if (value.type != SJType.Object) continue;
+                    if (value.i.type != SJType.Object) continue;
                     while (reader.IterateObject(value, out var k, out var v))
                     {
                         if (v.Length < 0) continue;
-                        Console.WriteLine($"Key <{new string(k.Slice())}>, Current type <{k.type}>, Prev type <{k.prevType}> | Value <{new string(v.Slice())}>");
+                        Console.WriteLine($"Key <{new string(k.Slice())}>, Current type <{k.i.type}>, Prev type <{k.i.prevType}> | Value <{new string(v.Slice())}>");
                     }
                 }
             }
@@ -171,13 +171,13 @@ namespace BX.SJ.Tests.Examples
             {
                 for (var value = reader.Read(); !reader.S.ended; value = reader.Read())
                 {
-                    if (value.type != SJType.Object) continue;
+                    if (value.i.type != SJType.Object) continue;
                     SJReader.Value lastType = default;
                     while (reader.IterateObjectEntries(value, out var kvt))
                     {
                         if (kvt.Length < 0) continue;
 
-                        switch (kvt.type)
+                        switch (kvt.i.type)
                         {
                             case SJType.Comment:
                                 break;
@@ -201,13 +201,13 @@ namespace BX.SJ.Tests.Examples
             {
                 for (var value = reader.Read(); !reader.S.ended; value = reader.Read())
                 {
-                    if (value.type != SJType.Array) continue;
+                    if (value.i.type != SJType.Array) continue;
                     SJReader.Value lastType = default;
                     while (reader.IterateArrayEntries(value, out var vt))
                     {
                         if (vt.Length < 0) continue;
 
-                        switch (vt.type)
+                        switch (vt.i.type)
                         {
                             case SJType.Comment:
                                 break;

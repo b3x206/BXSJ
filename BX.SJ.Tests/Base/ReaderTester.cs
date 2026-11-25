@@ -251,7 +251,7 @@ public static class ReaderTester
 
     public static bool ReadWithHandler(SJReader reader, SJReader.Value root, Func<SJReader, SJReader.Value, bool>? valueHandler, bool throwError = true)
     {
-        switch (root.type)
+        switch (root.i.type)
         {
             default:
             case SJType.Error:
@@ -270,7 +270,7 @@ public static class ReaderTester
                     // Something distinct to actual "end" is that the depth is set negative though.
                     if (reader.S.ended)
                     {
-                        Assert.IsLessThanOrEqualTo(0, root.depth, "Depth must be zero if ended");
+                        Assert.IsLessThanOrEqualTo(0, root.i.depth, "Depth must be zero if ended");
                     }
                     break;
                 }
@@ -301,26 +301,26 @@ public static class ReaderTester
                 }
             case SJType.Comment:
                 {
-                    switch (root.variant)
+                    switch (root.i.variant)
                     {
                         case SJTypeVariant.SingleComment:
                         case SJTypeVariant.MultiComment:
                             break;
                         default:
-                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.i.variant}");
                             else break;
                     }
                     break;
                 }
             case SJType.Type:
                 {
-                    switch (root.variant)
+                    switch (root.i.variant)
                     {
                         case SJTypeVariant.TypeLiteral:
                         case SJTypeVariant.TypeString:
                             break;
                         default:
-                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.i.variant}");
                             else break;
                     }
                     break;
@@ -344,7 +344,7 @@ public static class ReaderTester
 
     public static void ReadInnerTokens(StringBuilder sb, SJReader reader, SJReader.Value root, bool throwError = true)
     {
-        switch (root.type)
+        switch (root.i.type)
         {
             default:
             case SJType.Error:
@@ -363,7 +363,7 @@ public static class ReaderTester
                     // Something distinct to actual "end" is that the depth is set negative though.
                     if (reader.S.ended)
                     {
-                        Assert.IsLessThanOrEqualTo(0, root.depth, "Depth must be zero if ended");
+                        Assert.IsLessThanOrEqualTo(0, root.i.depth, "Depth must be zero if ended");
                     }
                     break;
                 }
@@ -374,7 +374,7 @@ public static class ReaderTester
                     sb.Append('[');
                     while (reader.IterateArrayEntries(root, out var v))
                     {
-                        if (v.type == SJType.Comment)
+                        if (v.i.type == SJType.Comment)
                         {
                             ReadInnerTokens(sb, reader, v, throwError);
                             continue;
@@ -403,7 +403,7 @@ public static class ReaderTester
                     SJReader.Value k = SJReader.Value.Error();
                     while (reader.IterateObjectEntries(root, out var v))
                     {
-                        switch (v.type)
+                        switch (v.i.type)
                         {
                             case SJType.Comment:
                                 ReadInnerTokens(sb, reader, v, throwError);
@@ -434,7 +434,7 @@ public static class ReaderTester
             case SJType.Comment:
                 {
                     // We are restoring the old behaviour.
-                    switch (root.variant)
+                    switch (root.i.variant)
                     {
                         case SJTypeVariant.SingleComment:
                             sb.Append("// ").Append(root.Slice()).Append(Environment.NewLine);
@@ -443,14 +443,14 @@ public static class ReaderTester
                             sb.Append("/* ").Append(root.Slice()).Append(" */");
                             break;
                         default:
-                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.i.variant}");
                             else break;
                     }
                     break;
                 }
             case SJType.Type:
                 {
-                    switch (root.variant)
+                    switch (root.i.variant)
                     {
                         case SJTypeVariant.TypeLiteral:
                             sb.Append('(').Append(root.Slice()).Append(')');
@@ -459,7 +459,7 @@ public static class ReaderTester
                             sb.Append('(').Append('"').Append(root.Slice()).Append('"').Append(')');
                             break;
                         default:
-                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.variant}");
+                            if (throwError) throw new ArgumentException($"Invalid type variant for type : {root.i.variant}");
                             else break;
                     }
                     break;
@@ -492,7 +492,7 @@ public static class ReaderTester
         bool throwError = true, bool prefixTypes = false, int indentCount = -1
     )
     {
-        switch (root.type)
+        switch (root.i.type)
         {
             default:
             case SJType.Error:
@@ -512,7 +512,7 @@ public static class ReaderTester
                     // This can happen if a comment is returned on the root object like "] // a" or "} // a"
                     if (reader.S.ended)
                     {
-                        Assert.IsLessThanOrEqualTo(0, root.depth, "Depth must be zero if ended");
+                        Assert.IsLessThanOrEqualTo(0, root.i.depth, "Depth must be zero if ended");
                     }
                     break;
                 }
@@ -526,7 +526,7 @@ public static class ReaderTester
             case SJType.Bool:
                 {
                     sb.Append(' ', Math.Max(0, indentCount));
-                    if (prefixTypes) sb.Append(GetTypePrefix(root.type, root.variant));
+                    if (prefixTypes) sb.Append(GetTypePrefix(root.i.type, root.i.variant));
 
                     AppendWithRemovedStrings(sb, static (self, cs) => self.Append(cs), root.Slice(), "\r", "\n");
                     break;
@@ -535,7 +535,7 @@ public static class ReaderTester
             case SJType.Array:
                 {
                     sb.Append(' ', Math.Max(0, indentCount));
-                    if (prefixTypes) sb.Append(GetTypePrefix(root.type, root.variant));
+                    if (prefixTypes) sb.Append(GetTypePrefix(root.i.type, root.i.variant));
                     bool first = false;
 
                     while (reader.IterateArrayEntries(root, out var v))
@@ -558,7 +558,7 @@ public static class ReaderTester
             case SJType.Object:
                 {
                     sb.Append(' ', Math.Max(0, indentCount));
-                    if (prefixTypes) sb.Append(GetTypePrefix(root.type, root.variant));
+                    if (prefixTypes) sb.Append(GetTypePrefix(root.i.type, root.i.variant));
                     bool first = false;
 
                     while (reader.IterateObjectEntries(root, out var v))

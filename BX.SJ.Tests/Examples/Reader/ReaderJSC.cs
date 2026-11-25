@@ -12,13 +12,13 @@ namespace BX.SJ.Tests.Examples
     {
         static void InspectConfigData(SJReader reader, SJReader.Value root)
         {
-            if (root.type != SJType.Object) throw new ArgumentException("Config node type must be object", nameof(root));
+            if (root.i.type != SJType.Object) throw new ArgumentException("Config node type must be object", nameof(root));
 
             string entrySum = "";
             SJReader.Value key = SJReader.Value.Error();
             while (reader.IterateObjectEntries(root, out var value))
             {
-                switch (value.type)
+                switch (value.i.type)
                 {
                     case SJType.Error:
                         return;
@@ -66,7 +66,7 @@ namespace BX.SJ.Tests.Examples
             for (var root = reader.Read(); !reader.S.ended; root = reader.Read())
             {
                 // Skip root level comments if they are irrelevant
-                if (root.type == SJType.Comment)
+                if (root.i.type == SJType.Comment)
                     continue;
 
                 InspectConfigData(reader, root);

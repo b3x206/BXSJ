@@ -15,9 +15,13 @@ This branch (`devel`) is where development is done, before getting packed into "
 2.  "Stable" SJ releases are the ones that are tagged with semver. You will generally see major releases as I generally refactor things and don't backport bugfixes (if there are bugfixes). <br>
 _(all tests pass, benchmarks are consistent, slightly worse or slightly improved and it doesn't regress too much)_ <br>
 
-3. It isn't very simple and has incompatible extensions.
-
-4. This branch is currently in development. The readme will elaborate more things in future. This is the minimal readme.
+## TODO
+* [ ] Exclusively use `ReadOnlySpan<char>` for `SJReader`.
+  * [ ] Require `ReadOnlySpan<char>` for `Read()`
+  * [ ] Turn `SJReader.Value` into a `ref struct` containing reference to the written value
+* [ ] Add maximum contiguous token length to `SJReader` (for everything, capture size cannot exceed a certain size)
+* [ ] Exclusively use `Span<char>` (better if stored in the heap or using a shared buffer..) for `SJWriter`
+  * [ ] Including the data source for every call isn't exactly a nice design. Perhaps `SJWriter` can have it's own "StringBuilder", or data is queued and must be flushed into the span..
 
 ## Examples
 

@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Text;
 using System.Diagnostics;
+using System.Text;
 
 namespace BX.SJ
 {
@@ -13,6 +13,8 @@ namespace BX.SJ
     /// </remarks>
     public static class SJEscape
     {
+        public delegate void AppendAction<in TSelf>(TSelf self, ReadOnlySpan<char> slice);
+
         private static readonly byte[] hex2IntTable;
         private enum EscapeTableAction : byte
         {
@@ -60,7 +62,7 @@ namespace BX.SJ
             }
         }
         private static void To4DigitHex(char c, ref Span<char> chars) => To4DigitHex(c, 0, ref chars);
-        private static void SBAppendAction(StringBuilder sb, char c) => sb.Append(c);
+        private static void SbAppendSpan(StringBuilder sb, ReadOnlySpan<char> c) => sb.Append(c);
 
         /// <summary>
         /// Escapes <paramref name="content"/> according to JSON. 
@@ -70,18 +72,25 @@ namespace BX.SJ
         /// <param name="content">Content to escape, this mustn't have broken surrogate pairs.</param>
         /// <exception cref="ArgumentException"></exception>
         /// <returns>Count of written characters.</returns>
-        public static int Escape<TSelf>(TSelf self, Action<TSelf, char> appendAction, ReadOnlySpan<char> content, bool asciiOnly = false)
+        public static int Escape<TSelf>(TSelf self, AppendAction<TSelf> appendAction, ReadOnlySpan<char> content, bool asciiOnly = false)
         {
             if (appendAction is null)
             {
                 throw new ArgumentNullException(nameof(appendAction));
             }
 
+            // Span -> Span copying is much faster as it's just a
+            // simple tight loop of the range + the appendable content as opposed to bunch of branching.
+            // If it's only escapes, perf is identical to the char by char copy.
+            int start = 0;
             int count = 0;
-            Span<char> hex = stackalloc char[4];
+            Span<char> appendable = stackalloc char[6];
+            Span<char> escape = appendable.Slice(0, 2);
+            Span<char> hex = appendable.Slice(2);
 
             // https://www.ietf.org/rfc/rfc4627.txt
-            for (int i = 0; i < content.Length; i++)
+            int i;
+            for (i = 0; i < content.Length; i++)
             {
                 char cur = content[i];
                 if (cur < escapeTable.Length)
@@ -92,51 +101,74 @@ namespace BX.SJ
                             break;
 
                         default:
-                            appendAction(self, '\\');
-                            appendAction(self, (char)escapeTable[cur]);
+                            if (i > start)
+                            {
+                                appendAction(self, content.Slice(start, i));
+                                count += i - start;
+                            }
+                            start = i + 1;
+
+                            escape[0] = '\\';
+                            escape[1] = (char)escapeTable[cur];
+                            appendAction(self, escape);
                             count += 2;
                             continue;
 
                         case EscapeTableAction.Self:
-                            appendAction(self, '\\');
-                            appendAction(self, cur);
+                            if (i > start)
+                            {
+                                appendAction(self, content.Slice(start, i));
+                                count += i - start;
+                            }
+                            start = i + 1;
+
+                            escape[0] = '\\';
+                            escape[1] = cur;
+                            appendAction(self, escape);
                             count += 2;
                             continue;
 
                         case EscapeTableAction.Hex:
-                            // write as : \uXXXX
-                            To4DigitHex(cur, ref hex);
-                            appendAction(self, '\\');
-                            appendAction(self, 'u');
-                            count += 2;
-                            for (int j = 0; j < hex.Length; j++)
+                            if (i > start)
                             {
-                                appendAction(self, hex[j]);
-                                count++;
+                                appendAction(self, content.Slice(start, i));
+                                count += i - start;
                             }
+                            start = i + 1;
+
+                            // write as : \uXXXX
+                            escape[0] = '\\';
+                            escape[1] = 'u';
+                            To4DigitHex(cur, ref hex);
+                            appendAction(self, appendable);
+                            count += 6;
                             continue;
                     }
                 }
                 else if (asciiOnly)
                 {
-                    // Non-ascii
-                    // write as : \uXXXX
-                    To4DigitHex(cur, ref hex);
-                    appendAction(self, '\\');
-                    appendAction(self, 'u');
-                    count += 2;
-                    for (int j = 0; j < hex.Length; j++)
+                    if (i > start)
                     {
-                        appendAction(self, hex[j]);
-                        count++;
+                        appendAction(self, content.Slice(start, i));
+                        count += i - start;
                     }
+                    start = i + 1;
 
+                    // write as : \uXXXX
+                    escape[0] = '\\';
+                    escape[1] = 'u';
+                    To4DigitHex(cur, ref hex);
+                    appendAction(self, appendable);
+                    count += 6;
                     continue;
                 }
+            }
 
-                // Anything else
-                appendAction(self, cur);
-                count++;
+            // Any other slice
+            if (i > start)
+            {
+                appendAction(self, content.Slice(start, i));
+                count += i - start;
             }
 
             return count;
@@ -145,7 +177,7 @@ namespace BX.SJ
         public static string Escape(ReadOnlySpan<char> content, bool asciiOnly = false)
         {
             var sb = new StringBuilder(content.Length + (content.Length / 2)); // Content is "shorter"
-            Escape(sb, SBAppendAction, content, asciiOnly);
+            Escape(sb, SbAppendSpan, content, asciiOnly);
             return sb.ToString();
         }
         /// <inheritdoc cref="Escape{TSelf}(TSelf, Action{TSelf, char}, ReadOnlySpan{char}, bool)"/>
@@ -163,72 +195,75 @@ namespace BX.SJ
         /// <param name="appendAction">Action called when a character is to be appended into the arbitrary buffer.</param>
         /// <param name="content">Content to unescape.</param>
         /// <returns>Count of written characters.</returns>
-        public static int Unescape<TSelf>(TSelf self, Action<TSelf, char> appendAction, ReadOnlySpan<char> content, bool allowInvalidEscapes = true)
+        public static int Unescape<TSelf>(TSelf self, AppendAction<TSelf> appendAction, ReadOnlySpan<char> content, bool allowInvalidEscapes = true)
         {
             if (appendAction is null)
             {
                 throw new ArgumentNullException(nameof(appendAction));
             }
 
+            Span<char> ueChars = stackalloc char[1];
+            int start = 0;
             int count = 0;
+            int i;
             // This method is "more lenient" about incorrect escape characters.
-            for (int i = 0; i < content.Length; i++)
+            for (i = 0; i < content.Length; i++)
             {
                 char cur = content[i];
                 if (cur == '\\')
                 {
                     if (++i >= content.Length)
                     {
-                        if (!allowInvalidEscapes) throw new ArgumentException("Invalid escape sequence, expected a control character.", nameof(content));
-
-                        appendAction(self, '\\');
-                        count++;
-                        break;
+                        if (!allowInvalidEscapes) throw new ArgumentException("Invalid escape sequence, expected a control character at the end.", nameof(content));
                     }
-                    cur = content[i];
+                    else
+                    {
+                        cur = content[i];
+                    }
+
+                    if (start > i)
+                    {
+                        appendAction(self, content.Slice(start, i));
+                        count += i - start;
+                    }
+                    start = i + 1;
 
                     switch (cur)
                     {
                         case '"':
                         case '\\':
-                            appendAction(self, cur);
-                            count++;
-                            continue;
-
+                            ueChars[0] = cur;                            
+                            break;
                         case 'b':
-                            appendAction(self, '\b');
-                            count++;
-                            continue;
+                            ueChars[0] = '\b';                            
+                            break;
                         case 'f':
-                            appendAction(self, '\f');
-                            count++;
-                            continue;
+                            ueChars[0] = '\f';                            
+                            break;
                         case 'n':
-                            appendAction(self, '\n');
-                            count++;
-                            continue;
+                            ueChars[0] = '\n';                            
+                            break;
                         case 'r':
-                            appendAction(self, '\r');
-                            count++;
-                            continue;
+                            ueChars[0] = '\r';
+                            break;
                         case 't':
-                            appendAction(self, '\t');
-                            count++;
-                            continue;
+                            ueChars[0] = '\t';
+                            break;
 
                         case 'u':
                             {
                                 // Strictly expect 4 digits
                                 const int TargetDelta = 5; // length(u1234)
                                 char result = '\0';
-                                int start = i;
-                                i++;
+                                int hStart = i++;
 
-                                while (i < content.Length && (i - start) < TargetDelta)
+                                while (i < content.Length && (i - hStart) < TargetDelta)
                                 {
                                     cur = content[i];
-                                    // Character is within the range
+
+                                    // character is within the range
                                     if (cur >= hex2IntTable.Length) break;
+
                                     // whether if digit is valid
                                     int digit = hex2IntTable[cur];
                                     if (digit > 0xF) break;
@@ -237,12 +272,12 @@ namespace BX.SJ
                                     i++;
                                 }
 
-                                if ((i - start) == TargetDelta)
+                                if ((i - hStart) == TargetDelta)
                                 {
                                     // UTF-16 point
-                                    appendAction(self, (char)(result & char.MaxValue));
-                                    count++;
-                                    // Go back to the previous character
+                                    ueChars[0] = (char)(result & char.MaxValue);
+
+                                    // Go back to the previous character as it will be skipped otherwise
                                     i--;
                                 }
                                 // otherwise escape \u to u
@@ -250,27 +285,29 @@ namespace BX.SJ
                                 {
                                     if (!allowInvalidEscapes) throw new ArgumentException("Invalid unicode escape sequence", nameof(content));
 
-                                    i = start;
-                                    appendAction(self, 'u'); // cur isn't guaranteed to be 'u'
-                                    count++;
+                                    // cur isn't guaranteed to be 'u'
+                                    i = hStart;
+                                    ueChars[0] = 'u';
                                 }
 
-                                continue;
+                                break;
                             }
 
                         default:
                             if (!allowInvalidEscapes) throw new ArgumentException($"Bad control character '{cur}'", nameof(content));
-
-                            appendAction(self, cur);
-                            count++;
-                            continue;
+                            ueChars[0] = cur;
+                            break;
                     }
-                }
-                else
-                {
-                    appendAction(self, cur);
+
+                    appendAction(self, ueChars);
                     count++;
                 }
+            }
+
+            if (start > i)
+            {
+                appendAction(self, content.Slice(start, i));
+                count += i - start;
             }
 
             return count;
@@ -279,7 +316,7 @@ namespace BX.SJ
         public static string Unescape(ReadOnlySpan<char> content, bool allowInvalidEscapes = true)
         {
             var sb = new StringBuilder(content.Length); // Content is "longer"
-            Unescape(sb, SBAppendAction, content, allowInvalidEscapes);
+            Unescape(sb, SbAppendSpan, content, allowInvalidEscapes);
             return sb.ToString();
         }
         /// <inheritdoc cref="Unescape{TSelf}(TSelf, Action{TSelf, char}, ReadOnlySpan{char}, bool)"/>

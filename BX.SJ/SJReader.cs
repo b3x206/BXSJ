@@ -59,151 +59,113 @@ namespace BX.SJ
     /// <summary>
     /// Class for Json compatible BXSJ readers.
     /// </summary>
-    /// <example>
-    /// // Refer to file:///./SJStringReader.cs
-    /// </example>
-    public sealed class SJReader : IDisposable, ISJStateStackable
+    public sealed class SJReader : IDisposable
     {
         /// <summary>
         /// Exception thrown on an error case related to the BXSJ reader.
         /// </summary>
         public sealed class ReaderException : Exception
         {
-            public ReaderException(SJReader reader) : base($"{reader.Error} at position {reader.Data.Position}")
+            public ReaderException(SJReader reader) : base($"{reader.Error} at position {reader.S.current}")
             { }
             public ReaderException(string message) : base(message)
             { }
         }
-        /// <summary>
-        /// Intermediate value result from <see cref="Read"/>.
-        /// </summary>
-        public struct Value
+        public struct StateStackScope : IDisposable
         {
-            // <= 32 bytes
-            public readonly SJReader reader;
+            private readonly SJReader reader;
+            private readonly bool popOnError;
+            private bool disposed;
+
+            public StateStackScope(SJReader reader, bool popOnError)
+            {
+                this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
+                disposed = reader.PushState() < 0;
+                this.popOnError = popOnError;
+            }
+
+            public void Dispose()
+            {
+                if (!disposed)
+                {
+                    if (!popOnError || reader.HasError) reader.PopState();
+
+                    disposed = true;
+                }
+            }
+        }
+
+        public struct ValueInfo
+        {
             public SJType type, prevType;
             public SJTypeVariant variant;
             public int start, end;
             /// <summary>
-            /// <see cref="State.depth"/> of the <see cref="reader"/> while this Value was being created.
-            /// <br>If this is a <see cref="SJType.Object"/> or <see cref="SJType.Array"/>, this is one higher than the actual depth.</br>
+            /// <see cref="State.Depth"/> of the <see cref="reader"/> while this Value was being created.
+            /// <br>If this is a <see cref="SJType.Object"/> or <see cref="SJType.Array"/>,
+            /// this is one higher than the actual depth that this entry was started on.</br>
             /// </summary>
             public ushort depth;
 
-            public Value(SJReader reader)
+            public readonly Value ToValue(ReadOnlySpan<char> c) => new Value(c) { i = this };
+        }
+        /// <summary>
+        /// Intermediate value result from <see cref="Read"/>.
+        /// </summary>
+        public ref struct Value
+        {
+            // <= 32 bytes
+            private readonly ReadOnlySpan<char> data;
+            public ValueInfo i;
+
+            public Value(ReadOnlySpan<char> data)
             {
-                this.reader = reader;
-                type = prevType = SJType.Error;
-                variant = SJTypeVariant.None;
-                start = end = 0;
-                depth = (ushort)(reader?.S.depth ?? 0);
+                this.data = data;
+                i = default;
+                i.type = i.prevType = SJType.Error;
+                i.variant = SJTypeVariant.None;
             }
-            private Value(SJType stubType, SJReader reader = null)
+            private Value(SJType stubType)
             {
-                this.reader = reader;
-                type = prevType = stubType;
-                variant = SJTypeVariant.None;
-                start = end = 0;
-                depth = (ushort)(reader?.S.depth ?? 0);
+                data = default;
+                i = default;
+                i.type = i.prevType = stubType;
+                i.variant = SJTypeVariant.None;
             }
 
             public static Value Error() => new Value(SJType.Error);
-            public static Value Error(SJReader reader) => new Value(SJType.Error, reader);
             public static Value Null() => new Value(SJType.Null);
-            public static Value Null(SJReader reader) => new Value(SJType.Null, reader);
 
             public readonly int Length
             {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => end - start;
+                get => i.end - i.start;
             }
 
             public readonly bool TrySlice(out ReadOnlySpan<char> s)
             {
                 s = default;
-                if (Length < 0) return false;
-                if (reader?.disposedValue ?? true) return false;
-
-                try
-                {
-                    s = reader.Data.Slice(start, end - start);
-                    return true;
-                }
-                catch
-                {
-                    return false;
-                }
+                if (Length < 0 || Length > data.Length) return false;
+                s = data.Slice(i.start, Length);
+                return true;
             }
             public readonly ReadOnlySpan<char> TrySlice(ReadOnlySpan<char> fallback) // Reduce codepaths with this simple trick:
             {
-                if (Length < 0) return fallback;
-                if (reader?.disposedValue ?? true) return fallback;
-
-                try
-                {
-                    return reader.Data.Slice(start, end - start);
-                }
-                catch
-                {
-                    return fallback;
-                }
+                if (Length < 0 || Length > data.Length) return fallback;
+                return data.Slice(i.start, Length);
             }
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<char> TrySlice() => TrySlice(fallback: type.ToString()); // Hope enum ToString is interned
+            public readonly ReadOnlySpan<char> TrySlice() => TrySlice(fallback: i.type.ToString()); // Hope enum ToString is interned
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly ReadOnlySpan<char> Slice()
             {
-                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                if (reader?.disposedValue ?? true) throw new InvalidOperationException("Value's owner is disposed or null.");
-
-                return reader.Data.Slice(start, end - start);
-            }
-
-            public readonly bool TrySliceU8(out ReadOnlySpan<byte> s)
-            {
-                s = default;
-                if (Length < 0) return false;
-                if (reader?.disposedValue ?? true) return false;
-
-                try
-                {
-                    s = reader.Data.SliceU8(start, end - start);
-                    return true;
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-            public readonly ReadOnlySpan<byte> TrySliceU8(ReadOnlySpan<byte> fallback)
-            {
-                if (Length < 0) return fallback;
-                if (reader?.disposedValue ?? true) return fallback;
-
-                try
-                {
-                    return reader.Data.SliceU8(start, end - start);
-                }
-                catch
-                {
-                    return fallback;
-                }
-            }
-            // SJType fallback is hardcoded here as UTF-8 sequences.
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<byte> TrySliceU8() => TrySliceU8(fallback: type.ToStringU8());
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly ReadOnlySpan<byte> SliceU8()
-            {
-                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {type}) are not supported.");
-                if (reader?.disposedValue ?? true) throw new InvalidOperationException("Value's owner is disposed or null.");
-
-                return reader.Data.SliceU8(start, end - start);
+                if (Length < 0) throw new InvalidOperationException($"Slicing negative sized entries (type {i.type}) are not supported.");
+                return data.Slice(i.start, Length);
             }
 
             public override readonly string ToString()
             {
-                return $"[SJReader.Value] type:{type}, start:{start}, end:{end}, depth:{depth}";
+                return $"[SJReader.Value] type:{i.type}, start:{i.start}, end:{i.end}, depth:{i.depth}";
             }
         }
 
@@ -214,6 +176,7 @@ namespace BX.SJ
             Comma = 1 << 0,  // Used for checking duplicate and trailing commas
             Key = 1 << 1,    // Used for checking key type on key entries
             Colon = 1 << 2,  // Used for checking duplicate colons
+            NotType = 1 << 3,
         }
         public struct State
         {
@@ -221,7 +184,6 @@ namespace BX.SJ
             {
                 public readonly SJType type;
                 public int count;
-                public Expect expect;
                 public readonly bool Invalid => type switch
                 {
                     SJType.Object => false,
@@ -229,7 +191,7 @@ namespace BX.SJ
                     _ => true
                 };
 
-                public Stacked(SJType type, Expect expect)
+                public Stacked(SJType type)
                 {
                     this.type = type switch
                     {
@@ -237,33 +199,33 @@ namespace BX.SJ
                         SJType.Array => type,
                         _ => throw new ArgumentException("Supplied stateful type must be Object or Array only", nameof(type))
                     };
-                    this.expect = expect;
                     count = 0;
                 }
 
                 public override readonly string ToString()
                 {
-                    if (Invalid) return "invalid";
-                    return $"type={type}, valueCount={count}, expect={expect}";
+                    if (Invalid) return "invalid stacked state";
+                    else return $"type={type}, valueCount={count}";
                 }
             }
 
             [EditorBrowsable(EditorBrowsableState.Never)]
             public string _error;
-            public int depth
+            public int Depth
             {
                 readonly get => stack.Count;
                 internal set => stack.Count = value;
             }
-            public Value lastEntryKey;
-            public Value lastEntryType;
+            public int current;
+            public ValueInfo lastKey;
+            public ValueInfo lastType;
 
-            public uint totalValueCount;
-            public bool notExpectingType;
+            public uint readValueCount;
+            public Expect expect;
             public bool ended;
 
             public SJValueStack<Stacked> stack;
-            public readonly bool HasStackValues => depth > 0;
+            public readonly bool HasStackValues => Depth > 0;
 
             public readonly void CopyTo(ref State s)
             {
@@ -278,14 +240,14 @@ namespace BX.SJ
             public void Reset()
             {
                 stack.Clear(false);
-                lastEntryKey = lastEntryType = default;
+                lastKey = lastType = default;
                 ended = false;
                 _error = null;
-                totalValueCount = 0;
+                readValueCount = 0;
             }
             public override readonly string ToString()
             {
-                return $"depth={depth}, top={{{stack.PeekValue()}}}";
+                return $"depth={Depth}, top={{{stack.PeekValue()}}}";
             }
         }
 
@@ -342,7 +304,7 @@ namespace BX.SJ
         /// When an erroreneous case occurs (or <see cref="Error"/> is set to anything other 
         /// than null/<see cref="string.Empty"/>), setting the <see cref="Error"/> will throw.
         /// <br>Setting this <see langword="true"/> while the <see cref="Error"/> 
-        /// is not null will throw the currently existing error.</br>
+        /// is not null will throw the S.currently existing error.</br>
         /// </summary>
         public bool ThrowOnError
         {
@@ -358,9 +320,8 @@ namespace BX.SJ
         }
 
         // - state
-        private State _S;
+        public State S;
         private bool disposedValue;
-        public ref State S => ref _S;
         /// <summary>
         /// The error string detailing why the reader failed.
         /// </summary>
@@ -384,35 +345,11 @@ namespace BX.SJ
         }
         public bool HasError => !string.IsNullOrEmpty(Error);
 
-        private ISJDataReader _Data = null;
-        private ISJStateStackable _StData = null;
-        private ISJSliceAware _SlaData = null;
-        public bool IsSliceAware => _SlaData != null;
-        public bool IsStackable => _StData != null;
-        // - sources
-        // (btw, Writer will be infinitely easier, just get ReadOnlySpan<char> and
-        // do conversions yourself or write in memory as UTF-16 LE/BE whatever)
-        // Smarter optimizations + less peeks can be done with this reader, I'm just directly porting it to 3.x
-        public ISJDataReader Data
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private T WithError<T>(in T value, string err)
         {
-            get => _Data;
-            set
-            {
-                CheckDisposed();
-                if (ReferenceEquals(_Data, value)) return;
-
-                _Data = value ?? throw new ArgumentNullException(nameof(value));
-                _StData = _Data as ISJStateStackable;
-                _SlaData = _Data as ISJSliceAware;
-
-                Reset();
-            }
-        }
-        public int LastDataVersion { get; private set; }
-
-        public SJReader(ISJDataReader data)
-        {
-            Data = data;
+            Error = err;
+            return value;
         }
 
         /// <summary>
@@ -478,62 +415,35 @@ namespace BX.SJ
         /// * If a literal is a valid substring of other, the larger string will be attempted to be captured
         /// <br>* An exact match to any value within <paramref name="readerLiterals"/> is expected.</br>
         /// </summary>
-        private SJConstants.Literal GetLiteralType()
+        private SJConstants.Literal GetLiteralType(ReadOnlySpan<char> data)
         {
             // This assumes that all literals essentially start with a different
             // character and do not have any valid substrings within each other
-            SJConstants.Literal mc = SJConstants.Literal.None;
-            int ci = 0;
-            char c = (char)Data.Current;
-            string l = null;
-            do
+            var slice = data.Slice(S.current, Math.Min(5, data.Length - S.current));
+            for (var i = SJConstants.Literal.False; i <= SJConstants.Literal.Null; i++)
             {
-                switch ((int)mc)
-                {
-                    case 0:
-                        // Find first character
-                        for (var i = SJConstants.Literal.False; i <= SJConstants.Literal.Null; i++)
-                        {
-                            string lit = i.ToToken();
-                            if (lit[ci] == c)
-                            {
-                                mc = i;
-                                l = lit;
-                                ci++;
-                                break;
-                            }
-                        }
-                        if (mc <= 0) return mc;
-                        break;
-                    default:
-                        // Match the rest
-                        if (ci < l.Length && l[ci++] != c) return SJConstants.Literal.None; // Current character does not match
-                        if (ci >= l.Length) return mc; // Must stop before going to the next character.
-                        break;
-                }
+                if (slice.Equals(i.ToToken(), StringComparison.Ordinal)) return i;
             }
-            while (Data.TryNext(out c));
-
             return SJConstants.Literal.None;
         }
 
         /// <summary>
-        /// Read a range of comment, starting from <see cref="State.current"/> for the reader data.
+        /// Read a range of comment, starting from <see cref="State.S.current"/> for the reader data.
         /// <br>* The data source is expected to be started before reading.</br>
         /// </summary>
         /// <param name="variant">Variant of the comment type.</param>
         /// <returns>Start and ending range. If the block doesn't start with '/', 
         /// -1 is returned for start and end without setting error.</returns>
-        private (int start, int end) GetCommentRange(out SJTypeVariant variant)
+        private (int start, int end) GetCommentRange(ReadOnlySpan<char> data, out SJTypeVariant variant)
         {
             int start, end;
             variant = SJTypeVariant.None;
 
             // (/*|//)
-            if (Data.Current != '/') return (-1, -1);
-            Data.Next();
+            if (data[S.current] != '/') return (-1, -1);
+            if (++S.current >= data.Length) return WithError((-1, -1), "Unexpected EOF, expected '/ or *' to start a comment");
 
-            char ch = (char)Data.Current;
+            char ch = data[S.current];
             switch (ch)
             {
                 case '/':
@@ -543,14 +453,19 @@ namespace BX.SJ
                     variant = SJTypeVariant.MultiComment;
                     break;
                 default:
-                    Error = $"Unexpected comment token '{Tk(ch)}', expected '/ or *' to start a comment.";
-                    return (-1, -1);
+                    return WithError((-1, -1), $"Unexpected comment token '{Tk(ch)}', expected '/ or *' to start a comment.");
             }
-            ch = (char)Data.Next();
+            if (++S.current >= data.Length)
+            {
+                switch (variant)
+                {
+
+                }
+            }
 
             // \s*(.*)\s*(*/|\n)
-            int firstNonWs = start = Data.Index;
-            int lastNonWs = Data.Index;
+            int firstNonWs = start = S.current;
+            int lastNonWs = S.current;
             int endState = 0, lastNonWsState = 0;
             do
             {
@@ -575,7 +490,7 @@ namespace BX.SJ
                                 {
                                     case 1: // *
                                         lastNonWsState = lastNonWs;
-                                        lastNonWs = Data.Index;
+                                        lastNonWs = S.current;
                                         continue;
                                 }
                                 break;
@@ -600,15 +515,13 @@ namespace BX.SJ
                 {
                     if (firstNonWs == start)
                     {
-                        firstNonWs = Data.Index;
-                        _SlaData?.BeginSliceableRegion();
+                        firstNonWs = S.current;
                     }
                     lastNonWs = Data.Index;
                 }
             }
             while (Data.TryNext(out ch));
         _BreakOuter:
-            _SlaData?.EndSliceableRegion();
             start = firstNonWs;  // Start is already inclusive
             end = lastNonWs + 1; // End has to be inclusive of the last non-ws character.
             switch (variant)
@@ -627,7 +540,7 @@ namespace BX.SJ
             return (start, end);
         }
         /// <summary>
-        /// Read a range of type, starting from <see cref="State.current"/> for the reader data.
+        /// Read a range of type, starting from <see cref="State.S.current"/> for the reader data.
         /// <br>* The data source is expected to be started before reading.</br>
         /// </summary>
         /// <param name="i">Target position of the pointer.</param>
@@ -637,7 +550,7 @@ namespace BX.SJ
             int start; int end;
             variant = SJTypeVariant.None;
 
-            if (Data.Current != '(') return (-1, -1);
+            if (S.current != '(') return (-1, -1);
             Data.Next();
 
             // Skip whitespace
@@ -647,9 +560,8 @@ namespace BX.SJ
             Data.SkipWhiteSpace();
 
             // Check for string literal starting with '"'
-            if (Data.Current == '"')
+            if (S.current == '"')
             {
-                _SlaData?.BeginSliceableRegion();
                 start = Data.Index + 1;
                 bool escaped = false;
                 variant = SJTypeVariant.TypeString;
@@ -667,16 +579,14 @@ namespace BX.SJ
                 }
 
                 end = Data.Index;
-                _SlaData?.EndSliceableRegion();
                 Data.Next();
             }
             else
             {
-                _SlaData?.BeginSliceableRegion();
                 start = Data.Index;
                 variant = SJTypeVariant.TypeLiteral;
 
-                byte c = Data.Current;
+                byte c = S.current;
                 while (IsTypeLiteralContinuation((char)c) && Data.TryNext(out c)) ;
 
                 if (Data.Index == start)
@@ -685,14 +595,13 @@ namespace BX.SJ
                     return (-1, -1);
                 }
                 end = Data.Index;
-                _SlaData?.EndSliceableRegion();
             }
 
             // Skip whitespace
             Data.SkipWhiteSpace();
 
             // Must end with ')'
-            if (Data.Current != ')')
+            if (S.current != ')')
             {
                 Error = "Unclosed type literal";
                 return (-1, -1);
@@ -706,29 +615,31 @@ namespace BX.SJ
         /// <br>It also validates <paramref name="v"/> and can mutate that value as well</br>
         /// </summary>
         /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
-        private bool UpdateState(ref State.Stacked cs, ref Value v)
+        private bool UpdateState(ref Value v)
         {
-            if (cs.Invalid)
+            bool hasStacked = S.HasStackValues;
+            if (!hasStacked)
             {
-                // Supplying "invalid" state means you probably put the stub state in.
-                // Which means there was no state to update..
+                S.expect |= Expect.NotType; // Any type of entry 
                 return true;
             }
-            if (v.type == SJType.Comment)
+
+            if (v.i.type == SJType.Comment)
             {
                 return true;
             }
 
+            ref State.Stacked cs = ref S.stack.PeekValue();
             switch (cs.type)
             {
                 case SJType.Object:
-                    if ((cs.expect & Expect.Key) == Expect.Key)
+                    if ((S.expect & Expect.Key) == Expect.Key)
                     {
-                        if (v.type != SJType.String)
+                        if (v.i.type != SJType.String)
                         {
                             if (allowOtherKeyTypes)
                             {
-                                switch (v.type)
+                                switch (v.i.type)
                                 {
                                     case SJType.Array:
                                     case SJType.Object:
@@ -742,53 +653,34 @@ namespace BX.SJ
                                 return false;
                             }
                         }
-                        v.prevType = v.type;
-                        v.type = SJType.Key;
-                        S.lastEntryKey = v;
+                        v.i.prevType = v.i.type;
+                        v.i.type = SJType.Key;
+                        S.lastKey = v.i;
 
-                        cs.expect &= ~Expect.Key;
-                        cs.expect |= Expect.Colon;
+                        S.expect &= ~Expect.Key;
+                        S.expect |= Expect.Colon;
                     }
                     else
                     {
                         cs.count++;
-                        cs.expect &= ~Expect.Colon;
-                        cs.expect |= Expect.Comma | Expect.Key;
+                        S.expect &= ~Expect.Colon;
+                        S.expect |= Expect.Comma | Expect.Key;
                     }
                     break;
                 case SJType.Array:
                     cs.count++;
-                    cs.expect |= Expect.Comma;
+                    S.expect |= Expect.Comma;
                     break;
                 default:
-                    Error = $"Invalid current state type {cs.type}";
+                    Error = $"Invalid S.current state type {cs.type}";
                     return false;
             }
 
             return true;
         }
-        /// <summary>
-        /// If <b>no new state is pushed</b> to the stack on <see cref="Read"/> after reading a value,
-        /// you don't need to track / mutate last state and can use this method instead.
-        /// </summary>
-        /// <remarks>
-        /// Returns <see langword="true"/> if no state exists, meaning there isn't any state to check.
-        /// </remarks>
-        /// <returns><see langword="true"/> if the state is valid, otherwise you should yield back to top.</returns>
-        private bool UpdateLastState(ref Value v)
-        {
-            bool hasStacked = S.HasStackValues;
-            S.notExpectingType = !hasStacked; // Expect only one type if not a stacked value entry.
-            if (!hasStacked)
-            {
-                return true;
-            }
-
-            return UpdateState(ref S.stack.PeekValue(), ref v);
-        }
 
         /// <summary>
-        /// Throws the currently stored error. It does not check whether if an error is available.
+        /// Throws the S.currently stored error. It does not check whether if an error is available.
         /// </summary>
         /// <exception cref="ReaderException"></exception>
         public void ThrowError()
@@ -810,22 +702,22 @@ namespace BX.SJ
         /// </summary>
         /// <exception cref="ReaderException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public Value Read()
+        public Value Read(ReadOnlySpan<char> data)
         {
             CheckDisposed();
             CheckVersion();
-            ref var s = ref S;
-            var result = new Value(this);
-            s.ended = HasError;
+
+            var result = new Value(data);
+            S.ended = HasError;
         _Top:
             if (HasError)
             {
-                result.type = SJType.Error;
-                result.start = result.end = 0;
-                result.depth = 0;
+                result.i.type = SJType.Error;
+                result.i.start = result.i.end = 0;
+                result.i.depth = 0;
                 return result;
             }
-            if (maxDepth > 0 && s.depth > maxDepth)
+            if (maxDepth > 0 && S.Depth > maxDepth)
             {
                 Error = $"Exceeded maximum depth {maxDepth}";
                 goto _Top;
@@ -833,19 +725,19 @@ namespace BX.SJ
             if (!Data.MoveNext())
             {
                 // Reaching end of document is no longer an error, but it should return an empty "error" value.
-                if (s.totalValueCount <= 0)
+                if (S.readValueCount <= 0)
                 {
                     Error = "Empty data"; // Except when there is no values
                     goto _Top;
                 }
 
-                result.type = SJType.Error;
-                result.start = result.end = Data.Index;
-                result.depth = 0;
-                s.ended = true;
-                if (s.depth > 0)
+                result.i.type = SJType.Error;
+                result.i.start = result.i.end = Data.Index;
+                result.i.depth = 0;
+                S.ended = true;
+                if (S.Depth > 0)
                 {
-                    Error = s.stack.PeekValue().type switch
+                    Error = S.stack.PeekValue().type switch
                     {
                         SJType.Object => "Unclosed object",
                         SJType.Array => "Unclosed array",
@@ -855,7 +747,7 @@ namespace BX.SJ
                 return result;
             }
 
-            char ch = (char)Data.Current;
+            char ch = (char)S.current;
             // Skip : White Space
             if (char.IsWhiteSpace(ch))
             {
@@ -867,9 +759,9 @@ namespace BX.SJ
                 {
                     goto _Top;
                 }
-                ch = (char)Data.Current;
+                ch = (char)S.current;
             }
-            result.start = Data.Index;
+            result.i.start = Data.Index;
 
             // Validate / Parse : Comments
             if (ch == '/')
@@ -880,9 +772,9 @@ namespace BX.SJ
                     goto _Top;
                 }
 
-                result.type = SJType.Comment;
-                (result.start, result.end) = GetCommentRange(out result.variant);
-                if (HasError || result.start < 0 || result.end <= 0)
+                result.i.type = SJType.Comment;
+                (result.i.start, result.i.end) = GetCommentRange(out result.i.variant);
+                if (HasError || result.i.start < 0 || result.i.end <= 0)
                 {
                     goto _Top;
                 }
@@ -895,17 +787,17 @@ namespace BX.SJ
                     Error = "Unexpected '(', enable types through 'allowTypes'";
                     goto _Top;
                 }
-                if (s.notExpectingType)
+                if (S.notExpectingType)
                 {
                     Error = "Was not expecting a duplicate type definition";
                     goto _Top;
                 }
 
-                result.type = SJType.Type;
-                (result.start, result.end) = GetTypeRange(out result.variant);
-                s.notExpectingType = true;
-                s.lastEntryType = result;
-                if (HasError || result.start < 0 || result.end <= 0)
+                result.i.type = SJType.Type;
+                (result.i.start, result.i.end) = GetTypeRange(out result.i.variant);
+                S.notExpectingType = true;
+                S.lastType = result;
+                if (HasError || result.i.start < 0 || result.i.end <= 0)
                 {
                     goto _Top;
                 }
@@ -913,9 +805,9 @@ namespace BX.SJ
             // Validate : Object == KV Colon, Array == Comma
             else if (ch == ':' || ch == ',')
             {
-                if (s.HasStackValues)
+                if (S.HasStackValues)
                 {
-                    ref var st = ref s.stack.PeekValue();
+                    ref var st = ref S.stack.PeekValue();
                     if (ch == ':')
                     {
                         if (st.type != SJType.Object)
@@ -930,7 +822,7 @@ namespace BX.SJ
                         }
 
                         st.expect &= ~Expect.Colon;
-                        s.notExpectingType = false; // Type entry can be written after ':' for the value type.
+                        S.notExpectingType = false; // Type entry can be written after ':' for the value type.
                     }
                     else if (ch == ',')
                     {
@@ -957,7 +849,7 @@ namespace BX.SJ
 
                 goto _Top;
             }
-            else if ((s.stack.PeekValue().expect & Expect.Colon) == Expect.Colon)
+            else if ((S.stack.PeekValue().expect & Expect.Colon) == Expect.Colon)
             {
                 // Colons are strict, they are seperator for key/value
                 Error = $"Unexpected '{Tk(ch)}', expected ':'";
@@ -966,10 +858,10 @@ namespace BX.SJ
             // Parse : Array | Object End (must override comma)
             else if (ch == '}' || ch == ']')
             {
-                result.type = SJType.End;
-                // Validate last state and update "topmost current state"
-                var st = s.stack.PopValue();
-                if (s.depth < 0 || st.type != ((ch == '}') ? SJType.Object : SJType.Array))
+                result.i.type = SJType.End;
+                // Validate last state and update "topmost S.current state"
+                var st = S.stack.PopValue();
+                if (S.Depth < 0 || st.type != ((ch == '}') ? SJType.Object : SJType.Array))
                 {
                     Error = (ch == '}') ? "Stray '}'" : "Stray ']'";
                     goto _Top;
@@ -982,10 +874,10 @@ namespace BX.SJ
                         goto _Top;
                     }
                 }
-                result.end = Data.Index;
+                result.i.end = Data.Index;
             }
             // Validate: Commas
-            else if ((S.stack.PeekValue().expect & Expect.Comma) == Expect.Comma)
+            else if ((this.S.stack.PeekValue().expect & Expect.Comma) == Expect.Comma)
             {
                 // Commas are more flexible and can be found anywhere else,
                 // however they are not required for object declarations,
@@ -996,13 +888,13 @@ namespace BX.SJ
             // Parse : Array | Object Start
             else if (ch == '{' || ch == '[')
             {
-                result.type = ch == '{' ? SJType.Object : SJType.Array;
-                var prevHandle = s.stack.Peek();
-                s.stack.PushValue(new State.Stacked(result.type, ch == '{' ? Expect.Key : Expect.None));
-                prevHandle = prevHandle.Renew(ref s.stack);
+                result.i.type = ch == '{' ? SJType.Object : SJType.Array;
+                var prevHandle = S.stack.Peek();
+                S.stack.PushValue(new State.Stacked(result.i.type, ch == '{' ? Expect.Key : Expect.None));
+                prevHandle = prevHandle.Renew(ref S.stack);
 
-                result.depth = (ushort)s.depth;
-                s.notExpectingType = false; // Technically a value entry, just does not update last state.
+                result.i.depth = (ushort)S.Depth;
+                S.notExpectingType = false; // Technically a value entry, just does not update last state.
 
                 if (!UpdateState(ref prevHandle.Value, ref result))
                 {
@@ -1012,9 +904,8 @@ namespace BX.SJ
             // Parse : Number (technically, hex and binary is supported if prefixed with 0x)
             else if (char.IsDigit(ch) || ch == '-')
             {
-                _SlaData?.BeginSliceableRegion();
                 // Finite automata? What "for"! heh
-                result.type = SJType.Number;
+                result.i.type = SJType.Number;
                 do
                 {
                     ch = (char)Data.Peek();
@@ -1027,21 +918,21 @@ namespace BX.SJ
                     // Theoretically we can check number literal validity this way,
                     // but whatever that's many more state to the larpmata.
                     // The hex and scientific notation can be confused, so this is checked.
-                    switch (result.variant)
+                    switch (result.i.variant)
                     {
                         case SJTypeVariant.None:
                             switch (foundOn)
                             {
                                 case SJTypeVariant.HexNumber:
-                                    result.variant = SJTypeVariant.HexNumber;
+                                    result.i.variant = SJTypeVariant.HexNumber;
                                     break;
                                 case SJTypeVariant.ScientificNumber:
-                                    if (result.start == Data.Index) goto case SJTypeVariant.HexNumber;
-                                    result.variant = SJTypeVariant.ScientificNumber;
+                                    if (result.i.start == Data.Index) goto case SJTypeVariant.HexNumber;
+                                    result.i.variant = SJTypeVariant.ScientificNumber;
                                     break;
 
                                 default:
-                                    result.variant = foundOn;
+                                    result.i.variant = foundOn;
                                     break;
                             }
                             break;
@@ -1053,17 +944,16 @@ namespace BX.SJ
                             {
                                 case SJTypeVariant.ScientificNumber:
                                 case SJTypeVariant.HexNumber:
-                                    result.variant = SJTypeVariant.HexNumber;
+                                    result.i.variant = SJTypeVariant.HexNumber;
                                     break;
                             }
                             break;
                     }
                 }
                 while (Data.MoveNext());
-                result.end = Data.Position;
-                _SlaData?.EndSliceableRegion();
+                result.i.end = S.current;
 
-                if (!UpdateLastState(ref result))
+                if (!UpdateState(ref result))
                 {
                     goto _Top;
                 }
@@ -1071,9 +961,8 @@ namespace BX.SJ
             // Parse : String
             else if (ch == '"')
             {
-                _SlaData?.BeginSliceableRegion();
-                result.type = SJType.String;
-                result.start = Data.Index + 1; // Skip '"'
+                result.i.type = SJType.String;
+                result.i.start = Data.Index + 1; // Skip '"'
 
                 bool escape = false;
                 while (true)
@@ -1087,10 +976,9 @@ namespace BX.SJ
                     else if (ch == '\\') escape = true;
                     else if (ch == '"') break;
                 }
-                result.end = Data.Index;
-                _SlaData?.EndSliceableRegion();
+                result.i.end = Data.Index;
 
-                if (!UpdateLastState(ref result))
+                if (!UpdateState(ref result))
                 {
                     goto _Top;
                 }
@@ -1103,10 +991,10 @@ namespace BX.SJ
                 {
                     case SJConstants.Literal.True:
                     case SJConstants.Literal.False:
-                        result.type = SJType.Bool;
+                        result.i.type = SJType.Bool;
                         break;
                     case SJConstants.Literal.Null:
-                        result.type = SJType.Null;
+                        result.i.type = SJType.Null;
                         break;
 
                     default:
@@ -1116,21 +1004,21 @@ namespace BX.SJ
                 }
 
                 // Position points to anything or it ended
-                result.end = Data.Position;
+                result.i.end = S.current;
 
-                if (!UpdateLastState(ref result))
+                if (!UpdateState(ref result))
                 {
                     goto _Top;
                 }
             }
 
             // This part is only reached if a valid value is captured.
-            s.totalValueCount++;
+            S.readValueCount++;
             return result;
         }
         // [!] Do not assign any state value on any below method as it's being inferred on Read() and other state management methods.
         /// <summary>
-        /// Moves <see cref="State.depth"/> and <see cref="State.current"/> until a depth.
+        /// Moves <see cref="State.Depth"/> and <see cref="State.S.current"/> until a depth.
         /// </summary>
         /// <exception cref="ReaderException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
@@ -1139,7 +1027,7 @@ namespace BX.SJ
             CheckVersion();
             ref var s = ref S;
             var value = Value.Null();
-            while (!s.ended && s.depth != depth && value.type != SJType.Error)
+            while (!s.ended && s.Depth != depth && value.i.type != SJType.Error)
             {
                 value = Read();
             }
@@ -1154,21 +1042,21 @@ namespace BX.SJ
         public bool IterateArrayEntries(Value value, out Value result)
         {
             CheckVersion();
-            if (value.type != SJType.Array)
+            if (value.i.type != SJType.Array)
             {
                 result = Value.Error(this);
                 return false;
             }
 
-            DiscardUntil(value.depth);
+            DiscardUntil(value.i.depth);
             result = Read();
 
-            if (result.type == SJType.Comment)
+            if (result.i.type == SJType.Comment)
             {
                 return true;
             }
 
-            switch (result.type)
+            switch (result.i.type)
             {
                 case SJType.Error:
                 case SJType.End:
@@ -1193,7 +1081,7 @@ namespace BX.SJ
         {
             while (IterateArrayEntries(value, out var v))
             {
-                switch (v.type)
+                switch (v.i.type)
                 {
                     case SJType.Comment:
                     case SJType.Type:
@@ -1216,16 +1104,16 @@ namespace BX.SJ
         public bool IterateObjectEntries(Value value, out Value result)
         {
             CheckVersion();
-            if (value.type != SJType.Object)
+            if (value.i.type != SJType.Object)
             {
                 result = Value.Error(this);
                 return false;
             }
 
-            DiscardUntil(value.depth);
+            DiscardUntil(value.i.depth);
             result = Read();
 
-            switch (result.type)
+            switch (result.i.type)
             {
                 case SJType.Error:
                 case SJType.End:
@@ -1258,7 +1146,7 @@ namespace BX.SJ
             {
                 if (HasError) goto _Fail;
 
-                switch (result.type)
+                switch (result.i.type)
                 {
                     case SJType.Error:
                     case SJType.End:
@@ -1275,7 +1163,7 @@ namespace BX.SJ
                         continue;
 
                     default:
-                        if (!gotKey) key = S.lastEntryKey;
+                        if (!gotKey) key = S.lastKey;
                         value = result;
                         return true;
                 }
@@ -1309,7 +1197,7 @@ namespace BX.SJ
             CheckDisposed();
             CheckVersion();
 
-            switch (v.type)
+            switch (v.i.type)
             {
                 case SJType.Array:
                 case SJType.Object:
@@ -1325,11 +1213,11 @@ namespace BX.SJ
             bool result = true;
             try
             {
-                DiscardUntil(v.depth);
+                DiscardUntil(v.i.depth);
                 Value innerValue = Read();
-                for (; innerValue.type != SJType.End; DiscardUntil(v.depth), innerValue = Read())
+                for (; innerValue.i.type != SJType.End; DiscardUntil(v.i.depth), innerValue = Read())
                 {
-                    switch (innerValue.type)
+                    switch (innerValue.i.type)
                     {
                         case SJType.Error:
                             return false;
@@ -1469,15 +1357,10 @@ namespace BX.SJ
                 if (disposing)
                 {
                     // dispose managed state (managed objects)
-                    Data.Dispose();
                 }
 
-                _Data = null;
-                _StData = null;
-                _SlaData = null;
                 S = default;
                 _stateStack = default;
-
                 disposedValue = true;
             }
         }

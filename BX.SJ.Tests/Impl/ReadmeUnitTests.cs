@@ -16,7 +16,7 @@ public sealed class ReadmeUnitTests
             Vector3 result = Vector3.Zero;
 
             // If the data schema is "known", you can just read like this:
-            if (root.type != SJType.Object) throw new ArgumentException("Vector3 node type must be object", nameof(root));
+            if (root.i.type != SJType.Object) throw new ArgumentException("Vector3 node type must be object", nameof(root));
             while (reader.IterateObject(root, out SJReader.Value key, out SJReader.Value value))
             {
                 switch (char.ToLower(key.Slice()[0]))
@@ -60,7 +60,7 @@ public sealed class ReadmeUnitTests
             Vector3 result = Vector3.Zero;
 
             // If the data schema is "known", you can just read like this:
-            if (root.type != SJType.Object) throw new ArgumentException("Vector3 node type must be object", nameof(root));
+            if (root.i.type != SJType.Object) throw new ArgumentException("Vector3 node type must be object", nameof(root));
             while (reader.IterateObject(root, out SJReader.Value key, out SJReader.Value value))
             {
                 switch (char.ToLower(key.Slice()[0]))
@@ -79,7 +79,7 @@ public sealed class ReadmeUnitTests
         var initialPosition = new Vector3(1f, 2f, 3f);
         var position = initialPosition;
 
-        using var writer = new SJWriter(new SJStringWriter())
+        using var writer = new SJWriter()
         {
             // Enable pretty printing
             indentSize = 4,
@@ -127,10 +127,10 @@ public sealed class ReadmeUnitTests
         const string Data = @"{ ""a"": ""b"" }";
         static void FailProcess(SJReader reader, SJReader.Value v)
         {
-            switch (v.type)
+            switch (v.i.type)
             {
                 default:
-                    throw new ArgumentException($"Invalid type {v.type}", nameof(v));
+                    throw new ArgumentException($"Invalid type {v.i.type}", nameof(v));
 
                 // ... cases for other SJTypes available in 1.x
                 // ❌ : Will fail on an event of SJType.Key!
@@ -141,10 +141,10 @@ public sealed class ReadmeUnitTests
         }
         static void PassProcess(SJReader reader, SJReader.Value v)
         {
-            switch (v.type)
+            switch (v.i.type)
             {
                 default:
-                    throw new ArgumentException($"Invalid type {v.type}", nameof(v));
+                    throw new ArgumentException($"Invalid type {v.i.type}", nameof(v));
 
                 // ... cases for other SJTypes available in 1.x
                 // ✅ : Will not fail on an event of SJType.Key
@@ -164,7 +164,7 @@ public sealed class ReadmeUnitTests
                 var reader = new SJReader(new SJStringReader(Data));
                 for (var v = reader.Read(); !reader.S.ended; v = reader.Read())
                 {
-                    switch (v.type)
+                    switch (v.i.type)
                     {
                         case SJType.Object:
                             {
@@ -206,10 +206,10 @@ public sealed class ReadmeUnitTests
     {
         static void Process(SJReader reader, SJReader.Value v)
         {
-            switch (v.type)
+            switch (v.i.type)
             {
                 default:
-                    throw new ArgumentException($"Invalid type {v.type}", nameof(v));
+                    throw new ArgumentException($"Invalid type {v.i.type}", nameof(v));
 
                 // ... cases for other SJTypes available in 1.x
                 // ❌ : Will fail on a case of SJType.Comment (and Key)!
@@ -244,7 +244,7 @@ public sealed class ReadmeUnitTests
         for (root = reader.Read(); !reader.S.ended; root = reader.Read())
         {
             // ✅ : Discard comments when interacting with code that disallow or not expect it
-            if (root.type == SJType.Comment) continue;
+            if (root.i.type == SJType.Comment) continue;
             Process(reader, root);
         }
     }

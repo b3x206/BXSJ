@@ -168,13 +168,13 @@ If this warning isn't desired, override this method to return false and remove t
     {
         using SJReader reader = new(FromStringWithEncoding(JsonDataFireSpam, enc));
         var root = reader.Read();
-        Assert.AreEqual(SJType.Object, root.type, $"Expected root to be object, it is instead this : {root}");
+        Assert.AreEqual(SJType.Object, root.i.type, $"Expected root to be object, it is instead this : {root}");
         while (reader.IterateObject(root, out SJReader.Value k, out SJReader.Value v))
         {
             Assert.AreEqual(FireSpamKey, new string(k.Slice()), "Keys must be equal");
-            Assert.AreEqual(SJType.Key, k.type);
+            Assert.AreEqual(SJType.Key, k.i.type);
             Assert.AreEqual(FireSpamValue, new string(v.Slice()), "Values must be equal");
-            Assert.AreEqual(SJType.String, v.type);
+            Assert.AreEqual(SJType.String, v.i.type);
         }
     }
     [TestMethod]
@@ -185,7 +185,7 @@ If this warning isn't desired, override this method to return false and remove t
         // Buffered readers / writers (such as stream based ones) can struggle with this with invalidly truncated read from the resources with other encodings.
         using SJReader reader = new(FromStringWithEncoding($"\"{DataEmojiSpam}\"", enc));
         var root = reader.Read();
-        Assert.AreEqual(SJType.String, root.type);
+        Assert.AreEqual(SJType.String, root.i.type);
         Assert.IsTrue(root.Slice().SequenceEqual(DataEmojiSpam), "Sliced value must equal the string inside the literal.");
     }
 
@@ -287,7 +287,7 @@ If this warning isn't desired, override this method to return false and remove t
         // Validator fetches any value entry that is contained on the target type through reflection.
         static bool AssertValidation(SJReader reader, SJReader.Value v)
         {
-            Assert.AreEqual(SJType.Comment, v.type);
+            Assert.AreEqual(SJType.Comment, v.i.type);
 
             const string start = "assert=";
             const string sep = "=";
@@ -396,7 +396,7 @@ Fields + Properties available : {fieldsAndProperties}");
         };
         ReadWithHandler(r, (self, v) =>
         {
-            if (v.type == SJType.Comment)
+            if (v.i.type == SJType.Comment)
             {
                 if (!AssertValidation(self, v)) Console.WriteLine($"Comment with content <{v.Slice()}> does not have an assertion.");
             }
@@ -439,7 +439,7 @@ Fields + Properties available : {fieldsAndProperties}");
         ReadWithHandler(reader, (r, v) =>
         {
             lastValue = v;
-            return r.S.totalValueCount <= 4;
+            return r.S.readValueCount <= 4;
         });
         reader.Dispose();
 
@@ -470,8 +470,8 @@ Fields + Properties available : {fieldsAndProperties}");
         {
             Assert.That.IsNullOrEmpty(r.Error, "Error state must reset on Reset");
             Assert.AreEqual(0, r.Data.Position, "Reader position must be zero after reset");
-            Assert.AreEqual(0, r.S.depth, "Reader depth must be zero after reset");
-            Assert.AreEqual(0U, r.S.totalValueCount, "Total value count must be zero after reset");
+            Assert.AreEqual(0, r.S.Depth, "Reader depth must be zero after reset");
+            Assert.AreEqual(0U, r.S.readValueCount, "Total value count must be zero after reset");
             Assert.IsFalse(r.S.notExpectingType, "Reader expectation must be none for root");
             Assert.IsFalse(r.S.ended, "Reader finish state must be false");
             Assert.IsFalse(r.S.HasStackValues, "Reader must not have any stack values after reset");
@@ -503,7 +503,7 @@ Fields + Properties available : {fieldsAndProperties}");
 
         // Pop after second key entry and expect second key again.
         var v = r.Read();
-        Assert.AreEqual(SJType.Object, v.type);
+        Assert.AreEqual(SJType.Object, v.i.type);
 
         for (int i = 0; i < PopOn && r.IterateObject(v, out var ok, out var ov); i++)
         {
@@ -514,7 +514,7 @@ Fields + Properties available : {fieldsAndProperties}");
                 Assert.AreEqual(1, r.StateCount, "Expected one state to exist");
                 // For the next iteration, we expect the next key.
                 // (Could add PeekNextEntry [until certain type])
-                r.DiscardUntil(v.depth);                    // Discards until End with same depth of v.
+                r.DiscardUntil(v.i.depth);                    // Discards until End with same depth of v.
                 expectedKey = new string(r.Read().Slice()); // IterateObject will get the last read key for the next iteration.
             }
             Console.WriteLine($"<{ok.TrySlice()}> = <{ov.TrySlice()}>");
@@ -547,10 +547,10 @@ Fields + Properties available : {fieldsAndProperties}");
 
         // Pop after second key entry and expect second key again.
         var root = r.Read();
-        switch (root.type)
+        switch (root.i.type)
         {
             default:
-                Assert.Fail($"Did not expect type {root.type}");
+                Assert.Fail($"Did not expect type {root.i.type}");
                 return;
 
             // We realistically can't reach "End" now
@@ -566,7 +566,7 @@ Fields + Properties available : {fieldsAndProperties}");
                     // Last object '{}' is ended immediately when IterateObject is called and
                     // the depth decrements then increments by one, so catch that by comparing the depth
                     // ... I told you, claude would have done comparatively less testing slop.
-                    if (r.S.depth >= count) break;
+                    if (r.S.Depth >= count) break;
                 }
                 break;
         }
@@ -576,7 +576,7 @@ Fields + Properties available : {fieldsAndProperties}");
             // Off by one, this is because we start pushing state while inside the object.
             // Correct behaviour is that it should decrement, some object related semantics that has required me to make this test slop.
             int sc = r.StateCount;
-            Assert.AreEqual(Math.Min(count, sc + 1), r.S.depth, "Depth does not match while popping.");
+            Assert.AreEqual(Math.Min(count, sc + 1), r.S.Depth, "Depth does not match while popping.");
             Assert.AreEqual(sc - 1, r.PopState(), "Index does not match to the popped value id.");
         }
     }
@@ -632,29 +632,29 @@ Fields + Properties available : {fieldsAndProperties}");
         SJReader.Value d = default;
         foreach (SJType t in vs.Where(v => v switch { SJType.Array => false, _ => true }))
         {
-            d.type = t; // Do a little trickery
+            d.i.type = t; // Do a little trickery
             Assert.IsFalse(r.IterateArray(d, out var err1));
-            Assert.AreEqual(SJType.Error, err1.type);
+            Assert.AreEqual(SJType.Error, err1.i.type);
 
             Assert.IsFalse(r.IterateArrayEntries(d, out var err2));
-            Assert.AreEqual(SJType.Error, err2.type);
+            Assert.AreEqual(SJType.Error, err2.i.type);
         }
 
         foreach (SJType t in vs.Where(v => v switch { SJType.Object => false, _ => true }))
         {
-            d.type = t;
+            d.i.type = t;
             Assert.IsFalse(r.IterateObject(d, out var err1, out var err2));
-            Assert.AreEqual(SJType.Error, err1.type);
-            Assert.AreEqual(SJType.Error, err2.type);
+            Assert.AreEqual(SJType.Error, err1.i.type);
+            Assert.AreEqual(SJType.Error, err2.i.type);
 
             Assert.IsFalse(r.IterateObjectEntries(d, out var err3));
-            Assert.AreEqual(SJType.Error, err3.type);
+            Assert.AreEqual(SJType.Error, err3.i.type);
         }
 
         // both array and object are valid for this one
         foreach (SJType t in vs.Where(v => v switch { SJType.Array or SJType.Object => false, _ => true }))
         {
-            d.type = t;
+            d.i.type = t;
             Assert.IsFalse(r.PeekEntryCount(d, out _, out _));
         }
     }
@@ -685,7 +685,7 @@ Fields + Properties available : {fieldsAndProperties}");
         bool validatedMarker = false;
         void Validate(SJReader.Value v)
         {
-            switch (v.type)
+            switch (v.i.type)
             {
                 case SJType.Comment:
                     break;
@@ -714,11 +714,11 @@ Fields + Properties available : {fieldsAndProperties}");
             // Peek all elements if no marker.
             bool nextMarker = string.IsNullOrEmpty(m);
 
-            switch (v.type)
+            switch (v.i.type)
             {
                 default:
                 case SJType.Error:
-                    Assert.Fail($"Error or invalid type = '{v.type}'");
+                    Assert.Fail($"Error or invalid type = '{v.i.type}'");
                     break;
                 case SJType.End:
                     break;
@@ -773,7 +773,7 @@ Fields + Properties available : {fieldsAndProperties}");
 
         for (var v = r.Read(); !r.S.ended; v = r.Read())
         {
-            if (v.type == SJType.Comment) continue; // Comments outside of the root value is ignored
+            if (v.i.type == SJType.Comment) continue; // Comments outside of the root value is ignored
 
             ReadWithMarker(r, v, marker);
         }
@@ -795,7 +795,7 @@ Fields + Properties available : {fieldsAndProperties}");
                 continue;
             }
 
-            switch (v.type)
+            switch (v.i.type)
             {
                 default:
                     Console.WriteLine($"{k.Slice()} : {v.Slice()}");

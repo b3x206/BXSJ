@@ -36,7 +36,7 @@ namespace BX.SJ.Tests.Examples
                 var reader1 = new SJReader(new SJStringReader(data));
 
                 SJReader.Value value = reader1.Read();
-                Console.WriteLine($"type : {value.type}, data : {new string(value.Slice())}");
+                Console.WriteLine($"type : {value.i.type}, data : {new string(value.Slice())}");
             }
 
             // Arrays and strings can be iterated as shown
@@ -47,9 +47,9 @@ namespace BX.SJ.Tests.Examples
             // It is ALWAYS SUGGESTED to use a for loop and read like this to skip other values:
             for (SJReader.Value root1 = reader.Read(); !reader.S.ended; root1 = reader.Read())
             {
-                if (root1.type == SJType.Array) while (reader.IterateArray(root1, out SJReader.Value value))
+                if (root1.i.type == SJType.Array) while (reader.IterateArray(root1, out SJReader.Value value))
                 {
-                    Console.WriteLine($"type : {value.type}, data : {new string(value.Slice())}");
+                    Console.WriteLine($"type : {value.i.type}, data : {new string(value.Slice())}");
                 }
             }
 
@@ -67,16 +67,16 @@ namespace BX.SJ.Tests.Examples
             {
                 // BXSJ object keys are always promoted to a seperate "Key" type.
                 // You can read the underlying inferred type by using "prevType", it is generally String.
-                Console.WriteLine($"key   | type : {key.type}, real type : {key.prevType}, data : {new string(key.Slice())}");
+                Console.WriteLine($"key   | type : {key.i.type}, real type : {key.i.prevType}, data : {new string(key.Slice())}");
                 // Values stay the same regardless of their types.
-                Console.WriteLine($"value | type : {value.type}, data : {new string(value.Slice())}");
+                Console.WriteLine($"value | type : {value.i.type}, data : {new string(value.Slice())}");
             }
 
             // Extensions related:
             /// These iterators ignore the non-standard non-values (if support for those are enabled) like comments.
             /// As an alternative, you can use <see cref="SJReader.IterateObjectEntries(SJReader.Value, out SJReader.Value)"/>
             /// or <see cref="SJReader.IterateArrayEntries(SJReader.Value, out SJReader.Value)"/>. They behave identically,
-            /// but the object one does not return a captured key (it's the caller's responsibility, or use <see cref="SJReader.State.lastEntryKey"/>).
+            /// but the object one does not return a captured key (it's the caller's responsibility, or use <see cref="SJReader.State.lastKey"/>).
 
             /// To recurse these, you can pass the resulting value into a
             /// "reader function" if it's <see cref="SJType.Object"/> or <see cref="SJType.Array"/>.

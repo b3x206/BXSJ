@@ -27,7 +27,7 @@ namespace BX.SJ.Tests.Examples
             private SJReader.Value _Value;
             public SJReader.Value Value => _Value;
             private readonly Lazy<List<SJReader.Value>> _Values = new Lazy<List<SJReader.Value>>();
-            public SJReader.Value NonMetaValue => this.FirstOrDefault(v => v.type switch
+            public SJReader.Value NonMetaValue => this.FirstOrDefault(v => v.i.type switch
             {
                 SJType.Comment => false,
                 SJType.Type => false,
@@ -86,7 +86,7 @@ namespace BX.SJ.Tests.Examples
             };
             for (SJReader.Value root = reader.Read(); !reader.S.ended; root = reader.Read())
             {
-                if (root.type == SJType.Comment)
+                if (root.i.type == SJType.Comment)
                 {
                     dict[Root].Add(root);
                     continue;
@@ -107,7 +107,7 @@ namespace BX.SJ.Tests.Examples
                 dict.Add(path, l);
             }
 
-            switch (value.type)
+            switch (value.i.type)
             {
                 case SJType.Error:
                     Debug.Fail($"SJ reader error occured : {reader.Error}");
@@ -133,7 +133,7 @@ namespace BX.SJ.Tests.Examples
                         var vol = new ValueOrList(); // For the first entries until a key is found.
                         while (reader.IterateObjectEntries(value, out var kvo))
                         {
-                            switch (kvo.type)
+                            switch (kvo.i.type)
                             {
                                 case SJType.Key:
                                     // Key type is irrelevant for this instance as it's just used for indexing.
@@ -168,7 +168,7 @@ namespace BX.SJ.Tests.Examples
                             ReadIntoDictionary(reader, vo, keyStr, dict);
                             // Non values shouldn't increment index and should be related to the upcoming value.
                             // If nothing exists within the array, the inner metadata should be contained in a dummy index (0)
-                            switch (vo.type)
+                            switch (vo.i.type)
                             {
                                 case SJType.Comment:
                                 case SJType.Type:

@@ -9,7 +9,7 @@ namespace BX.SJ.Tests.Examples
     {
         static void ReadInner(StringBuilder sb, SJReader reader, SJReader.Value root)
         {
-            switch (root.type)
+            switch (root.i.type)
             {
                 default:
                 case SJType.Error:

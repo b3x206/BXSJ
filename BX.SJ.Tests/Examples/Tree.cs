@@ -58,9 +58,9 @@ namespace BX.SJ.Tests.Examples
         }
         private static void WriteFromInternal(SJTree tree, SJReader reader, SJReader.Value root)
         {
-            tree.type = root.type;
+            tree.type = root.i.type;
 
-            switch (root.type)
+            switch (root.i.type)
             {
                 default:
                 case SJType.Error:
